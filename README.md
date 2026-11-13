@@ -35,7 +35,7 @@ Measured so far (the tables are under [Results](#results)):
 
 - **Cheaper sessions.** In real headless Claude Code sessions a question about who calls a method costs 0.30 of the same session without codefast, four such questions in one session 0.17 and a rename across the repository 0.29, with the results as good (checked against the Go type checker and compiler). With Sonnet 5.5: 0.32, 0.25 and 0.46.
 - **Right in one call.** 0.96 out of 1 on 72 verified questions about the Linux kernel, at a median of 155 tokens per answer. Best-case ripgrep: 0.89, two calls, 384 tokens.
-- **Fast and exact.** The whole Linux kernel indexes in 7.6 s. The call graph agrees with
+- **Fast and exact.** The whole Linux kernel indexes in 8 s. The call graph agrees with
   compilers at a precision of 0.982 to 1.000 on four repositories.
 - **No gain where the agent already has the short path.** A bug fix with the failing tests given costs the same with and without it (0.99), and a question about the Linux kernel, which the model largely knows, nearly the same (0.94).
 
@@ -231,28 +231,29 @@ index of the source can see (`bench/results/rename-sample.jsonl`).
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/index-time-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/index-time-light.svg">
-    <img alt="Bar chart of the seconds each tool takes to index the Linux kernel. codefast 7.6, ripwire 34, GNU Global 43, universal-ctags 48, cscope 119, codebase-memory-mcp 725." src="docs/assets/index-time-light.svg" width="880">
+    <img alt="Bar chart of the seconds each tool takes to index the Linux kernel. codefast 8.0, ripwire 34, GNU Global 43, universal-ctags 48, cscope 119, codebase-memory-mcp 725." src="docs/assets/index-time-light.svg" width="880">
   </picture>
 </p>
 
 The Linux kernel (97,242 files, 44 million lines, 6.3 million symbols, 23 million references)
-indexes in 7.6 s into 0.6 GB. The next fastest tool measured here takes 34 s.
+indexes in 8.0 s into 0.6 GB. The next fastest tool measured here takes 34 s.
 
 <details>
 <summary>The table, and other large repositories</summary>
 
 | Tool | Index time | Peak memory | Index on disk | Published by the project |
 |---|---:|---:|---:|---|
-| **codefast** | **7.6 s** | 3.7 GB | **0.6 GB** | |
+| **codefast** | **8.0 s** | 3.7 GB | **0.6 GB** | |
 | ripwire 0.6.10 | 34 s | 11.5 GB | 3.4 GB | |
 | GNU Global 6.7 | 43 s | 1.4 GB | 1.7 GB | |
 | universal-ctags 6.2.1 | 48 s | 2.4 GB | 1.8 GB | |
 | cscope 15.9 | 119 s | 3.9 GB | 2.7 GB | |
 | codebase-memory-mcp 0.12.1 | 725 s | 11.2 GB | 15.8 GB | 3 min, 72 s in fast mode |
 
-All tools ran in the same hour, each with as many threads as it would take. The machine was also
-doing other work (load average 8 to 20 when each run started), so read the times as a ranking.
-The codefast row is the median of three runs of version 0.1.1. The others are one run each.
+Each tool ran with as many threads as it would take. The other tools ran in one hour while the
+machine was also doing other work (load average 8 to 20 when each run started), one run each.
+The codefast row is the median of three runs of version 0.2.1 a day later, at a load average of
+2 to 6. Read the times as a ranking.
 
 Other large repositories on the same machine:
 

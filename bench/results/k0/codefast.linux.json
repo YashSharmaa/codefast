@@ -1,35 +1,35 @@
 {
   "tool": "codefast",
-  "version": "codefast 0.1.0",
+  "version": "codefast 0.2.1",
   "repo": "bench/repos/linux",
   "repo_commit": "9d66f26fefacebfeed15de31c1123451a17ff119",
-  "command": "codefast --root bench/repos/linux index -v",
+  "command": "codefast --root bench/repos/linux index",
   "threads_requested": "all (18)",
   "runs": [
     {
-      "wall_seconds": 7.64,
-      "peak_rss_bytes": 3738386432
+      "wall_seconds": 7.71,
+      "peak_rss_bytes": 3712352256
     },
     {
-      "wall_seconds": 7.65,
-      "peak_rss_bytes": 3725230080
+      "wall_seconds": 8.05,
+      "peak_rss_bytes": 3773087744
     },
     {
-      "wall_seconds": 8.11,
-      "peak_rss_bytes": 3739713536
+      "wall_seconds": 8.67,
+      "peak_rss_bytes": 3726295040
     }
   ],
-  "wall_seconds": 7.65,
-  "peak_rss_bytes": 3738386432,
+  "wall_seconds": 8.05,
+  "peak_rss_bytes": 3726295040,
   "peak_rss_source": "time_l",
-  "index_bytes": 608801074,
+  "index_bytes": 608757941,
   "files": 97242,
-  "parsed_files": 66023,
+  "parsed_files": 66024,
   "lines": 44236503,
-  "symbols": 6333581,
-  "references": 23078465,
+  "symbols": 6333383,
+  "references": 23065503,
   "exit_status": 0,
   "host": "macOS-27.2-arm64-arm-64bit",
   "timestamp": "2026-11-13T04:52:00+0530",
-  "note": "median of three runs, load average 7 to 11 from other work on the machine"
+  "note": "Measured on 2026-11-13 at a load average of 2 to 6. Version 0.1.0 measured 7.65 s the day before."
 }
