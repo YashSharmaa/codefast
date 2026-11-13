@@ -1,0 +1,23 @@
+lang=kotlin ok=true lines=34 errors=1
+--- defs (11)
+  0 ns      com.acme.broken              L1-1 parent=- type=- arity=0..0 flags=0x00 | package com.acme.broken
+  1 fn      name with spaces             L3-3 parent=- type=- arity=0..0 flags=0x04 | fun `name with spaces`()
+  2 var     lambdaHolder                 L5-5 parent=- type=- arity=0..0 flags=0x24 | val lambdaHolder: () -> Unit
+  3 class   Generic                      L7-10 parent=- type=- arity=0..0 flags=0x04 | class Generic<in T, out R> where T : Comparable<T>
+  4 method  apply                        L8-8 parent=Generic type=- arity=1..1 flags=0x04 | fun apply(t: T): R?
+  5 method  bound                        L9-9 parent=Generic type=- arity=1..1 flags=0x04 | fun bound(t: T)
+  6 fn      selfExt                      L12-12 parent=- type=- arity=0..0 flags=0x04 | fun <T> T.selfExt(): T
+  7 method  orBlank                      L14-14 parent=~String type=String arity=0..0 flags=0x04 | fun String?.orBlank(): String
+  8 fn      deep                         L16-16 parent=- type=- arity=1..1 flags=0x04 | fun deep(a: Int)
+  9 fn      calls                        L18-26 parent=- type=- arity=0..0 flags=0x04 | fun calls()
+ 10 fn      ok                           L29-29 parent=- type=- arity=0..0 flags=0x00 | fun ok()
+--- refs (8)
+L3    mcall   ok                           in name with spaces qual=Half nargs=0
+L3    new     Half                         in name with spaces nargs=0
+L9    mcall   compareTo                    in bound qual=Comparable nargs=1
+L20   call    lambdaHolder                 in calls nargs=0
+L22   mcall   orBlank                      in calls qual=String nargs=0
+L23   call    name with spaces             in calls nargs=0
+L24   new     Generic                      in calls nargs=0
+L25   mcall   apply                        in calls qual=Generic nargs=1
+--- imports (0)

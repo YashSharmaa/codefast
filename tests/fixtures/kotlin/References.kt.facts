@@ -1,0 +1,135 @@
+lang=kotlin ok=true lines=81 errors=0
+--- defs (22)
+  0 ns      com.acme.shop                L1-1 parent=- type=- arity=0..0 flags=0x00 | package com.acme.shop
+  1 class   Service                      L6-60 parent=- type=- arity=2..2 flags=0x04 | class Service(private val repo: Repo, val chan: Chan) : Runnable, Callback
+  2 field   repo                         L6-6 parent=Service type=Repo arity=0..0 flags=0x02 | private val repo: Repo
+  3 field   chan                         L6-6 parent=Service type=com.acme.io|Channel arity=0..0 flags=0x04 | val chan: Chan
+  4 field   audit                        L7-7 parent=Service type=AuditLog arity=0..0 flags=0x02 | private val audit
+  5 field   onDone                       L8-8 parent=Service type=- arity=0..0 flags=0x24 | var onDone: (Order) -> Unit
+  6 method  run                          L10-10 parent=Service type=- arity=0..0 flags=0x04 | override fun run()
+  7 method  call                         L12-47 parent=Service type=- arity=1..1 flags=0x04 | override fun call(order: Order)
+  8 method  handle                       L49-55 parent=Service type=- arity=1..1 flags=0x04 | fun handle(o: Order)
+  9 method  process                      L57-57 parent=Service type=Int arity=2..2 flags=0x02 | private fun process(o: Order, f: (Order) -> Int): Int
+ 10 method  pairWith                     L59-59 parent=~Order type=- arity=1..1 flags=0x04 | infix fun Order.pairWith(other: Order)
+ 11 fn      log                          L62-66 parent=- type=- arity=1..1 flags=0x04 | fun log(o: Order)
+ 12 class   OrderMaker                   L68-71 parent=- type=- arity=0..0 flags=0x04 | class OrderMaker : Maker<Order>
+ 13 field   label                        L69-69 parent=OrderMaker type=String arity=0..0 flags=0x04 | override val label
+ 14 method  make                         L70-70 parent=OrderMaker type=Order arity=0..0 flags=0x04 | override fun make(): Order
+ 15 class   AuditLog                     L73-75 parent=- type=- arity=0..0 flags=0x04 | class AuditLog
+ 16 method  record                       L74-74 parent=AuditLog type=- arity=1..1 flags=0x04 | fun record(o: Order)
+ 17 class   Repository                   L77-81 parent=- type=- arity=1..1 flags=0x04 | class Repository<T : Order>(private val items: MutableList<T>)
+ 18 field   items                        L77-77 parent=Repository type=MutableList arity=0..0 flags=0x02 | private val items: MutableList<T>
+ 19 method  firstTotal                   L78-78 parent=Repository type=Int arity=0..0 flags=0x04 | fun firstTotal(): Int
+ 20 method  sortedBy                     L79-79 parent=Repository type=List arity=1..1 flags=0x04 | fun <R : Comparable<R>> sortedBy(key: (T) -> R): List<T>
+ 21 method  touch                        L80-80 parent=Repository type=- arity=1..1 flags=0x04 | fun touch(t: T)
+--- refs (107)
+L3    import  Repo                         in <file> qual=com.acme.base
+L4    import  Channel                      in <file> qual=com.acme.io
+L6    type    Channel                      in chan qual=com.acme.io
+L6    type    Repo                         in repo
+L6    impl    Callback                     in Service
+L6    impl    Runnable                     in Service
+L7    new     AuditLog                     in audit nargs=0
+L8    type    Order                        in onDone
+L8    read    log                          in onDone
+L8    bind    log                          in onDone qual=Service.onDone
+L12   type    Order                        in call
+L13   mcall   find                         in call qual=Service::repo nargs=1
+L13   mread   id                           in call qual=Order
+L13   mread   repo                         in call qual=Service
+L14   mcall   save                         in call qual=Service::repo::find() nargs=0
+L15   mcall   find                         in call qual=Service::repo nargs=1
+L15   mcall   save                         in call qual=Service::repo::find() nargs=0
+L15   mread   repo                         in call qual=Service
+L16   mcall   flush                        in call qual=Service::repo nargs=0
+L16   mread   repo                         in call qual=Service
+L17   mcall   record                       in call qual=Service::audit nargs=1
+L17   mread   audit                        in call qual=Service
+L18   mcall   describe                     in call qual=Order nargs=0
+L19   mcall   toString                     in call qual=^Service nargs=0
+L20   call    create                       in call qual=Order nargs=1
+L20   type    Order                        in call
+L21   call    make                         in call qual=Customer nargs=0
+L21   type    Customer                     in call
+L22   call    make                         in call qual=Customer::Factory nargs=0
+L22   type    Customer                     in call
+L22   type    Factory                      in call qual=Customer
+L23   call    register                     in call qual=Registry nargs=1
+L23   type    Registry                     in call
+L23   read    log                          in call
+L23   arg     log                          in call qual=register
+L24   call    register                     in call qual=Registry nargs=1
+L24   type    Registry                     in call
+L24   mread   handle                       in call qual=Service
+L24   arg     handle                       in call qual=register
+L25   call    register                     in call qual=Registry nargs=1
+L25   type    Registry                     in call
+L25   mread   total                        in call
+L26   mcall   send                         in call qual=Service::chan nargs=1
+L26   mread   chan                         in call qual=Service
+L26   mread   name                         in call qual=Order
+L27   new     Order                        in call nargs=2
+L28   mwrite  name                         in call qual=Order
+L29   mread   label                        in call qual=Order
+L30   new     Line                         in call qual=Order nargs=1
+L31   mcall   build                        in call qual=Order::Builder nargs=0
+L31   type    Order                        in call
+L31   new     Builder                      in call qual=Order nargs=0
+L32   mcall   compareTo                    in call qual=Order::Builder::build() nargs=1
+L33   type    AuditLog                     in call
+L33   mread   repo                         in call qual=Service
+L34   mcall   record                       in call qual=AuditLog nargs=1
+L35   type    AuditLog                     in call
+L35   mread   repo                         in call qual=Service
+L36   call    process                      in call qual=Service nargs=2
+L36   mread   total                        in call
+L37   call    handle                       in call qual=Service nargs=1
+L38   call    topLevel                     in call qual=Service nargs=2
+L39   call    helper                       in call qual=Service nargs=0
+L39   mcall   describe                     in call qual=Service::helper() nargs=0
+L40   mcall   pairWith                     in call qual=Order nargs=1
+L42   read    log                          in call
+L42   mwrite  onDone                       in call qual=Service
+L42   bind    log                          in call qual=Service.onDone
+L43   mcall   onDone                       in call qual=Service nargs=1
+L44   type    Maker                        in call
+L44   type    Order                        in call
+L44   new     OrderMaker                   in call nargs=0
+L45   mcall   make                         in call qual=Maker nargs=0
+L45   mread   total                        in call qual=Maker::make()
+L46   call    log                          in call nargs=1
+L49   type    Order                        in handle
+L50   call    describe                     in handle qual=Order nargs=0
+L51   mcall   compareTo                    in handle qual=Order nargs=1
+L52   mread   name                         in handle qual=Order
+L53   mread   total                        in handle qual=Order
+L54   mcall   describe                     in handle qual=Order nargs=0
+L54   mwrite  label                        in handle qual=Order
+L54   new     Order                        in handle nargs=2
+L57   type    Order                        in process
+L57   type    Order                        in process
+L59   type    Order                        in pairWith
+L59   type    Order                        in pairWith
+L59   mread   id                           in pairWith qual=Order
+L59   mread   id                           in pairWith qual=Order
+L62   type    Order                        in log
+L63   mread   name                         in log qual=Order
+L64   mcall   describe                     in log qual=Order nargs=0
+L65   mcall   register                     in log qual=$registry nargs=1
+L65   read    registry                     in log
+L68   type    Order                        in OrderMaker
+L68   impl    Maker                        in OrderMaker
+L70   call    create                       in make qual=Order nargs=1
+L70   type    Order                        in make
+L70   type    Order                        in make
+L74   type    Order                        in record
+L77   type    Order                        in Repository
+L78   mcall   first                        in firstTotal qual=Repository::items nargs=0
+L78   mread   items                        in firstTotal qual=Repository
+L78   mread   total                        in firstTotal qual=Repository::items::first()
+L79   mcall   sortedBy                     in sortedBy qual=Repository::items nargs=1
+L79   mread   items                        in sortedBy qual=Repository
+L80   mcall   describe                     in touch qual=Order nargs=0
+--- imports (2)
+L3    target=com.acme.base name=Repo alias=- flags=0
+L4    target=com.acme.io name=Channel alias=Chan flags=0

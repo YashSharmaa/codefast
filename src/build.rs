@@ -119,6 +119,11 @@ fn process(w: &mut Worker, root: &Path, f: &WalkedFile, interner: &Interner, opt
         w.facts.nlines = lang::count_lines(&src);
         out.flags |= fflag::UNPARSED;
     }
+    // A JVM file that declares `@Test` functions is test code wherever it lives: Kotlin keeps
+    // tests in source sets such as `src/jvmTest`, and fixtures sit next to production code.
+    if parsed && matches!(lang, Lang::Java | Lang::Kotlin) && w.facts.defs.iter().any(|d| d.flags & crate::facts::dflag::TEST != 0) {
+        out.flags |= fflag::TEST;
+    }
     out.nlines = w.facts.nlines;
     out.parse_errors = w.facts.parse_errors;
     // The text side: every word in the file, whatever the language.

@@ -1,0 +1,17 @@
+lang=kotlin ok=true lines=14 errors=0
+--- defs (1)
+  0 var     customVersion                L5-5 parent=- type=String arity=0..0 flags=0x04 | val customVersion
+--- refs (12)
+L1    call    plugins                      in <file> nargs=1
+L2    call    kotlin                       in <file> nargs=1
+L2    mcall   version                      in <file> qual=kotlin() nargs=1
+L7    call    dependencies                 in <file> nargs=1
+L8    call    implementation               in <file> nargs=1
+L8    call    project                      in <file> nargs=1
+L9    call    kotlin                       in <file> nargs=1
+L9    call    testImplementation           in <file> nargs=1
+L12   mcall   register                     in <file> qual=$tasks nargs=2
+L12   read    tasks                        in <file>
+L13   call    doLast                       in <file> nargs=1
+L13   read    customVersion                in <file>
+--- imports (0)

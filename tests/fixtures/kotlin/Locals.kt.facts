@@ -1,0 +1,58 @@
+lang=kotlin ok=true lines=54 errors=0
+--- defs (16)
+  0 ns      com.acme.locals              L1-1 parent=- type=- arity=0..0 flags=0x00 | package com.acme.locals
+  1 class   Totals                       L3-42 parent=- type=- arity=2..2 flags=0x04 | class Totals(private val orders: List<Order>, start: Int)
+  2 field   orders                       L3-3 parent=Totals type=List arity=0..0 flags=0x02 | private val orders: List<Order>
+  3 field   sum                          L4-4 parent=Totals type=Int arity=0..0 flags=0x02 | private var sum
+  4 field   doubled                      L5-5 parent=Totals type=- arity=0..0 flags=0x04 | val doubled
+  5 method  compute                      L11-41 parent=Totals type=Int arity=1..255 flags=0x04 | fun compute(limit: Int, vararg extra: Order): Int
+  6 class   Order                        L44-48 parent=- type=- arity=2..2 flags=0x04 | class Order(val amount: Int, val status: Status)
+  7 field   amount                       L44-44 parent=Order type=Int arity=0..0 flags=0x04 | val amount: Int
+  8 field   status                       L44-44 parent=Order type=Status arity=0..0 flags=0x04 | val status: Status
+  9 method  check                        L45-45 parent=Order type=Boolean arity=0..0 flags=0x04 | fun check(): Boolean
+ 10 method  component1                   L46-46 parent=Order type=- arity=0..0 flags=0x04 | operator fun component1()
+ 11 method  component2                   L47-47 parent=Order type=- arity=0..0 flags=0x04 | operator fun component2()
+ 12 enum    Status                       L50-54 parent=- type=- arity=0..0 flags=0x04 | enum class Status
+ 13 enumval OPEN                         L51-51 parent=Status type=Status arity=0..0 flags=0x04 | OPEN
+ 14 enumval CLOSED                       L51-51 parent=Status type=Status arity=0..0 flags=0x04 | CLOSED
+ 15 method  close                        L53-53 parent=Status type=- arity=0..0 flags=0x04 | fun close()
+--- refs (38)
+L3    type    Order                        in orders
+L8    mwrite  sum                          in Totals qual=Totals
+L11   type    Order                        in compute
+L13   mcall   first                        in compute qual=Totals::orders nargs=0
+L13   type    Order                        in compute
+L13   mread   orders                       in compute qual=Totals
+L14   mcall   check                        in compute qual=Order nargs=0
+L15   mread   orders                       in compute qual=Totals
+L16   mread   amount                       in compute
+L17   mcall   check                        in compute nargs=0
+L19   mcall   withIndex                    in compute qual=Totals::orders nargs=0
+L19   mread   orders                       in compute qual=Totals
+L20   mcall   toString                     in compute nargs=0
+L21   mcall   check                        in compute nargs=0
+L24   mcall   inc                          in compute nargs=0
+L25   mcall   check                        in compute nargs=0
+L25   mcall   forEach                      in compute qual=Totals::orders nargs=1
+L25   mread   orders                       in compute qual=Totals
+L26   mcall   map                          in compute qual=Totals::orders nargs=1
+L26   mread   amount                       in compute
+L26   mread   orders                       in compute qual=Totals
+L27   mcall   check                        in compute qual=Order nargs=0
+L27   mcall   forEachIndexed               in compute qual=Totals::orders nargs=1
+L27   type    Order                        in compute
+L27   mread   orders                       in compute qual=Totals
+L29   mcall   check                        in compute qual=Order nargs=0
+L30   type    IllegalStateException        in compute
+L31   mcall   printStackTrace              in compute qual=IllegalStateException nargs=0
+L33   mread   status                       in compute qual=Order
+L34   mcall   close                        in compute qual=Order::status nargs=0
+L34   type    Status                       in compute
+L34   mread   OPEN                         in compute qual=Status
+L39   mwrite  sum                          in compute qual=Totals
+L40   mread   size                         in compute
+L44   type    Status                       in status
+L45   mread   amount                       in check qual=Order
+L47   mread   amount                       in component2 qual=Order
+L53   mread   CLOSED                       in close qual=Status
+--- imports (0)

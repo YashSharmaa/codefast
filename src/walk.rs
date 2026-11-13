@@ -92,6 +92,10 @@ pub fn classify(rel: &str) -> u8 {
             _ => {}
         }
     }
+    // Gradle source sets of tests: `commonTest`, `jvmTest`, `androidUnitTest`, `integrationTest`.
+    if rel.split('/').any(|c| c.len() > 4 && c.ends_with("Test") && c.as_bytes()[c.len() - 5].is_ascii_lowercase()) {
+        flags |= fflag::TEST;
+    }
     let stem = file.split('.').next().unwrap_or(file);
     if stem.starts_with("test_")
         || stem.ends_with("_test")

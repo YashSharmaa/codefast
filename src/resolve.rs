@@ -287,6 +287,12 @@ fn module_language(lang: Lang) -> bool {
     !matches!(lang, Lang::C | Lang::Cpp | Lang::ObjC | Lang::Other | Lang::Bash)
 }
 
+/// Is the definition declared inside a type? Unlike `type_member`, an extension (a function
+/// whose container is known by name only) is not.
+fn in_type(v: &DefV) -> bool {
+    v.parent().is_some_and(|p| p.kind().is_type())
+}
+
 /// Is the definition a member of a type (a method, as opposed to a free or nested function)?
 fn type_member(v: &DefV) -> bool {
     match v.parent() {
@@ -300,11 +306,12 @@ pub fn same_language_family(a: Lang, b: Lang) -> bool {
     same_family(a, b)
 }
 
-/// JavaScript and the TypeScript dialects import each other freely; every other language keeps
-/// to itself.
+/// JavaScript and the TypeScript dialects import each other freely, and so do Java and Kotlin
+/// (one package can hold files of both); every other language keeps to itself.
 fn same_family(a: Lang, b: Lang) -> bool {
     let js = |l: Lang| matches!(l, Lang::JavaScript | Lang::TypeScript | Lang::Tsx);
-    a == b || (js(a) && js(b))
+    let jvm = |l: Lang| matches!(l, Lang::Java | Lang::Kotlin);
+    a == b || (js(a) && js(b)) || (jvm(a) && jvm(b))
 }
 
 /// Declarations visible everywhere without an import (TypeScript ambient declarations).
@@ -1824,6 +1831,80 @@ impl<'a> Resolver<'a> {
         rc
     }
 
+    /// A receiver type that this repository does not define but extends by name (Kotlin
+    /// `fun String.shout()`): its members are the extensions recorded under that name.
+    fn extension_owner(&self, q: &[u8], field: &[u8]) -> Option<Ty> {
+        if q.is_empty() || !q.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_') {
+            return None;
+        }
+        let ix = self.ix;
+        let idx = self.members_named(field);
+        let defs = idx.get(q)?;
+        if !defs.iter().any(|&d| ix.def(d).parent().is_none() && ix.lang(ix.def(d).file()) == Lang::Kotlin) {
+            return None;
+        }
+        if ix.defs_named(q).iter().any(|&d| ix.def(d).kind().is_type()) {
+            return None;
+        }
+        Some(Ty::named(q))
+    }
+
+    /// The simple names of the types declared for what a receiver path ends in, whether or not
+    /// this repository defines them: `Service::handle()` with `fun handle(): String` gives
+    /// `String`, the root `slugify()` the result type of that function.
+    fn declared_end(&self, path: &[u8], from: Option<FileId>) -> Vec<Vec<u8>> {
+        let ix = self.ix;
+        let Some(f) = from else { return Vec::new() };
+        let mut defs: Vec<DefId> = Vec::new();
+        let call = match path.windows(2).rposition(|w| w == b"::") {
+            Some(i) => {
+                let seg = &path[i + 2..];
+                let (name, call) = match seg.strip_suffix(b"()") {
+                    Some(n) => (n, true),
+                    None => (seg, false),
+                };
+                for t in self.type_path_from(&path[..i], from).iter() {
+                    let mut hit = self.members_of(t, name);
+                    if hit.is_empty() {
+                        hit = self.ancestors(t).iter().map(|a| self.members_of(a, name)).find(|h| !h.is_empty()).unwrap_or_default();
+                    }
+                    defs.extend(hit);
+                }
+                call
+            }
+            None => {
+                let (m, rest) = split_module(path);
+                if let Some(func) = rest.strip_suffix(b"()") {
+                    defs = self.scoped_defs(func, m, f, &|v| matches!(v.kind(), DefKind::Function | DefKind::Method));
+                    true
+                } else if let Some(var) = rest.strip_prefix(b"$") {
+                    defs = self.scoped_defs(var, m, f, &|v| matches!(v.kind(), DefKind::Variable | DefKind::Constant));
+                    false
+                } else {
+                    return Vec::new();
+                }
+            }
+        };
+        let mut out: Vec<Vec<u8>> = Vec::new();
+        for d in defs {
+            let v = ix.def(d);
+            if matches!(v.kind(), DefKind::Method | DefKind::Function) != call {
+                continue;
+            }
+            if let Some(t) = v.type_name() {
+                let (_, n) = split_module(t);
+                let simple = match n.windows(2).rposition(|w| w == b"::") {
+                    Some(i) => &n[i + 2..],
+                    None => n,
+                };
+                if !out.iter().any(|o| o.as_slice() == simple) {
+                    out.push(simple.to_vec());
+                }
+            }
+        }
+        out
+    }
+
     /// Methods named `name` declared by type `owner`.
     pub fn methods_of(&self, owner: &Ty, name: &[u8]) -> Vec<DefId> {
         let ix = self.ix;
@@ -2919,6 +3000,15 @@ impl<'a> Resolver<'a> {
                     }
                 }
             }
+            if out.is_empty() && !strict_up && from.is_some() {
+                // A type of another package that extensions of this repository extend:
+                // written directly (`"s".shout()`), or declared at the end of the path.
+                let ext = match self.extension_owner(path, field) {
+                    Some(t) => Some(t),
+                    None => self.declared_end(path, from).into_iter().find_map(|n| self.extension_owner(&n, field)),
+                };
+                out.extend(ext);
+            }
         }
         if out.is_empty() && unique_ok && !qual.is_some_and(|q| q.starts_with(b"^")) {
             let holders = self.member_owners(field);
@@ -3006,13 +3096,18 @@ impl<'a> Resolver<'a> {
         let memberish = owner_canon.is_some();
         // A C# extension method is called as a member of its `this` parameter's type.
         let ext: Option<DefId> = if memberish { t.defs.iter().copied().find(|&d| self.ext_receiver(d).is_some()) } else { None };
+        // A Kotlin extension of a type this repository does not define (`fun String.quote()`).
+        let foreign_owner = owner_canon.as_ref().is_some_and(|o| o.defs.is_empty())
+            && t.defs.iter().any(|&d| ix.def(d).parent().is_none() && ix.lang(ix.def(d).file()) == Lang::Kotlin);
         // No other definition anywhere carries the name.
         let lone = ix.defs_named_id(nid).count() == t.defs.len();
         ix.for_each_ref_named(nid, |r| {
             let ok = if memberish {
                 r.kind().is_member() || matches!(r.kind(), RefKind::Call | RefKind::Read | RefKind::Write | RefKind::New | RefKind::Bind | RefKind::Arg)
             } else {
-                kind_compatible(t.class, r.kind())
+                // Kotlin has no `new`: `Foo(..)` reads as a constructor call when `Foo` looks like
+                // a type, and may still call a function of that name (`@Composable fun Foo()`).
+                kind_compatible(t.class, r.kind()) || (t.class == Class::Callable && r.kind() == RefKind::New && ix.lang(r.file) == Lang::Kotlin)
             };
             if !ok {
                 // `ns.name` through a namespace binding denotes a module-level definition.
@@ -3083,8 +3178,9 @@ impl<'a> Resolver<'a> {
                     if k.is_member() {
                         let types = self.owners_for_ref(&r);
                         if types.is_empty() {
-                            // A receiver that is positively a type of another package is not ours.
-                            if r.qual().is_some_and(|q| self.path_external(q, r.file)) {
+                            // A receiver that is positively a type of another package is not ours,
+                            // unless the target extends a type of another package itself.
+                            if !foreign_owner && r.qual().is_some_and(|q| self.path_external(q, r.file)) {
                                 return;
                             }
                             Conf::Name
@@ -3119,18 +3215,49 @@ impl<'a> Resolver<'a> {
                                 return;
                             }
                             // A bare name: an enum constant in its own scope, a static import.
-                            if strict_scoping(ix.lang(r.file)) && self.denotes(&r).iter().any(|d| t.defs.contains(d)) {
-                                emit(r, Conf::Exact);
+                            if strict_scoping(ix.lang(r.file)) {
+                                let hit = self.denotes(&r);
+                                if hit.iter().any(|d| t.defs.contains(d)) {
+                                    emit(r, Conf::Exact);
+                                } else if ix.lang(r.file) == Lang::Kotlin
+                                    && hit.iter().any(|&d| self.owner_ty(&ix.def(d)).is_some_and(|o| owner_up.iter().any(|a| a.same(&o))))
+                                {
+                                    // The method of a supertype, which this override may answer.
+                                    emit(r, Conf::Likely);
+                                } else if hit.is_empty() && r.kind() == RefKind::Call && ix.lang(r.file) == Lang::Kotlin {
+                                    // Nothing in scope has the name: in Kotlin a member of the
+                                    // receiver of a lambda around the call (`headers { append() }`).
+                                    emit(r, Conf::Name);
+                                }
                             }
                             return;
                         };
                         let path = q.strip_prefix(b"^").unwrap_or(q);
                         let modular = module_language(ix.lang(r.file));
-                        let tys: Vec<Ty> = if modular { self.qualifier_types(r.file, path) } else { vec![Ty::named(&self.canon_type(path))] };
+                        let mut tys: Vec<Ty> = if modular { self.qualifier_types(r.file, path) } else { vec![Ty::named(&self.canon_type(path))] };
+                        if tys.is_empty() && modular {
+                            // An implicit-receiver call of an extension of a type defined elsewhere.
+                            tys.extend(self.extension_owner(path, &t.name));
+                        }
                         if tys.iter().any(|x| x.same(owner) || self.ancestors(x).iter().any(|a| a.same(owner))) {
                             Conf::Exact
                         } else if tys.iter().any(|x| owner_up.iter().any(|a| a.same(x))) {
                             Conf::Likely
+                        } else if tys.iter().any(|x| {
+                            // The qualifier inherits the method from a supertype the owner shares
+                            // (an implicit-receiver call in an extension of an interface).
+                            !self.has_member(x, &t.name)
+                                && self.ancestors(x).iter().find(|a| self.has_member(a, &t.name)).is_some_and(|a| owner_up.iter().any(|u| u.same(a)))
+                        }) {
+                            Conf::Likely
+                        } else if matches!(ix.lang(r.file), Lang::Java | Lang::Kotlin)
+                            && tys.iter().any(|x| x.defs.iter().any(|&d| ix.def(d).parent().is_some_and(|p| owner.defs.contains(&p.id))))
+                            && self.denotes(&r).iter().any(|d| t.defs.contains(d))
+                        {
+                            // Written against a type nested in the owner: an inner class reaching
+                            // the members around it, or Java naming a Kotlin companion
+                            // (`Order.Companion.create()`), whose members belong to the class.
+                            Conf::Exact
                         } else if modular && tys.is_empty() && self.qualified_exports(r.file, q, &t.name).is_some_and(|l| t.defs.iter().any(|d| l.contains(d)))
                         {
                             // A member reached through a module-level object (`mod.registry.get()`).
@@ -3397,6 +3524,9 @@ impl<'a> Resolver<'a> {
         let bare_members =
             !matches!(ix.lang(from), Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust | Lang::Php | Lang::Swift);
         let Some(q) = qual else {
+            if ix.lang(from) == Lang::Kotlin {
+                return self.scoped_defs(name, None, from, &|v| !in_type(v));
+            }
             return self.scoped_defs(name, None, from, &|v| bare_members || !type_member(v));
         };
         if let Some(list) = self.qualified_exports(from, q, name) {
@@ -3695,9 +3825,12 @@ impl<'a> Resolver<'a> {
         // one, but its extractor writes it out: a bare call there is outside every type.)
         let no_bare_members =
             qual.is_none() && matches!(lang, Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust | Lang::Php | Lang::Swift);
+        // Kotlin calls through the implicit `this` carry the class as qualifier: a bare name is a
+        // top-level, local or extension function, never a member declared in a type.
+        let kotlin_bare = qual.is_none() && lang == Lang::Kotlin && !want_type;
         if strict {
             let wanted = |v: &DefV| {
-                if no_bare_members && !want_type && type_member(v) {
+                if (no_bare_members && !want_type && type_member(v)) || (kotlin_bare && in_type(v)) {
                     return false;
                 }
                 match class_of(v) {
@@ -3797,7 +3930,7 @@ impl<'a> Resolver<'a> {
                     Class::Value => v.flags() & dflag::FNPTR != 0 || v.kind() == DefKind::Macro,
                     _ => false,
                 };
-                if !callable || (no_bare_members && !want_type && type_member(&v)) {
+                if !callable || (no_bare_members && !want_type && type_member(&v)) || (kotlin_bare && in_type(&v)) {
                     continue;
                 }
                 let same_file = v.file() == from;

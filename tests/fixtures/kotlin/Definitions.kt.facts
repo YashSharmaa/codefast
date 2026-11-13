@@ -1,0 +1,122 @@
+lang=kotlin ok=true lines=118 errors=0
+--- defs (67)
+  0 ns      com.acme.shop                L2-2 parent=- type=- arity=0..0 flags=0x00 | package com.acme.shop
+  1 type    Handler                      L4-4 parent=- type=- arity=0..0 flags=0x04 | typealias Handler = (Order) -> Unit
+  2 type    OrderList                    L5-5 parent=- type=List arity=0..0 flags=0x04 | typealias OrderList = List<Order>
+  3 const   MAX_ITEMS                    L7-7 parent=- type=- arity=0..0 flags=0x04 | const val MAX_ITEMS
+  4 var     registry                     L8-8 parent=- type=Registry arity=0..0 flags=0x04 | val registry: Registry
+  5 var     counter                      L9-9 parent=- type=- arity=0..0 flags=0x02 | private var counter
+  6 fn      topLevel                     L11-11 parent=- type=Order arity=1..255 flags=0x04 | fun topLevel(a: Int, b: String = "x", vararg rest: Int): Order
+  7 fn      helper                       L13-13 parent=- type=Order arity=0..0 flags=0x00 | internal fun helper()
+  8 method  describe                     L15-15 parent=~Order type=String arity=0..0 flags=0x04 | fun Order.describe(): String
+  9 prop    isBig                        L17-18 parent=~Order type=Boolean arity=0..0 flags=0x04 | val Order.isBig: Boolean
+ 10 fn      platform                     L20-20 parent=- type=String arity=0..0 flags=0x05 | expect fun platform(): String
+ 11 fn      fetch                        L22-22 parent=- type=Order arity=1..1 flags=0x84 | suspend fun fetch(id: Int): Order?
+ 12 class   Order                        L24-57 parent=- type=- arity=2..3 flags=0x04 | data class Order(val id: Int, var name: String, private val note: String = "") : Base(id), Comparabl
+ 13 field   id                           L24-24 parent=Order type=Int arity=0..0 flags=0x04 | val id: Int
+ 14 field   name                         L24-24 parent=Order type=String arity=0..0 flags=0x04 | var name: String
+ 15 field   note                         L24-24 parent=Order type=String arity=0..0 flags=0x02 | private val note: String
+ 16 prop    total                        L25-26 parent=Order type=Int arity=0..0 flags=0x04 | val total: Int
+ 17 prop    label                        L27-30 parent=Order type=String arity=0..0 flags=0x04 | var label: String
+ 18 field   owner                        L31-31 parent=Order type=Customer arity=0..0 flags=0x04 | lateinit var owner: Customer
+ 19 field   cache                        L32-32 parent=Order type=- arity=0..0 flags=0x02 | private val cache
+ 20 method  Order                        L34-34 parent=Order type=- arity=1..1 flags=0x04 | constructor(id: Int) : this(id, "n")
+ 21 method  compareTo                    L40-40 parent=Order type=Int arity=1..1 flags=0x04 | override fun compareTo(other: Order): Int
+ 22 method  withLocal                    L42-45 parent=Order type=Int arity=0..0 flags=0x04 | fun withLocal(): Int
+ 23 fn      twice                        L43-43 parent=withLocal type=- arity=1..1 flags=0x00 | fun twice(x: Int)
+ 24 class   Companion                    L47-50 parent=Order type=- arity=0..0 flags=0x04 | companion object
+ 25 field   PREFIX                       L48-48 parent=Order type=String arity=0..0 flags=0x04 | const val PREFIX
+ 26 method  create                       L49-49 parent=Order type=Order arity=1..1 flags=0x04 | fun create(id: Int): Order
+ 27 class   Line                         L52-52 parent=Order type=- arity=1..1 flags=0x04 | inner class Line(val qty: Int)
+ 28 field   qty                          L52-52 parent=Line type=Int arity=0..0 flags=0x04 | val qty: Int
+ 29 class   Builder                      L54-56 parent=Order type=- arity=0..0 flags=0x04 | class Builder
+ 30 method  build                        L55-55 parent=Builder type=Order arity=0..0 flags=0x04 | fun build(): Order
+ 31 class   Customer                     L59-63 parent=- type=- arity=1..1 flags=0x04 | class Customer(val name: String)
+ 32 field   name                         L59-59 parent=Customer type=String arity=0..0 flags=0x04 | val name: String
+ 33 class   Factory                      L60-62 parent=Customer type=- arity=0..0 flags=0x04 | companion object Factory : Maker<Customer>
+ 34 method  make                         L61-61 parent=Customer type=Customer arity=0..0 flags=0x04 | override fun make(): Customer
+ 35 iface   Maker                        L65-69 parent=- type=- arity=0..0 flags=0x04 | interface Maker<T>
+ 36 method  make                         L66-66 parent=Maker type=- arity=0..0 flags=0x45 | fun make(): T
+ 37 prop    label                        L67-67 parent=Maker type=String arity=0..0 flags=0x45 | val label: String
+ 38 method  describe                     L68-68 parent=Maker type=String arity=0..0 flags=0x04 | fun describe(): String
+ 39 iface   Callback                     L71-73 parent=- type=- arity=0..0 flags=0x04 | fun interface Callback
+ 40 method  call                         L72-72 parent=Callback type=- arity=1..1 flags=0x45 | fun call(order: Order)
+ 41 class   Shape                        L75-80 parent=- type=- arity=0..0 flags=0x44 | sealed class Shape
+ 42 method  area                         L76-76 parent=Shape type=Double arity=0..0 flags=0x45 | abstract fun area(): Double
+ 43 class   Empty                        L77-79 parent=Shape type=- arity=0..0 flags=0x04 | object Empty : Shape()
+ 44 method  area                         L78-78 parent=Empty type=- arity=0..0 flags=0x04 | override fun area()
+ 45 enum    Color                        L82-89 parent=- type=- arity=1..1 flags=0x04 | enum class Color(val rgb: Int)
+ 46 field   rgb                          L82-82 parent=Color type=Int arity=0..0 flags=0x04 | val rgb: Int
+ 47 enumval RED                          L83-83 parent=Color type=Color arity=0..0 flags=0x04 | RED(0xff0000)
+ 48 enumval GREEN                        L84-86 parent=Color type=Color arity=0..0 flags=0x04 | GREEN(0x00ff00)
+ 49 method  warm                         L85-85 parent=GREEN type=- arity=0..0 flags=0x04 | override fun warm()
+ 50 method  warm                         L88-88 parent=Color type=- arity=0..0 flags=0x04 | open fun warm()
+ 51 iface   Audited                      L91-91 parent=- type=- arity=1..2 flags=0x04 | annotation class Audited(val by: String, val level: Int = 1)
+ 52 prop    by                           L91-91 parent=Audited type=String arity=0..0 flags=0x04 | val by: String
+ 53 prop    level                        L91-91 parent=Audited type=Int arity=0..0 flags=0x04 | val level: Int
+ 54 class   Base                         L93-96 parent=- type=- arity=1..1 flags=0x44 | abstract class Base(val baseId: Int)
+ 55 field   baseId                       L93-93 parent=Base type=Int arity=0..0 flags=0x04 | val baseId: Int
+ 56 method  check                        L94-94 parent=Base type=Boolean arity=0..0 flags=0x41 | protected abstract fun check(): Boolean
+ 57 method  run                          L95-95 parent=Base type=- arity=0..0 flags=0x04 | open fun run()
+ 58 class   OrderId                      L98-99 parent=- type=- arity=1..1 flags=0x04 | value class OrderId(val value: Int)
+ 59 field   value                        L99-99 parent=OrderId type=Int arity=0..0 flags=0x04 | val value: Int
+ 60 class   Registry                     L101-106 parent=- type=- arity=0..0 flags=0x04 | object Registry
+ 61 field   handlers                     L102-102 parent=Registry type=- arity=0..0 flags=0x02 | private val handlers
+ 62 method  register                     L103-105 parent=Registry type=- arity=1..1 flags=0x04 | fun register(h: Handler)
+ 63 class   OrderTest                    L108-118 parent=- type=- arity=0..0 flags=0x04 | class OrderTest
+ 64 method  createsOrder                 L109-112 parent=OrderTest type=- arity=0..0 flags=0x0c | fun createsOrder()
+ 65 method  qualifiedAnnotation          L114-115 parent=OrderTest type=- arity=0..0 flags=0x0c | fun qualifiedAnnotation()
+ 66 method  notATest                     L117-117 parent=OrderTest type=- arity=0..0 flags=0x04 | fun notATest()
+--- refs (51)
+L4    type    Order                        in Handler
+L5    type    Order                        in OrderList
+L8    type    Registry                     in registry
+L8    new     Registry                     in registry nargs=0
+L11   type    Order                        in topLevel
+L11   new     Order                        in topLevel nargs=2
+L13   new     Order                        in helper nargs=2
+L15   type    Order                        in describe
+L15   mread   name                         in describe qual=Order
+L17   type    Order                        in isBig
+L18   read    MAX_ITEMS                    in isBig
+L18   mread   id                           in isBig qual=Order
+L22   type    Order                        in fetch
+L24   call    Base                         in Order qual=Base nargs=1
+L24   type    Order                        in Order
+L24   extends Base                         in Order
+L26   mread   id                           in total qual=Order
+L29   mcall   trim                         in label nargs=0
+L31   type    Customer                     in owner
+L32   type    Order                        in cache
+L34   call    Order                        in Order qual=Order nargs=2
+L40   type    Order                        in compareTo
+L40   mread   id                           in compareTo qual=Order
+L40   mread   id                           in compareTo qual=Order
+L44   call    twice                        in withLocal nargs=1
+L44   mread   id                           in withLocal qual=Order
+L49   type    Order                        in create
+L49   mread   PREFIX                       in create qual=Order
+L49   new     Order                        in create nargs=2
+L55   type    Order                        in build
+L55   new     Order                        in build nargs=1
+L60   type    Customer                     in Factory
+L60   impl    Maker                        in Factory
+L61   type    Customer                     in make
+L61   new     Customer                     in make nargs=1
+L72   type    Order                        in call
+L77   call    Shape                        in Empty qual=Shape nargs=0
+L77   extends Shape                        in Empty
+L83   new     Color                        in RED nargs=1
+L84   new     Color                        in GREEN nargs=1
+L88   mread   RED                          in warm qual=Color
+L102  type    Handler                      in handlers
+L103  type    Handler                      in register
+L104  mcall   add                          in register qual=Registry::handlers nargs=1
+L104  mread   handlers                     in register qual=Registry
+L109  annot   Test                         in createsOrder
+L111  call    assertEquals                 in createsOrder qual=OrderTest nargs=2
+L111  call    create                       in createsOrder qual=Order nargs=1
+L111  type    Order                        in createsOrder
+L111  mread   id                           in createsOrder qual=Order::create()
+L114  annot   Test                         in qualifiedAnnotation qual=org.junit.jupiter.api
+--- imports (0)

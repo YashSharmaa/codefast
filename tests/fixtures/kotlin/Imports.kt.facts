@@ -1,0 +1,43 @@
+lang=kotlin ok=true lines=29 errors=0
+--- defs (2)
+  0 ns      com.acme.app                 L1-1 parent=- type=- arity=0..0 flags=0x00 | package com.acme.app
+  1 fn      main                         L13-29 parent=- type=- arity=0..0 flags=0x04 | fun main()
+--- refs (28)
+L3    import  Order                        in <file> qual=com.acme.shop
+L4    import  Order                        in <file> qual=com.acme.shop
+L5    import  register                     in <file> qual=com.acme.shop.Registry
+L6    import  create                       in <file> qual=com.acme.shop.Order.Companion
+L7    import  describe                     in <file> qual=com.acme.shop
+L9    import  topLevel                     in <file> qual=com.acme.shop
+L10   import  max                          in <file> qual=kotlin.math
+L11   import  ConcurrentHashMap            in <file> qual=java.util.concurrent
+L14   new     Order                        in main nargs=2
+L15   new     Order                        in main qual=com.acme.shop nargs=2
+L16   mcall   describe                     in main qual=com.acme.shop|Order nargs=0
+L17   call    register                     in main qual=com.acme.shop|Registry nargs=1
+L18   call    create                       in main qual=com.acme.shop|Order nargs=1
+L18   mread   total                        in main qual=com.acme.shop|Order::create()
+L19   call    topLevel                     in main qual=com.acme.shop nargs=2
+L20   call    max                          in main nargs=2
+L21   type    Order                        in main qual=com.acme.shop
+L21   new     ConcurrentHashMap            in main nargs=0
+L22   mcall   put                          in main qual=ConcurrentHashMap nargs=2
+L23   type    Order                        in main qual=com.acme.shop
+L24   mread   name                         in main qual=com.acme.shop|Order
+L25   call    create                       in main qual=com.acme.shop|Order nargs=1
+L25   type    Order                        in main qual=com.acme.shop
+L26   new     Order                        in main qual=com.acme.shop nargs=2
+L27   mread   total                        in main qual=com.acme.shop|Order
+L28   call    randomUUID                   in main qual=java.util|UUID nargs=0
+L28   mcall   toString                     in main qual=java.util|UUID::randomUUID() nargs=0
+L28   type    UUID                         in main qual=java.util
+--- imports (9)
+L3    target=com.acme.shop name=Order alias=- flags=0
+L4    target=com.acme.shop name=Order alias=ShopOrder flags=0
+L5    target=com.acme.shop.Registry name=register alias=- flags=0
+L6    target=com.acme.shop.Order.Companion name=create alias=- flags=0
+L7    target=com.acme.shop name=describe alias=- flags=0
+L8    target=com.acme.util name=- alias=- flags=2
+L9    target=com.acme.shop name=topLevel alias=make flags=0
+L10   target=kotlin.math name=max alias=- flags=1
+L11   target=java.util.concurrent name=ConcurrentHashMap alias=- flags=1

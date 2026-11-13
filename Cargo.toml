@@ -65,6 +65,7 @@ default = [
     "lang-csharp",
     "lang-ruby",
     "lang-swift",
+    "lang-kotlin",
 ]
 lang-c = ["dep:tree-sitter-c"]
 lang-cpp = ["dep:tree-sitter-cpp"]
