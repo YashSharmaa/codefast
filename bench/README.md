@@ -1,7 +1,7 @@
 # Benchmarks
 
 Everything needed to reproduce the numbers in the top level README. Nothing here calls a
-language model except the agent pilot in `tier2`, which is clearly marked.
+language model except the two agent experiments in `tier2`, which are clearly marked.
 
 ## Layout
 
@@ -10,7 +10,7 @@ language model except the agent pilot in `tier2`, which is clearly marked.
 | `k3/` | 72 verified questions about the Linux kernel, with gold answers, and the runner that compares codefast with a best-case ripgrep workflow |
 | `oracles/` | Call graphs produced by real compilers and type checkers for redis (C), gitleaks and syft (Go) and zod (TypeScript) |
 | `tier1/` | Localisation without a model: task text in, ranked files and functions out |
-| `tier2/` | A small paired agent experiment: the same agent, the same task, with and without codefast |
+| `tier2/` | Agent experiments: real headless sessions with and without the plugin (`live.py`), and an earlier pilot with sub-agents |
 | `scripts/datasets/` | Loaders for the third party datasets, and the script that materialises a source tree at a given commit |
 | `scripts/oracles/` | The programs that built the call graph oracles, and the scorer |
 | `scripts/competitors/` | Index and query wrappers for other tools, run in a sandbox |
@@ -93,10 +93,31 @@ its id. Ranking changes are judged on the development half only.
 Run one repository at a time (`--jobs 1`) when several tasks share a repository, because the
 tree preparation script fetches into one cache per repository.
 
+## Real sessions (`tier2/live.py`)
+
+This part and the pilot after it use a language model, and this one spends real usage of a
+Claude Code login. Each task is run in a headless session (`claude -p`) twice: with nothing
+loaded, and with the plugin as `claude plugin install` gives it. The prompt is the same in both
+and does not mention the tool.
+
+```
+export CLAUDE_CONFIG_DIR=$HOME/.claude        # the login to use
+export CODEFAST_BIN=$PWD/target/release/codefast
+uv run bench/tier2/make_n_tasks.py            # who-calls questions with a compiler-checked answer
+uv run bench/tier2/live.py run --tag T --n 13 --l 3 --k 18 --d 12 --r 8 --arms control,plugin --model haiku --jobs 2
+uv run bench/tier2/live.py score --tag T --out bench/results/live-T.jsonl
+uv run bench/tier2/live.py show --tag T --id N-Collection-Add --arm plugin   # one session, step by step
+```
+
+`tier2/LIVE.md` is the protocol: the arms, the five kinds of task and how each answer is
+checked, what is measured, and why the tables report a cost priced from the size of every
+request instead of the billed cost. `--resume` continues a batch that was interrupted, and a
+batch stops by itself when the login's usage window passes `--limit-stop`.
+
 ## Agent pilot (`tier2`)
 
-This is the only part that uses a language model. It is a pilot, not a full study: one seed,
-tens of tasks, sub-agents of one harness.
+An earlier and smaller experiment: one seed, tens of tasks, sub-agents of one harness, with
+the guide pasted into the prompt.
 
 Each task is run by the same agent in two or three arms. The control arm has shell tools only.
 The tool arm also has the codefast command and its guide. The rule arm adds one paragraph of

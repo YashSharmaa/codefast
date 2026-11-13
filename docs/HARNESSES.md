@@ -25,7 +25,7 @@ those without MCP. The MCP server and the hooks are additions.
 
 | Harness | Installs this repository as | Skill | MCP server | Hooks | Mark |
 |---|---|---|---|---|---|
-| Claude Code | plugin from the marketplace in `.claude-plugin/` | yes, plus `codefast` on the Bash tool's `PATH` | yes, declared in `.claude-plugin/plugin.json` | yes: `SessionStart`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure` | S (2.1.322, 2.1.323) |
+| Claude Code | plugin from the marketplace in `.claude-plugin/` | yes, plus `codefast` on the Bash tool's `PATH` | yes, declared in `.claude-plugin/plugin.json` | yes: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure` | S (2.1.322, 2.1.323) |
 | OpenAI Codex CLI | plugin (`plugin.json` + `mcp.json`) from the marketplace in `.agents/plugins/` | yes, as `codefast:codefast` | yes, started in the plugin's directory (every call needs `root`). Better is the entry `codefast setup codex` adds, which Codex uses in its place | not from the plugin. Use `codefast setup codex --hooks`, or `hooks/codex.json`, in a config layer | S (0.164.0) |
 | Gemini CLI | extension (`gemini-extension.json`) | yes | yes, with `--root ${workspacePath}` | none | D |
 | Cursor | Agent Plugin (`plugin.json` + `mcp.json`) | yes | yes | none | V |

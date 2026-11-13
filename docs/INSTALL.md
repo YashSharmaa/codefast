@@ -5,7 +5,10 @@ codefast is one binary. A coding harness uses it in up to four ways:
 - **the skill**: a short guide (`skills/codefast/SKILL.md`) that tells the agent to run the
   `codefast` command in its shell. This is the main path and costs about 140 tokens per session.
 - **the MCP server**: the same binary started as `codefast mcp`, for harnesses that prefer tools.
-- **hooks**: optional. They add a line of context after a search or before a long file read.
+- **hooks**: optional. They hand the agent facts at the moment they matter: where a symbol named
+  in a prompt is defined and how widely it is used, what a search did not print, what an edit
+  left behind, and what has changed so far after a compaction. A hook with nothing new to say
+  prints nothing.
 - **the rules block**: optional, sixteen lines in a project's `AGENTS.md` that say which command
   answers which question. It is always in the agent's context, where a skill has to be picked
   up first, and it reaches agents that have nothing else (`codefast setup agents-md`, section 2).
@@ -42,7 +45,7 @@ replaces a codefast that works.
 
 ```sh
 sh install.sh --dry-run                 # print every action, download and write nothing
-sh install.sh --version 0.1.1           # a specific release instead of the latest
+sh install.sh --version 0.2.0           # a specific release instead of the latest
 sh install.sh --bin-dir /opt/tools/bin  # another directory
 ```
 
@@ -61,7 +64,7 @@ Windows, and the npm package below is not published yet.
 With Node.js, once the npm packages are published (`npm/` holds them, and nothing is published yet):
 
 ```sh
-npx -y @yashsharmaa/codefast@0.1.1 mcp        # or: npm install -g @yashsharmaa/codefast
+npx -y @yashsharmaa/codefast@0.2.0 mcp        # or: npm install -g @yashsharmaa/codefast
 ```
 
 ### The launcher
@@ -730,17 +733,34 @@ What they add, each said once per session:
 - For a prompt that names a symbol the index can pin down: where it is defined, the sentence its
   author wrote about it, and how widely it is used. At most two symbols.
 - After a `grep`, `rg`, `find -name` or the harness's own search for one known symbol: where it
-  is defined and how it is used.
+  is defined and how it is used. When the search itself printed the definition, only what it
+  did not print (what the function is for, who calls it), and nothing when there is no such
+  news.
 - After an edit (the harness's edit tools, or a shell command that may have written files): the
-  places that still use something the edit removed, renamed or gave another signature. An edit
-  that leaves nothing behind adds nothing.
+  places that still use something the edit removed, renamed or gave another signature, and
+  calls of a member that nothing in the repository defines. An edit that leaves nothing behind
+  adds nothing.
 - Before a whole-file read of a source file longer than 400 lines, one line naming the outline
   command.
 - After a compaction, the definitions the uncommitted changes added, removed and altered.
 
 Once a week per project, Claude Code also shows you (not the model) one line when plugins and
 skills that nothing in the project matches load more than about 1,500 tokens into every
-request. `codefast doctor context` prints the whole list with the switch for each.
+request.
+
+### What the harness itself loads
+
+`codefast doctor context` reads the configuration of Claude Code and of Codex and prints what
+each part puts into every request: plugins, skills, sub-agents, instruction files and the memory
+index. It sets them against what the project contains, names the parts nothing in the project
+matches, and prints the setting that switches each off (per project where the harness has such
+a switch). It changes nothing.
+
+For Claude Code the estimate was compared with the harness's own `/context` on one real
+configuration (7 plugins, 43 skills, 3 loaded files): the total was 4% higher. That comparison
+found two things, which the report now handles: an `AGENTS.md` is not loaded unless an
+instruction file imports it, and the skills of the signed-in claude.ai account are loaded too.
+For Codex the figures rest on its documentation, since Codex has no command that shows them.
 
 | Harness | How the hooks are registered |
 |---|---|
