@@ -208,6 +208,18 @@ fn a_component_is_a_symbol_and_its_tags_are_its_uses() {
     // Svelte and Astro components the same way.
     has(&p.ask(&["refs", "Badge"]), "12 Counter: <Badge value={count} />");
     has(&p.ask(&["refs", "Layout"]), "<Layout title=\"Shop\">");
+    // A file named in lower case or as the index of its directory is a component all the same,
+    // under the name a tag would give it.
+    let q = Project::new(
+        "component-names",
+        &[
+            ("parts/price-tag.vue", "<template>\n  <b>1</b>\n</template>\n"),
+            ("parts/Cart/index.vue", "<template>\n  <price-tag />\n</template>\n<script setup>\nimport PriceTag from '../price-tag.vue'\n</script>\n"),
+            ("pages/[id].vue", "<template>\n  <Cart />\n</template>\n<script setup>\nimport Cart from '../parts/Cart/index.vue'\n</script>\n"),
+        ],
+    );
+    has(&q.ask(&["refs", "PriceTag"]), "2 Cart: <price-tag />");
+    has(&q.ask(&["refs", "Cart"]), "pages/[id].vue\n  2 ");
     // The outline of a component file: the component, then what its script declares.
     let outline = p.ask(&["show", "components/CartView.vue"]);
     has(&outline, "1-24\tCartView");

@@ -521,16 +521,21 @@ pub fn extract(kind: Kind, src: &[u8], path: &str, parsers: &mut Parsers, facts:
 }
 
 /// The component a file is: a definition named after the file, which is what other files
-/// import and what their markup uses as a tag. It is also what encloses the markup. A file
-/// whose script exports a default of its own (a named class or function) has one already.
+/// import and what their markup uses as a tag. It is also what encloses the markup. The name
+/// is the file's in the form a tag takes (`price-tag.vue` is `PriceTag`), and an `index` file
+/// is named by its directory. A file whose script exports a default of its own (a named
+/// class or function) has one already.
 fn component_def(src: &[u8], path: &str, facts: &mut FileFacts) -> Option<u32> {
-    let file = path.rsplit('/').next().unwrap_or(path);
+    let mut parts = path.rsplit('/');
+    let file = parts.next().unwrap_or(path);
     let stem = file.rsplit_once('.').map_or(file, |(s, _)| s);
-    // `index.vue` and `+page.svelte` are named by their place, not by a name of their own.
-    if stem.is_empty() || !stem.bytes().all(ident_part) || !stem.as_bytes()[0].is_ascii_uppercase() {
+    let base = if stem == "index" { parts.next().unwrap_or("") } else { stem };
+    // `+page.svelte` and `[id].vue` are named by their place, not by a name of their own.
+    if base.is_empty() || !base.as_bytes()[0].is_ascii_alphabetic() || !base.bytes().all(|b| ident_part(b) || b == b'-') {
         return None;
     }
-    let name = facts.names.intern(stem.as_bytes());
+    let stem = pascal(base.as_bytes());
+    let name = facts.names.intern(&stem);
     let default = facts.names.intern(b"default");
     let has_default =
         facts.defs.iter().any(|d| d.parent == NONE && d.name == default) || facts.imports.iter().any(|i| i.flags & iflag::REEXPORT != 0 && i.alias == default);
