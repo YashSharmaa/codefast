@@ -1,0 +1,10 @@
+{
+  "cwd": "{{REPO}}",
+  "hook_event_name": "UserPromptSubmit",
+  "model": "gpt-5.5",
+  "permission_mode": "default",
+  "prompt": "dev_read returns -1 for a device that is open. Find out why and fix it.",
+  "session_id": "019a7c1e-2f4b-7d10-9c33-6f0e2a1b4c5d",
+  "transcript_path": null,
+  "turn_id": "019a7c1e-3a10-7b22-8d44-1c2e3f4a5b6c"
+}

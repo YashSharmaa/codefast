@@ -171,7 +171,9 @@ pub fn outline(ix: &Index, file: FileId, opts: &ShowOpts, out: &mut Out) {
     let many = defs.len() > 80 && !opts.full;
     let nmacros = defs.iter().filter(|d| d.kind() == DefKind::Macro).count();
     let collapse_macros = many && nmacros > 40;
-    let base = f.def_start;
+    // The id of the file's first definition. Ids are global, and `f.def_start` counts inside
+    // the file's own segment, so for a file edited since the last full index the two differ.
+    let base = defs.first().map_or(0, |d| d.id.0);
     let mut depth_cache: Vec<u8> = vec![0; defs.len()];
     let mut macro_run: Option<(u32, u32, usize)> = None;
     let mut dropped = 0usize;
@@ -181,6 +183,7 @@ pub fn outline(ix: &Index, file: FileId, opts: &ShowOpts, out: &mut Out) {
         }
     };
     let mut macros_seen = 0usize;
+    let mut docs = super::card::Docs::new(ix);
     for (i, d) in defs.iter().enumerate() {
         let depth = match d.parent() {
             Some(p) if p.id.0 >= base && ((p.id.0 - base) as usize) < i => depth_cache[(p.id.0 - base) as usize].saturating_add(1),
@@ -213,6 +216,11 @@ pub fn outline(ix: &Index, file: FileId, opts: &ShowOpts, out: &mut Out) {
             line.push_str("  ");
         }
         line.push_str(&sig_of(d));
+        // What it is for, where the author said so. In a long outline only functions and
+        // types get the sentence: that is where it saves opening the body.
+        if !many || kind.is_callable() || kind.is_type() {
+            line.push_str(&docs.suffix(d, if many { 60 } else { 80 }));
+        }
         if many && kind.is_container() {
             let n = defs.iter().filter(|m| m.parent().is_some_and(|p| p.id == d.id)).count();
             if n > 0 {

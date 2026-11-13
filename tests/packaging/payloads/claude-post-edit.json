@@ -1,0 +1,23 @@
+{
+  "session_id": "0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11",
+  "prompt_id": "550e8400-e29b-41d4-a716-446655440000",
+  "transcript_path": "{{HOME}}/.claude/projects/-work-project/0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11.jsonl",
+  "cwd": "{{REPO}}",
+  "permission_mode": "acceptEdits",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "{{REPO}}/src/main.c",
+    "old_string": "static int copy_all(struct dev *in, struct dev *out)",
+    "new_string": "static int copy_everything(struct dev *in, struct dev *out)",
+    "replace_all": false
+  },
+  "tool_response": {
+    "filePath": "{{REPO}}/src/main.c",
+    "oldString": "static int copy_all(struct dev *in, struct dev *out)",
+    "newString": "static int copy_everything(struct dev *in, struct dev *out)",
+    "replaceAll": false
+  },
+  "tool_use_id": "toolu_01EDIT123DEF456",
+  "duration_ms": 3
+}

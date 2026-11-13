@@ -1,14 +1,24 @@
 //! `codefast hook EVENT`: what a harness's lifecycle hooks run.
 //!
-//! Three events, all of them optional accelerators that add context and never decide anything:
+//! Four events, all of them optional accelerators that add context and never decide anything:
 //!
 //! * `session-start` makes sure the repository has an index (starting a detached build when it
-//!   has none) and returns a two-line note;
+//!   has none) and returns a one-line note;
+//! * `user-prompt-submit` reads the prompt for symbols it names and, for at most two that the
+//!   index knows without doubt, adds where each is defined, what it is for and how widely it
+//!   is used: the lookup an agent would otherwise spend its first steps on;
 //! * `post-tool-use` looks at a search the agent just ran (`grep`, `rg`, `find -name`, the
 //!   harness's own search tool) and, when it was a search for one identifier that is a known
 //!   symbol, adds where the symbol is defined and who calls it;
+//!   after an edit it compares the changed files with their committed version and, when the
+//!   edit removed, renamed or re-signatured something that other code still uses, lists those
+//!   places (said once: an edit that leaves nothing behind adds nothing);
 //! * `pre-tool-use` looks at a whole-file read of a long source file and adds one line saying
 //!   how long it is and which command prints its outline.
+//!
+//! After a compaction (`session-start` with source `compact`) the note is instead the list of
+//! definitions the uncommitted changes added, removed and altered: what the session did so far,
+//! in a few lines, at the moment its own record of it was summarised away.
 //!
 //! The payload is the harness's hook input (Claude Code and Codex share the shape; Cursor and
 //! Gemini CLI are recognised by their own field names). The reply is the harness's hook output
@@ -20,7 +30,8 @@
 //! | Harness event | Matcher | Command |
 //! |---|---|---|
 //! | `SessionStart` (every source) | none | `codefast hook session-start` |
-//! | `PostToolUse`, and `PostToolUseFailure` where it exists (a `grep` without matches exits 1) | `Bash\|Grep\|Glob` | `codefast hook post-tool-use` |
+//! | `UserPromptSubmit` | none | `codefast hook user-prompt-submit` |
+//! | `PostToolUse`, and `PostToolUseFailure` where it exists (a `grep` without matches exits 1) | `Bash\|Grep\|Glob\|Edit\|Write` | `codefast hook post-tool-use` |
 //! | `PreToolUse` | `Read\|Bash` | `codefast hook pre-tool-use` |
 //!
 //! # Environment
@@ -37,6 +48,7 @@
 //! `search_file_content`, `read_file`) payloads are understood too; neither has a channel for
 //! context before a tool call, so `pre-tool-use` stays silent there.
 
+use super::prompt::{self, Mention};
 use super::quote;
 use super::shell::{self, Dir, Ident, Search};
 use crate::build::{self, BASE_SEGMENT, OVERLAY_SEGMENT};
@@ -70,6 +82,18 @@ const BUILD_WAIT: Duration = Duration::from_millis(400);
 /// Names with more definitions than this are too ambiguous to answer unasked.
 const MAX_DEFS: usize = 48;
 const MAX_ENTITIES: usize = 8;
+/// Symbols of a prompt that get a card. Context nobody asked for pays only while it is
+/// short and right: two cards, and none for a name the index cannot pin down.
+const MAX_CARDS: usize = 2;
+const CARD_BYTES: usize = 380;
+/// A prompt is answered once per turn and an edit check has files to read: both may take longer
+/// than a note after a search.
+const SLOW_DEADLINE: Duration = Duration::from_millis(2500);
+/// What an edit check may say in one go, and how many changed files it looks at.
+const CHECK_BYTES: usize = 2600;
+const CHECK_FILES: usize = 40;
+/// The summary of the uncommitted changes after a compaction, in tokens.
+const RECAP_TOKENS: usize = 350;
 
 const LOCK_FILE: &str = "refresh.lock";
 const LOCK_STALE: Duration = Duration::from_secs(600);
@@ -87,6 +111,7 @@ const MAX_TOOL_INPUT_BYTES: usize = 256 << 10;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Event {
     SessionStart,
+    UserPromptSubmit,
     PreToolUse,
     PostToolUse,
     /// Internal: the detached worker `session-start` leaves behind.
@@ -98,6 +123,7 @@ impl Event {
         let key: String = s.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect();
         Some(match key.as_str() {
             "sessionstart" => Event::SessionStart,
+            "userpromptsubmit" => Event::UserPromptSubmit,
             "pretooluse" | "beforetool" => Event::PreToolUse,
             "posttooluse" | "posttoolusefailure" | "aftertool" => Event::PostToolUse,
             "indexrefresh" => Event::Refresh,
@@ -109,6 +135,7 @@ impl Event {
     fn names(self) -> &'static [&'static str] {
         match self {
             Event::SessionStart => &["SessionStart"],
+            Event::UserPromptSubmit => &["UserPromptSubmit"],
             Event::PreToolUse => &["PreToolUse"],
             Event::PostToolUse => &["PostToolUse", "PostToolUseFailure", "AfterTool"],
             Event::Refresh => &[],
@@ -185,7 +212,7 @@ fn value_end(b: &[u8], i: usize) -> Option<usize> {
 }
 
 const WANTED: &[&str] =
-    &["session_id", "conversation_id", "agent_id", "cwd", "workspace_roots", "hook_event_name", "tool_name", "tool_input", "cursor_version"];
+    &["session_id", "conversation_id", "agent_id", "cwd", "workspace_roots", "hook_event_name", "tool_name", "tool_input", "cursor_version", "prompt", "source"];
 
 /// The wanted members of the payload's top-level object, as raw JSON text. Everything else,
 /// notably the tool's output, is stepped over without being parsed. `None` unless the input is
@@ -234,6 +261,10 @@ struct Payload {
     event_name: Option<String>,
     tool: Option<String>,
     input: Option<Value>,
+    /// What the user typed (`UserPromptSubmit`).
+    prompt: Option<String>,
+    /// Why the session starts (`SessionStart`): `startup`, `resume`, `clear`, `compact`, `fork`.
+    source: Option<String>,
     /// Cursor's hook protocol: flat, snake-case output.
     cursor: bool,
 }
@@ -254,6 +285,12 @@ impl Payload {
                     }
                 }
                 "hook_event_name" => p.event_name = string(raw),
+                "prompt" => {
+                    if raw.len() <= MAX_TOOL_INPUT_BYTES {
+                        p.prompt = string(raw);
+                    }
+                }
+                "source" => p.source = string(raw),
                 "tool_name" => p.tool = string(raw),
                 "tool_input" => {
                     if raw.len() <= MAX_TOOL_INPUT_BYTES {
@@ -281,7 +318,8 @@ impl Payload {
         if self.cursor {
             // Cursor reads `additional_context` after a tool call and at session start only.
             let fits = given.is_none_or(|n| n.eq_ignore_ascii_case(canonical));
-            return if fits && event != Event::PreToolUse { format!("{}\n", json!({"additional_context": text})) } else { String::new() };
+            let has_channel = !matches!(event, Event::PreToolUse | Event::UserPromptSubmit);
+            return if fits && has_channel { format!("{}\n", json!({"additional_context": text})) } else { String::new() };
         }
         let name = match given {
             None => canonical,
@@ -311,6 +349,8 @@ enum Call {
     Shell { command: String, dir: Option<String> },
     Search(Search),
     Read { path: String, whole: bool },
+    /// A tool that writes files: the files it named.
+    Edit { paths: Vec<String> },
 }
 
 impl Payload {
@@ -342,6 +382,22 @@ impl Payload {
                 let path = text(&["file_path", "absolute_path", "path", "target_file"])?;
                 let whole = number("offset").is_none_or(|o| o <= 1) && number("limit").is_none_or(|l| l > READ_LINES);
                 Some(Call::Read { path, whole })
+            }
+            "edit" | "write" | "multiedit" | "replace" | "write_file" | "edit_file" | "create_file" | "str_replace_editor" | "str_replace_based_edit_tool" | "search_replace" => {
+                Some(Call::Edit { paths: text(&["file_path", "absolute_path", "path", "target_file"]).into_iter().collect() })
+            }
+            // Codex: one patch, any number of files, each announced on a line of its own.
+            "apply_patch" => {
+                let patch = text(&["command", "patch", "input"])?;
+                let mut paths = Vec::new();
+                for line in patch.lines() {
+                    for lead in ["*** Update File: ", "*** Add File: ", "*** Delete File: ", "*** Move to: "] {
+                        if let Some(p) = line.strip_prefix(lead) {
+                            paths.push(p.trim().to_string());
+                        }
+                    }
+                }
+                Some(Call::Edit { paths })
             }
             _ => None,
         }
@@ -704,14 +760,170 @@ fn session_start(passed: &Path, payload: &Payload) -> String {
         }
     }
     let cli = cli();
+    // After a compaction the conversation has lost its own record of what it changed. The
+    // work tree still has it: the definitions added, removed and altered so far.
+    if payload.source.as_deref() == Some("compact") && counts.is_some() && refresh_allowed() {
+        if let Ok(ix) = fresh::open(&place.root, &OpenOptions { refresh: true, quiet: true }) {
+            let mut out = crate::output::Out::new(RECAP_TOKENS);
+            if crate::query::changed::summary(&ix, &crate::query::Common::default(), &mut out) > 0 {
+                let recap = out.finish();
+                return payload.reply(Event::SessionStart, &format!("codefast: {}`{cli} check` lists uses left behind by these changes, `{cli} search NAME` a symbol with every place that uses it.", recap));
+            }
+        }
+    }
     let state = match counts {
         Some((files, defs)) => format!("codefast has an index of this repository ({} files, {} symbols)", count(files), count(defs)),
         None => "codefast is indexing this repository in the background (first run; its commands wait until it is ready)".to_string(),
     };
-    let note = format!(
-        "{state}: `{cli} search NAME` prints a symbol's definition, body and callers in one call.\nOther subcommands: `callers NAME`, `callees NAME`, `refs NAME`, `path FROM TO`, `grep PATTERN`, `show FILE` (outline), `locate \"bug report text\"`."
-    );
+    // One line. What the tool can do is in its skill and its tool list: said again here, on
+    // every session, it would be paid for on every request and read on none.
+    let note = format!("{state}: `{cli} search NAME` prints a symbol's definition, its body and every place that uses it in one call.");
     payload.reply(Event::SessionStart, &note)
+}
+
+// ----- user-prompt-submit -----
+
+/// The one entity a mention names, or nothing when the index leaves any doubt.
+fn resolve_mention<'a>(ix: &'a Index, rs: &Resolver<'a>, m: &Mention, paths: &[String]) -> Option<Target> {
+    let nid = ix.name_id(m.name.as_bytes())?;
+    let mut defs: Vec<DefId> = ix.defs_named_id(nid).take(4 * MAX_DEFS + 1).collect();
+    if defs.is_empty() || defs.len() > 4 * MAX_DEFS {
+        return None;
+    }
+    if let Some(owner) = &m.owner {
+        // A qualified name is taken at its word: the owner has to be the container, or (for
+        // `module.function`) part of the path of the defining file.
+        let held: Vec<DefId> = defs.iter().copied().filter(|&d| ix.def(d).parent_name() == Some(owner.as_bytes())).collect();
+        defs = if held.is_empty() {
+            let stem = format!("/{owner}.");
+            let dir = format!("/{owner}/");
+            defs.into_iter().filter(|&d| ix.def(d).parent().is_none() && (format!("/{}", ix.def(d).path()).contains(&stem) || format!("/{}", ix.def(d).path()).contains(&dir))).collect()
+        } else {
+            held
+        };
+    }
+    let in_named_file: Vec<DefId> = defs.iter().copied().filter(|&d| paths.iter().any(|p| ix.def(d).path().ends_with(p.as_str()))).collect();
+    let pinned = !in_named_file.is_empty();
+    if pinned {
+        defs = in_named_file;
+    }
+    if defs.len() > MAX_DEFS {
+        return None;
+    }
+    let ents = rs.entities(&defs);
+    let strong: Vec<&Target> = ents.iter().filter(|t| matches!(t.class, Class::Callable | Class::Type | Class::Value)).collect();
+    let main = match (&ents[..], &strong[..]) {
+        ([one], _) => one,
+        // Several things share the name: only a name written as code, or pinned to a file, may
+        // pick the one function or type among fields and locals of the same name.
+        (_, [one]) if m.explicit || pinned => *one,
+        _ => return None,
+    };
+    // A plain word of the prompt that happens to be a field name is not a mention of it.
+    if !m.explicit && !pinned && !matches!(main.class, Class::Callable | Class::Type) {
+        return None;
+    }
+    Some(main.clone())
+}
+
+/// `called from 19 sites in 13 files and 9 sites in 6 test files`, or nothing.
+fn spread(ix: &Index, rs: &Resolver, t: &Target) -> Option<String> {
+    let p = t.primary(ix);
+    if p.flags() & crate::facts::dflag::TEST != 0 || ix.is_test_file(p.file()) {
+        return None;
+    }
+    let files = ix.name_id(&t.name).map(|n| ix.files_with(n).count()).unwrap_or(0);
+    if files > USAGE_MAX_FILES {
+        return Some(format!("named in {} files", count(files)));
+    }
+    let (edges, _) = crate::query::refs::caller_edges(rs, t);
+    let named: Vec<_> = edges.iter().filter(|e| !matches!(e.via, crate::query::refs::Via::Slot(..))).map(|e| e.r).collect();
+    let (tests, code): (Vec<_>, Vec<_>) = named.into_iter().partition(|r| ix.is_test_file(r.file));
+    let nfiles = |v: &[crate::store::RefV]| v.iter().map(|r| r.file).collect::<std::collections::HashSet<_>>().len();
+    let verb = if t.class == Class::Callable { "called from" } else { "used at" };
+    let part = |v: &[crate::store::RefV], what: &str| format!("{} site{} in {} {what}file{}", count(v.len()), if v.len() == 1 { "" } else { "s" }, count(nfiles(v)), if nfiles(v) == 1 { "" } else { "s" });
+    match (code.is_empty(), tests.is_empty()) {
+        (true, true) => Some(format!("{verb} nowhere in the indexed code")),
+        (false, true) => Some(format!("{verb} {}", part(&code, ""))),
+        (true, false) => Some(format!("{verb} {}", part(&tests, "test "))),
+        (false, false) => Some(format!("{verb} {} and {}", part(&code, ""), part(&tests, "test "))),
+    }
+}
+
+fn prompt_cards(place: Place, found: prompt::Mentions, session_id: Option<String>, cli: String, tx: mpsc::Sender<String>) {
+    let Some(ix) = open_index(&place) else { return };
+    let Some(session) = Session::open(&place, session_id.as_deref()) else { return };
+    let rs = Resolver::new(&ix);
+    let mut docs = crate::query::card::Docs::new(&ix);
+    // Names written as code first, tests last: a failing test is where the agent starts
+    // anyway, the function it is about is what it has to find.
+    let mut order: Vec<&Mention> = found.symbols.iter().collect();
+    order.sort_by_key(|m| (!m.explicit, m.name.starts_with("test") || m.name.starts_with("Test")));
+    let mut sent = 0;
+    let mut seen: Vec<DefId> = Vec::new();
+    for m in order {
+        if sent >= MAX_CARDS {
+            break;
+        }
+        let Some(target) = resolve_mention(&ix, &rs, m, &found.paths) else { continue };
+        let def = target.primary(&ix);
+        if seen.contains(&def.id) {
+            continue;
+        }
+        // Exact or silent: a file edited since it was indexed may have moved its lines.
+        if !current(&ix, def.file()) {
+            request_refresh(&place);
+            continue;
+        }
+        seen.push(def.id);
+        let name = def.qualified();
+        if session.seen(&format!("p:{name}")) {
+            continue;
+        }
+        let mut card = format!("{name} is defined at {}:{} {}", def.path(), def.rec.line, clip_bytes(&crate::query::sig_of(&def), 130));
+        if let Some(doc) = docs.line(&def, 100) {
+            card.push_str(&format!("\n  {doc}"));
+        }
+        if let Some(s) = spread(&ix, &rs, &target) {
+            let verb = if target.class == Class::Callable { "callers" } else { "refs" };
+            let all = if s.contains("nowhere") || s.starts_with("named in") { String::new() } else { format!(" (`{cli} {verb} {name}` lists every one)") };
+            card.push_str(&format!("\n  {s}{all}"));
+        }
+        // The same symbol is not explained again when the agent greps for it.
+        if !session.claim(&format!("p:{name}")) {
+            continue;
+        }
+        session.claim(&format!("s:{}", String::from_utf8_lossy(&target.name)));
+        if tx.send(clip_bytes(&card, CARD_BYTES)).is_err() {
+            return;
+        }
+        sent += 1;
+    }
+}
+
+fn user_prompt(passed: &Path, payload: &Payload, started: Instant) -> String {
+    let Some(text) = payload.prompt.as_deref() else { return String::new() };
+    let found = prompt::mentions(text);
+    if found.symbols.is_empty() {
+        return String::new();
+    }
+    let Some(place) = Place::find(passed, payload.cwd.as_deref()) else { return String::new() };
+    let session_id = payload.audience();
+    let (tx, rx) = mpsc::channel();
+    let cli = cli();
+    let worker = std::thread::Builder::new().stack_size(16 << 20).spawn(move || prompt_cards(place, found, session_id, cli, tx));
+    if worker.is_err() {
+        return String::new();
+    }
+    // Whatever is ready when the time is up goes out: a card that is late is not waited for.
+    let mut cards: Vec<String> = Vec::new();
+    while let Ok(card) = rx.recv_timeout(SLOW_DEADLINE.saturating_sub(started.elapsed())) {
+        cards.push(card);
+    }
+    if cards.is_empty() {
+        return String::new();
+    }
+    payload.reply(Event::UserPromptSubmit, &format!("codefast: {}", cards.join("\n")))
 }
 
 // ----- post-tool-use -----
@@ -720,6 +932,8 @@ fn session_start(passed: &Path, payload: &Payload) -> String {
 struct Head {
     name: String,
     line: String,
+    /// The first sentence of its documentation.
+    doc: Option<String>,
     callable: bool,
     /// Files whose text mentions the name.
     files: usize,
@@ -789,11 +1003,19 @@ fn answer_search(place: Place, base: PathBuf, searches: Vec<Search>, session_id:
             continue;
         }
         let files = ix.name_id(id.name.as_bytes()).map(|n| ix.files_with(n).count()).unwrap_or(0);
-        let head = Head { name: id.name.clone(), line: def_line(&def), callable: target.class == Class::Callable, files, others, session };
+        let doc = crate::query::card::Docs::new(&ix).line(&def, 110);
+        let head = Head { name: id.name.clone(), line: def_line(&def), doc, callable: target.class == Class::Callable, files, others, session };
         if tx.send(Stage::Head(head)).is_err() {
             return;
         }
-        let usage = if files > USAGE_MAX_FILES { None } else { usage_line(&ix, &rs, &target, 4).into_iter().next() };
+        // Of the lines about its use, the one a text search cannot give comes first: where it
+        // is registered or passed as a callback. The names of its callers otherwise.
+        let usage = if files > USAGE_MAX_FILES {
+            None
+        } else {
+            let lines = usage_line(&ix, &rs, &target, 4);
+            lines.iter().find(|l| l.starts_with("registered") || l.starts_with("passed as a callback")).or(lines.first()).cloned()
+        };
         let _ = tx.send(Stage::Usage(usage));
         return;
     }
@@ -801,7 +1023,7 @@ fn answer_search(place: Place, base: PathBuf, searches: Vec<Search>, session_id:
 
 fn symbol_note(head: &Head, usage: Option<&str>, cli: &str) -> String {
     let name = &head.name;
-    // The second line, best first: the caller summary; without one (a type, a field, or a
+    // After the definition, best first: how it is used; without that (a type, a field, or a
     // symbol used too widely to summarise in time) where to get it; at the least, the count.
     let seconds: Vec<String> = match usage {
         Some(u) => vec![clip_bytes(u, 120)],
@@ -811,35 +1033,114 @@ fn symbol_note(head: &Head, usage: Option<&str>, cli: &str) -> String {
             vec![format!("{files}; `{cli} {verb} {name}` lists {what}"), files]
         }
     };
-    let more = match head.others {
+    // What it is for, when its author said so: the line that saves opening the body.
+    let doc = head.doc.as_deref().map(|d| format!("\n{d}")).unwrap_or_default();
+    let others = match head.others {
         0 => String::new(),
-        n => format!("; {n} other symbol{} named {name}: `{cli} find {name}`", if n == 1 { " is" } else { "s are" }),
+        n => format!("\n{n} other symbol{} named {name}: `{cli} find {name}`", if n == 1 { " is" } else { "s are" }),
     };
     let lead = format!("codefast: {name} is defined at ");
-    let tails = [
-        format!("\n`{cli} search {name}` prints the full definition with everything that uses it{more}."),
-        format!("\n`{cli} search {name}` prints the full definition."),
-        String::new(),
-    ];
-    // The definition is the answer. The pointers around it are shortened, then dropped, before
-    // it is cut: first the one to the full answer, then the command on the second line (which
-    // is what goes when this program is not on PATH and its own path is very long).
+    // The definition is the answer. What stands around it is dropped, piece by piece, before
+    // the definition is cut: the other symbols of the name, then the sentence, then the command
+    // on the usage line (which is what goes when this program is not on PATH and its own path
+    // is very long). Nothing here tells the reader what to run next: a note states what is.
     let enough = head.line.len().min(100);
-    for second in &seconds {
-        for tail in &tails {
-            let room = NOTE_BYTES.saturating_sub(lead.len() + second.len() + tail.len() + 1);
+    for (doc, others) in [(doc.as_str(), others.as_str()), (doc.as_str(), ""), ("", "")] {
+        for second in &seconds {
+            let room = NOTE_BYTES.saturating_sub(lead.len() + doc.len() + second.len() + others.len() + 1);
             if room >= enough {
-                return format!("{lead}{}\n{second}{tail}", clip_bytes(&head.line, room));
+                return format!("{lead}{}{doc}\n{second}{others}", clip_bytes(&head.line, room));
             }
         }
     }
     clip_bytes(&format!("{lead}{}", head.line), NOTE_BYTES)
 }
 
+/// What the edits left behind, for the files a tool call wrote (all changed files when it did
+/// not name them). Every finding is said once per session.
+fn edit_findings(place: Place, base: Option<PathBuf>, paths: Vec<String>, session_id: Option<String>, tx: mpsc::Sender<String>) {
+    if !refresh_allowed() {
+        return;
+    }
+    let Some(session) = Session::open(&place, session_id.as_deref()) else { return };
+    // The rest of the code is compared as it is now, so the index is brought up to date first.
+    let Ok(ix) = fresh::open(&place.root, &OpenOptions { refresh: true, quiet: true }) else { return };
+    let rs = Resolver::new(&ix);
+    let mut files: Vec<String> = Vec::new();
+    for p in &paths {
+        let path = PathBuf::from(p);
+        let abs = match (path.is_absolute(), &base) {
+            (true, _) => path,
+            (false, Some(b)) => b.join(path),
+            _ => continue,
+        };
+        if let Some(rel) = place.relative(&abs) {
+            files.push(rel);
+        }
+    }
+    if paths.is_empty() {
+        files = crate::query::changed::dirty_files(&place.root).into_iter().filter(|f| crate::lang::Lang::from_path(f).has_extractor()).take(CHECK_FILES).collect();
+    }
+    let mut said = 0usize;
+    let mut held = 0usize;
+    for rel in &files {
+        for f in crate::query::changed::check_file(&ix, &rs, &place.root, rel, 500) {
+            if session.seen(&f.key) {
+                continue;
+            }
+            // The list of places is not printed twice: a command that showed it a few minutes
+            // ago (the agent asked before it edited) is what "above" refers to.
+            let text = if crate::recent::was_listed(&place.index_dir, &f.symbol, Duration::from_secs(900)) { f.brief } else { f.text };
+            if said + text.len() > CHECK_BYTES && said > 0 {
+                held += 1;
+                continue;
+            }
+            if !session.claim(&f.key) {
+                continue;
+            }
+            said += text.len();
+            if tx.send(text).is_err() {
+                return;
+            }
+        }
+    }
+    if held > 0 {
+        let _ = tx.send(format!("(+{held} more findings: `{} check` lists them)", cli()));
+    }
+}
+
+fn after_edit(passed: &Path, payload: &Payload, paths: Vec<String>, dir: Option<String>, started: Instant) -> String {
+    let Some(place) = Place::find(passed, payload.cwd.as_deref()) else { return String::new() };
+    let base = dir.or_else(|| payload.cwd.clone()).map(PathBuf::from).filter(|d| d.is_absolute());
+    let session_id = payload.audience();
+    let (tx, rx) = mpsc::channel();
+    let worker = std::thread::Builder::new().stack_size(16 << 20).spawn(move || edit_findings(place, base, paths, session_id, tx));
+    if worker.is_err() {
+        return String::new();
+    }
+    let mut found: Vec<String> = Vec::new();
+    while let Ok(text) = rx.recv_timeout(SLOW_DEADLINE.saturating_sub(started.elapsed())) {
+        found.push(text);
+    }
+    if found.is_empty() {
+        return String::new();
+    }
+    payload.reply(Event::PostToolUse, &format!("codefast: {}", found.join("\n\n")))
+}
+
 fn post_tool_use(passed: &Path, payload: &Payload, started: Instant) -> String {
     let (searches, dir) = match payload.call() {
-        Some(Call::Shell { command, dir }) => (shell::analyse(&command).searches, dir),
+        Some(Call::Shell { command, dir }) => {
+            let searches = shell::analyse(&command).searches;
+            // A command that searched gets the note on what it searched for. One that may have
+            // written files gets the check of what the edits left behind.
+            if !searches.iter().any(|s| shell::identifier(s).is_some()) && shell::may_write(&command) {
+                return after_edit(passed, payload, Vec::new(), dir, started);
+            }
+            (searches, dir)
+        }
         Some(Call::Search(s)) => (vec![s], None),
+        Some(Call::Edit { paths }) => return after_edit(passed, payload, paths, None, started),
         _ => return String::new(),
     };
     if !searches.iter().any(|s| shell::identifier(s).is_some()) {
@@ -977,6 +1278,7 @@ pub(super) fn run(passed: &Path, event: &str, input: &str) -> String {
     }
     match event {
         Event::SessionStart => session_start(passed, &payload),
+        Event::UserPromptSubmit => user_prompt(passed, &payload, started),
         Event::PostToolUse => post_tool_use(passed, &payload, started),
         Event::PreToolUse => pre_tool_use(passed, &payload, started),
         Event::Refresh => String::new(),
@@ -1073,9 +1375,19 @@ mod tests {
             Some(Call::Shell { command: "rg x".into(), dir: Some("/p".into()) })
         );
         assert!(matches!(call(r#"{"tool_name": "run_shell_command", "tool_input": {"command": "rg x"}}"#), Some(Call::Shell { .. })));
+        // Tools that write files: the files they named
+        assert_eq!(call(r#"{"tool_name": "Write", "tool_input": {"file_path": "/r/a.c", "content": "x"}}"#), Some(Call::Edit { paths: vec!["/r/a.c".into()] }));
+        assert_eq!(
+            call(r#"{"tool_name": "Edit", "tool_input": {"file_path": "/r/a.c", "old_string": "a", "new_string": "b"}}"#),
+            Some(Call::Edit { paths: vec!["/r/a.c".into()] })
+        );
+        assert_eq!(
+            call(r#"{"tool_name": "apply_patch", "tool_input": {"command": "*** Begin Patch\n*** Update File: src/a.c\n@@\n-x\n+y\n*** Add File: src/b.c\n+z\n*** End Patch"}}"#),
+            Some(Call::Edit { paths: vec!["src/a.c".into(), "src/b.c".into()] })
+        );
         // Tools the hooks have nothing to say about
         for other in [
-            r#"{"tool_name": "Write", "tool_input": {"file_path": "/r/a.c", "content": "x"}}"#,
+            r#"{"tool_name": "WebFetch", "tool_input": {"url": "https://example.com"}}"#,
             r#"{"tool_name": "Bash", "tool_input": {"command": 7}}"#,
             r#"{"tool_name": "Bash"}"#,
             r#"{"tool_input": {"command": "rg x"}}"#,
@@ -1113,7 +1425,7 @@ mod tests {
     fn notes_stay_inside_their_budget() {
         let session = Session { file: PathBuf::from("/nonexistent/codefast-test") };
         let long = format!("drivers/gpu/drm/some/long/path/file.c:1234 static int {}", "a_long_parameter_name, ".repeat(40));
-        let head = Head { name: "a_function_with_quite_a_long_name".into(), line: long, callable: true, files: 1234, others: 3, session };
+        let head = Head { name: "a_function_with_quite_a_long_name".into(), line: long, doc: None, callable: true, files: 1234, others: 3, session };
         let usage = format!("called by: {}", "another_caller_name, ".repeat(30));
         for usage in [Some(usage.as_str()), None] {
             let note = symbol_note(&head, usage, "codefast");
@@ -1123,7 +1435,8 @@ mod tests {
                 note.starts_with("codefast: a_function_with_quite_a_long_name is defined at drivers/gpu/drm/some/long/path/file.c:1234 static int "),
                 "{note}"
             );
-            assert!(note.contains("`codefast search a_function_with_quite_a_long_name`"), "{note}");
+            // The definition, how it is used, and that three other symbols share the name.
+            assert!(note.ends_with("3 other symbols are named a_function_with_quite_a_long_name: `codefast find a_function_with_quite_a_long_name`"), "{note}");
             assert!(note.lines().count() == 3, "{note}");
         }
         // A command as long as an absolute path leaves less room, and never a longer note: the
@@ -1144,6 +1457,7 @@ mod tests {
         let short = Head {
             name: "f_x".into(),
             line: "a.c:1 int f_x(void)".into(),
+            doc: None,
             callable: false,
             files: 1,
             others: 0,
@@ -1151,7 +1465,13 @@ mod tests {
         };
         assert_eq!(
             symbol_note(&short, None, "codefast"),
-            "codefast: f_x is defined at a.c:1 int f_x(void)\nmentioned in 1 file; `codefast refs f_x` lists its uses\n`codefast search f_x` prints the full definition with everything that uses it."
+            "codefast: f_x is defined at a.c:1 int f_x(void)\nmentioned in 1 file; `codefast refs f_x` lists its uses"
+        );
+        // The sentence its author wrote stands between the definition and its use.
+        let documented = Head { doc: Some("Fold x into the running sum".into()), session: Session { file: PathBuf::from("/nonexistent/y") }, name: "f_x".into(), line: "a.c:1 int f_x(void)".into(), callable: true, files: 1, others: 0 };
+        assert_eq!(
+            symbol_note(&documented, Some("called by: main"), "codefast"),
+            "codefast: f_x is defined at a.c:1 int f_x(void)\nFold x into the running sum\ncalled by: main"
         );
         assert_eq!(symbol_note(&short, None, &"/p".repeat(250)), "codefast: f_x is defined at a.c:1 int f_x(void)\nmentioned in 1 file");
         // The read hint keeps the outline command whatever its length, and drops the rest first.

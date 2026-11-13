@@ -9,7 +9,8 @@ mod support;
 use payloads::*;
 use support::*;
 
-const DEV_READ: &str = "codefast: dev_read is defined at src/io.c:4 int dev_read(struct dev *d, char *buf, int count)\ncalled by: copy_all\n`codefast search dev_read` prints the full definition with everything that uses it.";
+const DEV_READ: &str =
+    "codefast: dev_read is defined at src/io.c:4 int dev_read(struct dev *d, char *buf, int count)\nRead up to count bytes from the device\ncalled by: copy_all";
 
 #[test]
 fn a_grep_for_a_symbol_gets_its_definition_and_callers_once_per_session() {
@@ -77,12 +78,12 @@ fn the_search_tools_are_understood_like_the_shell() {
     let grep = hook(&home, &repo.dir, "post-tool-use", payload("claude-post-grep-tool", &repo.dir, &home).as_bytes(), &[]);
     assert_eq!(
         grep.context("PostToolUse"),
-        "codefast: dev_write is defined at src/io.c:11 int dev_write(struct dev *d, const char *buf, int count)\ncalled by: copy_all\n`codefast search dev_write` prints the full definition with everything that uses it."
+        "codefast: dev_write is defined at src/io.c:11 int dev_write(struct dev *d, const char *buf, int count)\ncalled by: copy_all"
     );
     let glob = hook(&home, &repo.dir, "post-tool-use", payload("claude-post-glob-tool", &repo.dir, &home).as_bytes(), &[]);
     let note = glob.context("PostToolUse");
     assert!(
-        note.starts_with("codefast: copy_all is defined at src/main.c:3 static int copy_all(struct dev *in, struct dev *out)\ncalled by: main\n"),
+        note.starts_with("codefast: copy_all is defined at src/main.c:3 static int copy_all(struct dev *in, struct dev *out)\ncalled by: main"),
         "{note}"
     );
 }
@@ -94,7 +95,7 @@ fn a_failed_search_is_answered_under_its_own_event_name() {
     // symbol was searched in the wrong directory: the answer says where it really is.
     let ran = hook(&home, &repo.dir, "post-tool-use", payload("claude-post-failure-bash-grep", &repo.dir, &home).as_bytes(), &[]);
     let note = ran.context("PostToolUseFailure");
-    assert!(note.starts_with("codefast: log_msg is defined at src/io.h:9 void log_msg(const char *fmt, ...); [decl]\ncalled by: dev_write\n"), "{note}");
+    assert!(note.starts_with("codefast: log_msg is defined at src/io.h:9 void log_msg(const char *fmt, ...); [decl]\ncalled by: dev_write"), "{note}");
 }
 
 #[test]
@@ -151,14 +152,10 @@ fn session_start_reports_the_index() {
     let (repo, home) = indexed("start");
     let ran = hook(&home, &repo.dir, "session-start", payload("claude-session-start", &repo.dir, &home).as_bytes(), &[]);
     let note = ran.context("SessionStart");
-    let lines: Vec<&str> = note.lines().collect();
-    assert_eq!(lines.len(), 2, "{note}");
-    assert!(lines[0].starts_with("codefast has an index of this repository (5 files, "), "{note}");
-    assert!(lines[0].ends_with("symbols): `codefast search NAME` prints a symbol's definition, body and callers in one call."), "{note}");
-    assert_eq!(
-        lines[1],
-        "Other subcommands: `callers NAME`, `callees NAME`, `refs NAME`, `path FROM TO`, `grep PATTERN`, `show FILE` (outline), `locate \"bug report text\"`."
-    );
+    // One line: what the tool can do is in its skill and its tool list, not repeated here.
+    assert_eq!(note.lines().count(), 1, "{note}");
+    assert!(note.starts_with("codefast has an index of this repository (5 files, "), "{note}");
+    assert!(note.ends_with("symbols): `codefast search NAME` prints a symbol's definition, its body and every place that uses it in one call."), "{note}");
     assert!(ran.elapsed.as_secs() < 5, "session-start returned after {:?}", ran.elapsed);
     settle(&repo);
 }
@@ -170,7 +167,7 @@ fn session_start_builds_a_missing_index_without_waiting_for_it() {
     assert!(!index_dir(&repo).exists());
     let ran = hook(&home, &repo.dir, "session-start", payload("claude-session-start", &repo.dir, &home).as_bytes(), &[]);
     let note = ran.context("SessionStart");
-    assert_eq!(note.lines().count(), 2, "{note}");
+    assert_eq!(note.lines().count(), 1, "{note}");
     assert!(
         note.starts_with("codefast has an index of this repository (") || note.starts_with("codefast is indexing this repository in the background"),
         "{note}"
@@ -267,13 +264,13 @@ fn the_caller_summary_never_holds_the_answer_back() {
     let ran = hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[("CODEFAST_HOOK_BUDGET_MS", "0")]);
     assert_eq!(
         ran.context("PostToolUse"),
-        "codefast: dev_read is defined at src/io.c:4 int dev_read(struct dev *d, char *buf, int count)\nmentioned in 3 files; `codefast callers dev_read` lists its call sites\n`codefast search dev_read` prints the full definition with everything that uses it."
+        "codefast: dev_read is defined at src/io.c:4 int dev_read(struct dev *d, char *buf, int count)\nRead up to count bytes from the device\nmentioned in 3 files; `codefast callers dev_read` lists its call sites"
     );
     // A type has no callers to summarise: the pointer is to its uses.
     let ops = in_session(&input.replace("\\\"dev_read\\\" src/", "'struct dev_ops {' src/"), "types");
     assert_eq!(
         hook(&home, &repo.dir, "post-tool-use", ops.as_bytes(), &[]).context("PostToolUse"),
-        "codefast: dev_ops is defined at src/io.h:2 struct dev_ops\nmentioned in 1 file; `codefast refs dev_ops` lists its uses\n`codefast search dev_ops` prints the full definition with everything that uses it."
+        "codefast: dev_ops is defined at src/io.h:2 struct dev_ops\nmentioned in 1 file; `codefast refs dev_ops` lists its uses"
     );
 }
 
@@ -281,18 +278,20 @@ fn the_caller_summary_never_holds_the_answer_back() {
 fn without_codefast_on_the_path_the_note_names_the_binary() {
     let (repo, home) = indexed("path");
     let input = payload("claude-post-bash-grep", &repo.dir, &home);
-    let note = hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[("PATH", "/usr/bin:/bin")]).context("PostToolUse");
-    assert!(note.ends_with(&format!("`{BIN} search dev_read` prints the full definition with everything that uses it.")), "{note}");
+    // With no time for the caller summary the note points at the command that has it.
+    let note = hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[("PATH", "/usr/bin:/bin"), ("CODEFAST_HOOK_BUDGET_MS", "0")]).context("PostToolUse");
+    assert!(note.ends_with(&format!("`{BIN} callers dev_read` lists its call sites")), "{note}");
 
     // Run from the Claude Code plugin, the hook's own PATH lacks the command, but the agent's
     // shell has the plugin's bin/ on it: the bare name is the right one to print.
     let plugin = scratch("plugin");
     write(&plugin.join("bin/codefast"), "#!/bin/sh\n");
-    let from_plugin = [("PATH", "/usr/bin:/bin"), ("CLAUDE_PLUGIN_ROOT", plugin.to_str().unwrap())];
+    let from_plugin = [("PATH", "/usr/bin:/bin"), ("CLAUDE_PLUGIN_ROOT", plugin.to_str().unwrap()), ("CODEFAST_HOOK_BUDGET_MS", "0")];
     let note = hook(&home, &repo.dir, "post-tool-use", in_session(&input, "plugin").as_bytes(), &from_plugin).context("PostToolUse");
-    assert!(note.ends_with("`codefast search dev_read` prints the full definition with everything that uses it."), "{note}");
+    assert!(note.ends_with("`codefast callers dev_read` lists its call sites"), "{note}");
     // Codex sets the same variable next to its own and puts nothing on PATH.
-    let from_codex = [("PATH", "/usr/bin:/bin"), ("CLAUDE_PLUGIN_ROOT", plugin.to_str().unwrap()), ("PLUGIN_ROOT", plugin.to_str().unwrap())];
+    let from_codex =
+        [("PATH", "/usr/bin:/bin"), ("CLAUDE_PLUGIN_ROOT", plugin.to_str().unwrap()), ("PLUGIN_ROOT", plugin.to_str().unwrap()), ("CODEFAST_HOOK_BUDGET_MS", "0")];
     let note = hook(&home, &repo.dir, "post-tool-use", in_session(&input, "codex-plugin").as_bytes(), &from_codex).context("PostToolUse");
-    assert!(note.contains(&format!("`{BIN} search dev_read`")), "{note}");
+    assert!(note.contains(&format!("`{BIN} callers dev_read`")), "{note}");
 }

@@ -159,7 +159,7 @@ fn dir_histogram(refs: &[RefV], top_n: usize) -> String {
 
 /// Print references under the budget. A set too large to fit gets a per-directory histogram
 /// first, so the shape of the whole set is visible even though only the nearest part is listed.
-fn list_refs(ix: &Index, refs: &[RefV], text: bool, out: &mut Out) {
+pub(crate) fn list_refs(ix: &Index, refs: &[RefV], text: bool, out: &mut Out) {
     if refs.is_empty() {
         return;
     }
@@ -303,6 +303,35 @@ pub fn refs(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, opts: 
             }
         }
     }
+}
+
+/// Member references named `name` whose receiver is written as a value of type `owner`,
+/// whether or not that type has such a member: after a rename or a removal, the places left
+/// to fix.
+pub fn dangling_member_refs<'a>(ix: &'a Index, rs: &Resolver<'a>, owner: &str, name: &str) -> Vec<RefV<'a>> {
+    let owner_defs: Vec<DefId> = ix.defs_named(owner.as_bytes()).into_iter().filter(|&d| ix.def(d).kind().is_type()).collect();
+    let mut hits: Vec<RefV> = Vec::new();
+    let Some(nid) = ix.name_id(name.as_bytes()) else { return hits };
+    if owner_defs.is_empty() {
+        return hits;
+    }
+    // A value of a subtype used the member too, by inheritance, unless the subtype has one of
+    // its own by that name.
+    let owner_ty = Ty { name: owner.as_bytes().to_vec(), defs: owner_defs.clone() };
+    let own_member = |t: &Ty| ix.defs_named_id(nid).any(|d| ix.def(d).parent_name() == Some(t.name.as_slice()));
+    let heirs: Vec<Ty> = rs.descendants(&owner_ty).into_iter().filter(|t| !own_member(t)).collect();
+    ix.for_each_ref_named(nid, |r| {
+        if !r.kind().is_member() {
+            return;
+        }
+        let Some(q) = r.qual() else { return };
+        let tys = rs.type_path_from(q.strip_prefix(b"^").unwrap_or(q), Some(r.file));
+        let is_owner = |o: &Ty| o.name.as_slice() == owner.as_bytes() && (o.defs.is_empty() || o.defs.iter().any(|d| owner_defs.contains(d)));
+        if tys.iter().any(|o| is_owner(o) || heirs.iter().any(|h| h.same(o))) {
+            hits.push(r);
+        }
+    });
+    hits
 }
 
 /// `Owner.name` names no definition. If a type `Owner` exists, the references that expect it to
@@ -478,9 +507,11 @@ pub fn caller_edges<'a>(rs: &Resolver<'a>, t: &Target) -> (Vec<Edge<'a>>, Vec<Re
 }
 
 /// Whether call sites that match by name only are worth listing with the sure ones: when the
-/// name is rare among types, or there are only a handful of them.
+/// name is rare among types, or there are only a handful of them and not many types to choose
+/// from. A name that many types define (`Add`, `Get`, `close`) says nothing about the receiver.
 pub fn loose_is_likely(rs: &Resolver, t: &Target, loose: usize) -> bool {
-    loose > 0 && (rs.member_owner_count(&t.name) <= 3 || loose <= 8)
+    let owners = rs.member_owner_count(&t.name);
+    loose > 0 && (owners <= 3 || (loose <= 8 && owners <= 6))
 }
 
 pub struct Callee<'a> {
@@ -861,6 +892,13 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
         }
         let (edges, loose) = caller_edges(rs, t);
         let keep = |e: &&Edge| pf.matches(e.r.path()) && (common.tests || !ix.is_test_file(e.r.file) || ix.is_test_file(p.file()));
+        // Calls from test code are kept apart, not dropped: a change to the function has to
+        // reach them too, and one compact line per file is all they cost.
+        let mut in_tests: Vec<RefV> = if common.tests || ix.is_test_file(p.file()) {
+            Vec::new()
+        } else {
+            edges.iter().filter(|e| matches!(e.via, Via::Call) && pf.matches(e.r.path()) && ix.is_test_file(e.r.file)).map(|e| e.r).collect()
+        };
         let mut loose: Vec<RefV> =
             loose.into_iter().filter(|r| pf.matches(r.path()) && (common.tests || !ix.is_test_file(r.file) || ix.is_test_file(p.file()))).collect();
         let list_loose = loose_is_likely(rs, t, loose.len());
@@ -881,6 +919,9 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
                 count(loose.len())
             )
         };
+        if !in_tests.is_empty() {
+            head.push_str(&format!(", {} more in tests", count(in_tests.len())));
+        }
         if !binds.is_empty() {
             head.push_str(&format!(", {} registrations / slot bindings", binds.len()));
         }
@@ -898,6 +939,12 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
             // The source line of each call is what an edit needs: shown whenever it fits.
             let text = direct.len() <= 30;
             list_refs(ix, &direct, text, out);
+        }
+        if !in_tests.is_empty() {
+            in_tests.sort_by_cached_key(|r| proximity_key(ix, &def_path, r));
+            let tfiles = in_tests.iter().map(|r| r.file).collect::<FxHashSet<_>>().len();
+            out.push(&format!("in tests ({} call sites, {} files; --tests shows their lines):", count(in_tests.len()), count(tfiles)));
+            list_refs(ix, &in_tests, false, out);
         }
         if !args.is_empty() {
             args.sort_by_cached_key(|e| proximity_key(ix, &def_path, &e.r));
@@ -968,16 +1015,100 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
             let text = loose.len() <= 30;
             list_refs(ix, &loose, text, out);
         } else if !loose.is_empty() {
-            out.push(&format!(
-                "(+{} more possible call sites matched by name only, receiver type unknown: `codefast refs {} --loose` lists them)",
-                count(loose.len()),
-                s
-            ));
+            unsure_sites(ix, &mut loose, &def_path, &String::from_utf8_lossy(&t.name), out);
         }
-        if direct.is_empty() && values.is_empty() && binds.is_empty() && args.is_empty() && slot_calls.is_empty() && loose.is_empty() {
+        if !out.full && (common.tests || !in_tests.is_empty() || ix.is_test_file(p.file())) {
+            crate::recent::listed(&crate::build::index_dir(&ix.root), &p.qualified());
+        }
+        if direct.is_empty() && in_tests.is_empty() && values.is_empty() && binds.is_empty() && args.is_empty() && slot_calls.is_empty() && loose.is_empty() {
             out.push("no callers found in indexed code");
         }
     }
+}
+
+/// Calls of a member name on a receiver whose type is not written, when several types have a
+/// member of that name: each may or may not be a call of the one asked about. A handful are
+/// printed with their source line, which is what settles it at a glance. Only a count stood
+/// here once, and the reader went off to grep the whole repository to be sure.
+fn unsure_sites(ix: &Index, loose: &mut Vec<RefV>, def_path: &str, name: &str, out: &mut Out) {
+    loose.sort_by_cached_key(|r| proximity_key(ix, def_path, r));
+    let n = loose.len();
+    if n > 10 {
+        out.push(&format!("(+{} more calls of `.{name}(` on a receiver whose type is not written, any of which may be another type's {name}: `codefast refs {name} --loose`)", count(n)));
+        return;
+    }
+    out.push(&format!(
+        "{} more call{} of `.{name}(` on a receiver whose type is not written (other types have `{name}` too, so each of these may be theirs):",
+        count(n),
+        if n == 1 { "" } else { "s" }
+    ));
+    // One line each, whatever is left of the budget: these few lines are the whole point.
+    let mut sources: FxHashMap<crate::store::FileId, Option<(std::sync::Arc<Vec<u8>>, Vec<usize>)>> = FxHashMap::default();
+    for r in loose.iter() {
+        let entry = sources.entry(r.file).or_insert_with(|| {
+            ix.source(r.file).map(|s| {
+                let st = line_starts(&s);
+                (s, st)
+            })
+        });
+        let text = match entry {
+            Some((src, starts)) => String::from_utf8_lossy(line_text(src, starts, r.line())).trim().to_string(),
+            None => String::new(),
+        };
+        out.push(&format!("  {}:{}: {}", r.path(), r.line(), clip(&text, 110)));
+    }
+}
+
+/// Every place that calls or names `t`, grouped by file in the compact form, within `budget`
+/// tokens: the part of an answer about a symbol that says what a change to it would touch.
+/// Returns false when nothing in the indexed code uses it.
+pub fn sites_summary(ix: &Index, rs: &Resolver, t: &Target, budget: usize, out: &mut Out) -> bool {
+    let p = t.primary(ix);
+    let (edges, loose) = caller_edges(rs, t);
+    let def_path = p.path().to_string();
+    let def_in_tests = ix.is_test_file(p.file());
+    // Where the name is written: calls, uses as a value, callbacks, bindings into a slot. A
+    // dispatch through the slot does not name it.
+    let mut named: Vec<RefV> = edges.iter().filter(|e| !matches!(e.via, Via::Slot(..))).map(|e| e.r).collect();
+    let other = edges.iter().filter(|e| matches!(e.via, Via::Value | Via::Arg(_) | Via::Bind(_))).count();
+    named.sort_by_cached_key(|r| proximity_key(ix, &def_path, r));
+    let (tests, code): (Vec<RefV>, Vec<RefV>) = named.into_iter().partition(|r| !def_in_tests && ix.is_test_file(r.file));
+    let mut loose = loose;
+    loose.retain(|r| def_in_tests || !ix.is_test_file(r.file));
+    let likely = loose_is_likely(rs, t, loose.len());
+    if code.is_empty() && tests.is_empty() && loose.is_empty() {
+        return false;
+    }
+    let files = |v: &[RefV]| v.iter().map(|r| r.file).collect::<FxHashSet<_>>().len();
+    let mut sub = Out::new(budget.max(60));
+    let verb = if t.class == Class::Callable { "called from" } else { "used at" };
+    if !code.is_empty() {
+        let as_value = if other > 0 && t.class == Class::Callable { format!(", {other} of them as a value, callback or binding") } else { String::new() };
+        sub.push(&format!("{verb} {} sites in {} files{as_value}:", count(code.len()), count(files(&code))));
+        list_refs(ix, &code, false, &mut sub);
+    }
+    if !tests.is_empty() {
+        let lead = if code.is_empty() { format!("{verb} tests only") } else { "in tests".to_string() };
+        sub.push(&format!("{lead}: {} sites in {} files:", count(tests.len()), count(files(&tests))));
+        list_refs(ix, &tests, false, &mut sub);
+    }
+    if likely {
+        loose.sort_by_cached_key(|r| proximity_key(ix, &def_path, r));
+        sub.push(&format!("called by name, receiver type not written ({} sites in {} files):", count(loose.len()), count(files(&loose))));
+        list_refs(ix, &loose, false, &mut sub);
+    }
+    let complete = !sub.full;
+    let text = sub.finish();
+    for line in text.lines() {
+        out.line(line);
+    }
+    if complete && !out.full {
+        crate::recent::listed(&crate::build::index_dir(&ix.root), &p.qualified());
+    }
+    if !likely && !loose.is_empty() {
+        unsure_sites(ix, &mut loose, &def_path, &String::from_utf8_lossy(&t.name), out);
+    }
+    true
 }
 
 fn print_bindings(ix: &Index, rs: &Resolver, binds: &[(RefV, Conf)], out: &mut Out) {
@@ -1135,6 +1266,8 @@ pub fn callees(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, sig
         let mut external: Vec<String> = Vec::new();
         let mut macros: Vec<String> = Vec::new();
         let mut unknown: Vec<String> = Vec::new();
+        // What each callee is for, so that the list can be read without opening them.
+        let mut docs = super::card::Docs::new(ix);
         for c in &cs {
             let name = String::from_utf8_lossy(c.name);
             let times = if c.count > 1 { format!(" ×{}", c.count) } else { String::new() };
@@ -1149,7 +1282,7 @@ pub fn callees(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, sig
                     c.slot.as_ref().map(|(_, b)| b.len()).filter(|&n| n > 0).map(|n| format!(" (+{n} overrides / bound)")).unwrap_or_default()
                 };
                 let what = if sigs { format!(" {}", clip(&v.signature(), 140)) } else { String::new() };
-                out.line(&format!("  {} {}{} {}:{}{}{}", c.line, v.qualified(), times, v.path(), v.rec.line, what, more));
+                out.line(&format!("  {} {}{} {}:{}{}{}{}", c.line, v.qualified(), times, v.path(), v.rec.line, what, more, docs.suffix(&v, 70)));
                 continue;
             }
             if c.member {
@@ -1203,7 +1336,7 @@ pub fn callees(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, sig
                     // Reached under another name (an import alias, a variable that stands for
                     // the function): show the real one, and how it is written here.
                     let shown = if v.name() == c.name || v.name() == b"default" { name.into_owned() } else { format!("{} (written {})", v.name_str(), name) };
-                    out.line(&format!("  {} {}{} {}:{}{}{}", c.line, shown, times, v.path(), v.rec.line, what, alt));
+                    out.line(&format!("  {} {}{} {}:{}{}{}{}", c.line, shown, times, v.path(), v.rec.line, what, alt, docs.suffix(&v, 70)));
                 }
                 None => external.push(name.into_owned()),
             }

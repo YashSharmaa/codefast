@@ -82,6 +82,8 @@ fn shape(wired: &[Wired]) -> Vec<(String, Option<String>, String, Value)> {
 fn payload_for(harness: &str, wired: &Wired, repo: &Path, home: &Path) -> String {
     let name = match (harness, wired.event.as_str()) {
         ("claude", "SessionStart") => "claude-session-start",
+        ("claude", "UserPromptSubmit") => "claude-user-prompt",
+        ("codex", "UserPromptSubmit") => "codex-user-prompt",
         ("claude", "PreToolUse") => "claude-pre-read",
         ("claude", "PostToolUse") => "claude-post-bash-grep",
         ("claude", "PostToolUseFailure") => "claude-post-failure-bash-grep",
@@ -148,7 +150,7 @@ fn the_plugin_hooks_run_the_launcher_and_answer_under_the_event_they_are_registe
     let manifest = shipped(".claude-plugin/plugin.json");
     assert_eq!(manifest["hooks"], "./hooks/claude-code.json", "the plugin manifest names the hooks file");
     let wired = wiring(&shipped("hooks/claude-code.json"));
-    assert_eq!(wired.iter().map(|w| w.event.as_str()).collect::<Vec<_>>(), ["PostToolUse", "PostToolUseFailure", "PreToolUse", "SessionStart"]);
+    assert_eq!(wired.iter().map(|w| w.event.as_str()).collect::<Vec<_>>(), ["PostToolUse", "PostToolUseFailure", "PreToolUse", "SessionStart", "UserPromptSubmit"]);
 
     let (repo, home) = indexed("plugin-hooks");
     let plugin = installed_plugin();
@@ -156,7 +158,9 @@ fn the_plugin_hooks_run_the_launcher_and_answer_under_the_event_they_are_registe
     let slot = home.join(".cache/codefast").join(env!("CARGO_PKG_VERSION"));
     std::fs::create_dir_all(&slot).unwrap();
     std::os::unix::fs::symlink(BIN, slot.join("codefast")).unwrap();
-    let envs = [("CLAUDE_PLUGIN_ROOT", plugin.to_str().unwrap()), ("CLAUDE_PROJECT_DIR", repo.str())];
+    // No time for a caller summary: the note after a search then names the command that has
+    // it, which is what this test reads the command's name from.
+    let envs = [("CLAUDE_PLUGIN_ROOT", plugin.to_str().unwrap()), ("CLAUDE_PROJECT_DIR", repo.str()), ("CODEFAST_HOOK_BUDGET_MS", "0")];
     for (n, w) in wired.iter().enumerate() {
         assert_eq!(w.command, format!("\"${{CLAUDE_PLUGIN_ROOT}}/bin/codefast\" hook {}", w.sub()), "the launcher in the plugin, quoted");
         // A session of its own each time, so that nothing was said before.
@@ -166,7 +170,7 @@ fn the_plugin_hooks_run_the_launcher_and_answer_under_the_event_they_are_registe
         // Inside the plugin the agent's shell has the launcher on PATH: the bare name is right.
         assert!(said.contains("`codefast "), "{said}");
         // Turned off, and with no binary to be found, the same line is silent and still succeeds.
-        let off = fire(&w.command, &repo.dir, &home, &[envs[0], envs[1], ("CODEFAST_HOOKS", "off")], &input);
+        let off = fire(&w.command, &repo.dir, &home, &[envs[0], envs[1], envs[2], ("CODEFAST_HOOKS", "off")], &input);
         assert_eq!(off, (Some(0), String::new(), String::new()), "CODEFAST_HOOKS=off: {}", w.command);
         let nowhere = scratch("empty-home");
         let missing = fire(&w.command, &repo.dir, &nowhere, &envs, &input);

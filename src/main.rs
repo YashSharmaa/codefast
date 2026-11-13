@@ -48,6 +48,10 @@ enum Cmd {
     /// Before changing a function: its body, its type, what it calls, who calls it, its tests
     #[command(alias = "ctx")]
     Context(ContextArgs),
+    /// After an edit: uses left behind of what the uncommitted changes removed, renamed or re-signatured
+    Check(CheckArgs),
+    /// The uncommitted changes by definition (added, removed, altered), then what `check` finds
+    Changed,
     /// Shortest call chain between two functions
     Path(PathArgs),
     /// Regex search over all text, with the enclosing symbol of every match
@@ -166,6 +170,12 @@ struct CallersArgs {
 struct ContextArgs {
     #[arg(required = true)]
     targets: Vec<String>,
+}
+
+#[derive(Args)]
+struct CheckArgs {
+    /// Files to check (default: every file that differs from the last commit)
+    files: Vec<String>,
 }
 
 #[derive(Args)]
@@ -485,6 +495,8 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Callers(a) => query::refs::callers(&ix, &rs, &a.targets, &common, a.depth, &mut out),
         Cmd::Callees(a) => query::refs::callees(&ix, &rs, &a.targets, &common, a.sigs, &mut out),
         Cmd::Context(a) => query::context::context(&ix, &rs, &a.targets, &common, &mut out),
+        Cmd::Check(a) => query::changed::check(&ix, &rs, &a.files, &common, &mut out),
+        Cmd::Changed => query::changed::changed(&ix, &rs, &common, &mut out),
         Cmd::Path(a) => query::refs::path(&ix, &rs, &a.from, &a.to, &common, a.max_depth, &mut out),
         Cmd::Locate(a) => {
             let text = if a.text.len() == 1 && a.text[0] == "-" {

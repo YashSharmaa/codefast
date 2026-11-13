@@ -13,6 +13,7 @@ pub mod linkx;
 pub mod mcp;
 pub mod output;
 pub mod query;
+pub mod recent;
 pub mod resolve;
 pub mod setup;
 pub mod store;

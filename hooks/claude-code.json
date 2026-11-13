@@ -12,6 +12,17 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codefast\" hook user-prompt-submit",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Read|Bash",
@@ -26,12 +37,12 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|Grep|Glob",
+        "matcher": "Bash|Grep|Glob|Edit|Write",
         "hooks": [
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codefast\" hook post-tool-use",
-            "timeout": 5
+            "timeout": 10
           }
         ]
       }

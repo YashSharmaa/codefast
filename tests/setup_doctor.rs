@@ -417,7 +417,7 @@ fn a_codex_plugin_brings_the_skill_and_leaves_the_server_and_the_hooks_to_setup(
     assert_eq!(read(&sb.home(".codex/config.toml")), format!("{recorded}\n[mcp_servers.codefast]\ncommand = \"{BIN}\"\nargs = [\"mcp\"]\n"));
     assert!(!sb.home(".agents").exists());
     let hooks = json(&sb.home(".codex/hooks.json"));
-    assert_eq!(hooks["hooks"].as_object().unwrap().keys().collect::<Vec<_>>(), ["PostToolUse", "PreToolUse", "SessionStart"]);
+    assert_eq!(hooks["hooks"].as_object().unwrap().keys().collect::<Vec<_>>(), ["PostToolUse", "PreToolUse", "SessionStart", "UserPromptSubmit"]);
     // Nothing is registered twice by that: Codex runs one server named codefast, the configured one.
     let r = report(&sb, &[]);
     let codex = harness(&r, "codex");

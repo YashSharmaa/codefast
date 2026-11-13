@@ -543,8 +543,9 @@ impl Harness {
                 file: if user { Self::claude_dir(ctx).join("settings.json") } else { ctx.project(".claude/settings.json") },
                 events: vec![
                     ("SessionStart", None, "session-start", 10),
+                    ("UserPromptSubmit", None, "user-prompt-submit", 10),
                     ("PreToolUse", Some("Read|Bash"), "pre-tool-use", 5),
-                    ("PostToolUse", Some("Bash|Grep|Glob"), "post-tool-use", 5),
+                    ("PostToolUse", Some("Bash|Grep|Glob|Edit|Write"), "post-tool-use", 10),
                     ("PostToolUseFailure", Some("Bash|Grep|Glob"), "post-tool-use", 5),
                 ],
                 note: None,
@@ -553,8 +554,9 @@ impl Harness {
                 file: if user { Self::codex_dir(ctx).join("hooks.json") } else { ctx.project(".codex/hooks.json") },
                 events: vec![
                     ("SessionStart", None, "session-start", 10),
+                    ("UserPromptSubmit", None, "user-prompt-submit", 10),
                     ("PreToolUse", Some("Bash"), "pre-tool-use", 5),
-                    ("PostToolUse", Some("Bash"), "post-tool-use", 5),
+                    ("PostToolUse", Some("Bash|apply_patch"), "post-tool-use", 10),
                 ],
                 note: Some("Codex runs new hooks only after you review and trust them once: open /hooks in a session"),
             }),

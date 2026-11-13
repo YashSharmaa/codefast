@@ -288,6 +288,7 @@ def check_claude(version):
 
 HOOK_COMMANDS = {
     "SessionStart": "session-start",
+    "UserPromptSubmit": "user-prompt-submit",
     "PreToolUse": "pre-tool-use",
     "PostToolUse": "post-tool-use",
     "PostToolUseFailure": "post-tool-use",
@@ -304,8 +305,8 @@ def check_hooks_file(rel, events, plugin_relative):
     for event, groups in hooks.items():
         check(isinstance(groups, list) and groups, f"{rel} {event}: a non-empty list of matcher groups")
         for group in groups if isinstance(groups, list) else []:
-            if event == "SessionStart":
-                check("matcher" not in group, f"{rel} {event}: no matcher (every session source)")
+            if event in ("SessionStart", "UserPromptSubmit"):
+                check("matcher" not in group, f"{rel} {event}: no matcher (every session source, every prompt)")
             else:
                 matcher = group.get("matcher", "")
                 check(bool(matcher) and re.fullmatch(r"[A-Za-z0-9_|]+", matcher), f"{rel} {event}: matcher is a plain list of tool names (exact match in Claude Code, regex in Codex)", matcher)
@@ -623,8 +624,8 @@ def main():
     version = cargo_version()
     check_agent_plugins(schemas, version)
     check_claude(version)
-    check_hooks_file("hooks/claude-code.json", {"SessionStart", "PreToolUse", "PostToolUse", "PostToolUseFailure"}, plugin_relative=True)
-    check_hooks_file("hooks/codex.json", {"SessionStart", "PreToolUse", "PostToolUse"}, plugin_relative=False)
+    check_hooks_file("hooks/claude-code.json", {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure"}, plugin_relative=True)
+    check_hooks_file("hooks/codex.json", {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"}, plugin_relative=False)
     check_codex(version)
     check_gemini(version)
     server = check_registry(schemas, version)

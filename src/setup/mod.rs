@@ -12,6 +12,7 @@ mod formats;
 mod harness;
 mod hook;
 mod json_edit;
+mod prompt;
 mod shell;
 
 use anyhow::{Result, bail};

@@ -441,6 +441,7 @@ fn hooks_are_registered_on_request_next_to_the_users_own() {
     assert_eq!(doc["model"], "opus");
     let handler = |sub: &str, timeout: u64| json!([{"type": "command", "command": hook_command(BIN, sub), "timeout": timeout}]);
     assert_eq!(doc["hooks"]["SessionStart"], json!([{"hooks": handler("session-start", 10)}]));
+    assert_eq!(doc["hooks"]["UserPromptSubmit"], json!([{"hooks": handler("user-prompt-submit", 10)}]));
     assert_eq!(doc["hooks"]["PreToolUse"], json!([{"matcher": "Read|Bash", "hooks": handler("pre-tool-use", 5)}]));
     assert_eq!(doc["hooks"]["PostToolUseFailure"], json!([{"matcher": "Bash|Grep|Glob", "hooks": handler("post-tool-use", 5)}]));
     let post = doc["hooks"]["PostToolUse"].as_array().unwrap();
@@ -450,12 +451,13 @@ fn hooks_are_registered_on_request_next_to_the_users_own() {
         json!({"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "prettier --write"}]}),
         "the user's own hook, first and unchanged"
     );
-    assert_eq!(post[1], json!({"matcher": "Bash|Grep|Glob", "hooks": handler("post-tool-use", 5)}));
+    // Searches, and the tools that write files: an edit is checked for what it left behind.
+    assert_eq!(post[1], json!({"matcher": "Bash|Grep|Glob|Edit|Write", "hooks": handler("post-tool-use", 10)}));
     assert!(read(&settings).starts_with("{\n  \"model\": \"opus\",\n  \"hooks\": {\n    \"PostToolUse\": [\n      {\n        \"matcher\": \"Edit|Write\",\n        \"hooks\": [{\"type\": \"command\", \"command\": \"prettier --write\"}]\n      },\n"));
-    // Codex: its shell is the only tool to match, and there is no failure event.
+    // Codex: its shell and its patch tool are what there is to match, and there is no failure event.
     let codex = json(&sb.home(".codex/hooks.json"));
-    assert_eq!(codex["hooks"].as_object().unwrap().keys().collect::<Vec<_>>(), ["PostToolUse", "PreToolUse", "SessionStart"]);
-    assert_eq!(codex["hooks"]["PostToolUse"], json!([{"matcher": "Bash", "hooks": handler("post-tool-use", 5)}]));
+    assert_eq!(codex["hooks"].as_object().unwrap().keys().collect::<Vec<_>>(), ["PostToolUse", "PreToolUse", "SessionStart", "UserPromptSubmit"]);
+    assert_eq!(codex["hooks"]["PostToolUse"], json!([{"matcher": "Bash|apply_patch", "hooks": handler("post-tool-use", 10)}]));
 
     // Again: nothing. With another binary: the entries are replaced, not doubled.
     let again = sb.setup(&["claude-code", "codex", "--with", "hooks", "--apply"]);
@@ -521,7 +523,7 @@ fn hooks_that_are_not_ours_survive_setup() {
     write(&settings, &ours.to_string());
     sb.setup(&["claude-code", "--with", "hooks", "--apply"]).ok();
     let doc = json(&settings);
-    for (event, sub, timeout) in [("SessionStart", "session-start", 10), ("PreToolUse", "pre-tool-use", 5), ("PostToolUse", "post-tool-use", 5)] {
+    for (event, sub, timeout) in [("SessionStart", "session-start", 10), ("PreToolUse", "pre-tool-use", 5), ("PostToolUse", "post-tool-use", 10)] {
         let entries = doc["hooks"][event].as_array().unwrap();
         assert_eq!((entries.len(), &entries[0]["hooks"]), (1, &handler(sub, timeout)), "{event}: {doc}");
     }
@@ -568,7 +570,7 @@ fn registered_hooks_stay_silent_where_codefast_is_not_installed() {
             ran += 1;
         }
     }
-    assert_eq!(ran, 4 + 3 + 4 + 3);
+    assert_eq!(ran, 5 + 4 + 5 + 4);
     // With the program there, the same commands are the hooks: the guard changes nothing.
     let command = json(&sb.project(".codex/hooks.json"))["hooks"]["SessionStart"][0]["hooks"][0]["command"].as_str().unwrap().to_string();
     let bin_dir = std::path::Path::new(BIN).parent().unwrap();

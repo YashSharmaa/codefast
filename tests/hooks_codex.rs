@@ -20,7 +20,7 @@ fn a_search_through_bash_lc_is_answered() {
     let ran = hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[]);
     assert_eq!(
         ran.context("PostToolUse"),
-        "codefast: dev_read is defined at src/io.c:4 int dev_read(struct dev *d, char *buf, int count)\ncalled by: copy_all\n`codefast search dev_read` prints the full definition with everything that uses it."
+        "codefast: dev_read is defined at src/io.c:4 int dev_read(struct dev *d, char *buf, int count)\nRead up to count bytes from the device\ncalled by: copy_all"
     );
     hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[]).assert_quiet("once per session");
 }
@@ -56,7 +56,7 @@ fn session_start_is_the_same_note() {
     let (repo, home) = indexed("codex-start");
     let ran = hook(&home, &repo.dir, "session-start", payload("codex-session-start", &repo.dir, &home).as_bytes(), &[]);
     let note = ran.context("SessionStart");
-    assert!(note.starts_with("codefast has an index of this repository (5 files, ") && note.lines().count() == 2, "{note}");
+    assert!(note.starts_with("codefast has an index of this repository (5 files, ") && note.lines().count() == 1, "{note}");
     settle(&repo);
 }
 

@@ -129,6 +129,7 @@ fn one(ix: &Index, rs: &Resolver, t: &Target, common: &Common, out: &mut Out) {
         let mut external: Vec<String> = Vec::new();
         let mut unknown: Vec<String> = Vec::new();
         let mut printed = false;
+        let mut docs = super::card::Docs::new(ix);
         for c in &cs {
             let name = String::from_utf8_lossy(c.name).into_owned();
             let target = c.targets.first().copied().or_else(|| c.slot.as_ref().and_then(|(_, b)| b.first().copied()));
@@ -149,7 +150,7 @@ fn one(ix: &Index, rs: &Resolver, t: &Target, common: &Common, out: &mut Out) {
                     } else {
                         ""
                     };
-                    out.line(&format!("  {} {}:{}  {}{}", c.line, v.path(), v.rec.line, clip(&v.signature(), 150), more));
+                    out.line(&format!("  {} {}:{}  {}{}{}", c.line, v.path(), v.rec.line, clip(&v.signature(), 150), more, docs.suffix(&v, 80)));
                     if c.by_name {
                         // The other methods of that name: the receiver's type decides, and it
                         // is not written.

@@ -987,6 +987,29 @@ fn analyse_at(command: &str, start: Dir, depth: u8) -> Found {
 }
 
 /// The searches and whole-file reads in a shell command line.
+/// Whether a command line may have changed source files: an in-place editor, a redirect into a
+/// file, a formatter, a script given on the command line, a git command that moves the work
+/// tree. Erring towards yes costs a check that finds nothing; erring towards no costs the check.
+pub fn may_write(command: &str) -> bool {
+    const TOOLS: [&str; 34] = [
+        "sed -i", "sed -E -i", "sed -e", "perl -pi", "perl -i", "perl -0pi", "awk -i", "tee ", "mv ", "cp ", "rm ", "patch ", "git apply", "git checkout", "git restore", "git stash",
+        "git mv", "git rm", "git revert", "git reset", "git merge", "git rebase", "git cherry-pick", "git pull", "gofmt -w", "go fmt", "cargo fmt", "rustfmt", "prettier", "eslint --fix",
+        "ruff", "black ", "clang-format -i", "truncate ",
+    ];
+    const SCRIPTS: [&str; 10] = ["python - ", "python3 - ", "python -c", "python3 -c", "node -e", "ruby -e", "perl -e", "<<'", "<<\"", "<<EOF"];
+    if TOOLS.iter().any(|t| command.contains(t)) || SCRIPTS.iter().any(|t| command.contains(t)) {
+        return true;
+    }
+    // `> file` and `>> file`, but not `2>&1`, `>/dev/null` or a comparison inside a test.
+    let b = command.as_bytes();
+    (0..b.len()).any(|i| {
+        b[i] == b'>' && b.get(i + 1) != Some(&b'&') && (i == 0 || !matches!(b[i - 1], b'2' | b'&' | b'-' | b'=')) && {
+            let rest = command[i..].trim_start_matches('>').trim_start();
+            !rest.starts_with("/dev/") && !rest.is_empty()
+        }
+    })
+}
+
 pub fn analyse(command: &str) -> Found {
     analyse_at(command, Dir::Start, 0)
 }

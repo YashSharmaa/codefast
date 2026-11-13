@@ -267,11 +267,20 @@ pub fn call_tool(root: &Path, name: &str, args: &Value) -> Result<String> {
     let mut out = Out::new(budget);
     match call {
         Call::Search(queries) => {
-            for (i, q) in queries.iter().enumerate() {
-                if i > 0 {
+            // Two wordings of one question get one answer: the second is not printed again.
+            let mut answers: Vec<String> = Vec::new();
+            for q in &queries {
+                let mut one = Out::new(out.remaining().min(budget));
+                query::search::search(&ix, &rs, q, &common, &query::search::SearchOpts::default(), &mut one);
+                let text = one.finish();
+                if answers.contains(&text) {
+                    continue;
+                }
+                if !answers.is_empty() {
                     out.push("");
                 }
-                query::search::search(&ix, &rs, q, &common, &query::search::SearchOpts::default(), &mut out);
+                out.push(text.trim_end());
+                answers.push(text);
             }
         }
         Call::Show(targets, opts) => query::show::show(&ix, &rs, &targets, &common, &opts, &mut out),

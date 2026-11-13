@@ -3,7 +3,7 @@
 //! it, where it is bound, what else mentions it) so that a follow-up call is rarely needed.
 
 use super::locate::{LocateOpts, locate};
-use super::refs::{Via, callee_edges, caller_edges, encl_name, proximity_key};
+use super::refs::{Via, callee_edges, caller_edges, encl_name, proximity_key, sites_summary};
 use super::show::{ShowOpts, outline, show, show_def};
 use super::{Common, PathFilter, Spec, def_line, parse_spec, targets_for};
 use crate::facts::DefKind;
@@ -25,6 +25,12 @@ impl Default for SearchOpts {
 
 /// One line of inverse structure: `called by: a, b, c (+12)` plus slot bindings.
 pub fn usage_line(ix: &Index, rs: &Resolver, t: &Target, max_names: usize) -> Vec<String> {
+    usage(ix, rs, t, max_names, true)
+}
+
+/// The lines of [`usage_line`], without the caller names when `callers` is false: for answers
+/// that list every call site themselves.
+fn usage(ix: &Index, rs: &Resolver, t: &Target, max_names: usize, callers: bool) -> Vec<String> {
     let mut lines = Vec::new();
     let p = t.primary(ix);
     if t.class == Class::Member {
@@ -38,7 +44,7 @@ pub fn usage_line(ix: &Index, rs: &Resolver, t: &Target, max_names: usize) -> Ve
     let mut by_name: Vec<_> = if super::refs::loose_is_likely(rs, t, loose.len()) { loose } else { Vec::new() };
     by_name.retain(|r| !ix.is_test_file(r.file) || ix.is_test_file(p.file()));
     by_name.sort_by_cached_key(|r| proximity_key(ix, &def_path, r));
-    if !direct.is_empty() {
+    if !direct.is_empty() && callers {
         let mut names: Vec<String> = Vec::new();
         for r in &direct {
             let n = encl_name(r);
@@ -52,7 +58,7 @@ pub fn usage_line(ix: &Index, rs: &Resolver, t: &Target, max_names: usize) -> Ve
         let label = if t.class == Class::Callable { "called by" } else { "used by" };
         lines.push(format!("{label}: {}{}", shown.join(", "), more));
     }
-    if !by_name.is_empty() {
+    if !by_name.is_empty() && callers {
         let mut names: Vec<String> = Vec::new();
         for r in &by_name {
             let n = format!("{} ({}:{})", encl_name(r), r.path(), r.line());
@@ -128,7 +134,7 @@ pub fn usage_line(ix: &Index, rs: &Resolver, t: &Target, max_names: usize) -> Ve
     if values > 0 && t.class == Class::Callable {
         lines.push(format!("passed as a value at {values} sites (codefast callers {} for the list)", String::from_utf8_lossy(&t.name)));
     }
-    if direct.is_empty() && binds.is_empty() && values == 0 && !has_cb && by_name.is_empty() && t.class == Class::Callable {
+    if direct.is_empty() && binds.is_empty() && values == 0 && !has_cb && by_name.is_empty() && t.class == Class::Callable && callers {
         lines.push("called by: no callers found in indexed code".to_string());
     }
     lines
@@ -153,8 +159,16 @@ fn card(ix: &Index, rs: &Resolver, t: &Target, others: &[Target], opts: &SearchO
     let nlines = (p.rec.end_line - p.rec.line + 1) as usize;
     let show_opts = ShowOpts { max_lines: opts.body_lines, full: false, outline: nlines > opts.body_lines && p.kind().is_container(), doc: true };
     show_def(ix, &p, &show_opts, out);
-    for l in usage_line(ix, rs, t, 5) {
+    // Every place that uses it, one line per file: what a change to it has to reach. This is
+    // the part that makes the answer final for a rename or a changed signature, so it gets up
+    // to half of what the body left of the budget.
+    let room = if out.budget() == 0 { 2000 } else { (out.remaining() / 2).clamp(120, 900) };
+    let listed = sites_summary(ix, rs, t, room, out);
+    for l in usage(ix, rs, t, 5, false) {
         out.line(&l);
+    }
+    if !listed && t.class == Class::Callable {
+        out.line("called by: no callers found in indexed code");
     }
     if p.kind().is_callable() && p.kind() != DefKind::Macro {
         let cs = callee_edges(rs, &p);
@@ -187,7 +201,8 @@ fn card(ix: &Index, rs: &Resolver, t: &Target, others: &[Target], opts: &SearchO
         out.line(&format!("also: {}{}", also.join(", "), more));
     }
     let mentions = text_only_mentions(ix, rs, t);
-    if !mentions.is_empty() {
+    // A word that half the repository writes in prose (`Add`, `name`) is not a lead.
+    if !mentions.is_empty() && mentions.len() <= 12 {
         let mut ms: Vec<&str> = mentions.iter().map(|f| ix.path(*f)).collect();
         ms.sort();
         let shown: Vec<&str> = ms.iter().take(3).copied().collect();
@@ -196,14 +211,65 @@ fn card(ix: &Index, rs: &Resolver, t: &Target, others: &[Target], opts: &SearchO
     }
 }
 
+/// `collection.go Collection.Add`, `*Collection Add`, `(*Collection).Add`, `Collection::add in
+/// pkg/`: several words that name one symbol, the way people and models write them. Returns the
+/// symbol as `Owner.name` or `name`, and the paths that were given with it.
+fn symbol_in_words(ix: &Index, rs: &Resolver, q: &str, common: &Common) -> Option<(String, Vec<String>)> {
+    let mut names: Vec<String> = Vec::new();
+    let mut paths: Vec<String> = Vec::new();
+    for raw in q.split_whitespace() {
+        let w = raw.trim_matches(|c: char| matches!(c, '*' | '&' | '(' | ')' | ',' | ':' | '`' | '\'' | '"'));
+        if w.is_empty() || matches!(w, "in" | "of" | "method" | "function" | "func" | "fn" | "def" | "class" | "struct" | "type" | "the") {
+            continue;
+        }
+        let w = w.replace(").", ".").replace("::", ".").replace("->", ".").replace('#', ".");
+        let w = w.trim_start_matches(['*', '&', '(']).to_string();
+        let is_path = w.contains('/') || (ix.name_id(w.as_bytes()).is_none() && w.contains('.') && super::resolve_file(ix, &w).is_some());
+        if is_path {
+            paths.push(w);
+        } else if w.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '$') {
+            names.push(w);
+        } else {
+            return None;
+        }
+    }
+    if names.is_empty() || names.len() > 2 || (names.len() == 1 && paths.is_empty()) {
+        return None;
+    }
+    let mut narrowed = common.clone();
+    narrowed.paths.extend(paths.iter().cloned());
+    let pf = PathFilter::new(&narrowed.paths);
+    let resolves = |name: &str| !targets_for(ix, rs, &parse_spec(ix, name), &narrowed, &pf).is_empty();
+    let name = match &names[..] {
+        [one] => one.clone(),
+        // `Collection Add`: a type and its member, in either order.
+        [a, b] => [format!("{a}.{b}"), format!("{b}.{a}")].into_iter().find(|n| owner_has(ix, n))?,
+        _ => return None,
+    };
+    resolves(&name).then_some((name, paths))
+}
+
+/// Whether `Owner.name` names a member that a definition called `Owner` really holds.
+fn owner_has(ix: &Index, spec: &str) -> bool {
+    let Some((owner, name)) = spec.rsplit_once('.') else { return false };
+    ix.defs_named(name.as_bytes()).iter().any(|&d| ix.def(d).parent_name() == Some(owner.as_bytes()))
+}
+
 pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &SearchOpts, out: &mut Out) {
     let q = query.trim();
     if q.is_empty() {
         out.push("empty query");
         return;
     }
-    // Free text: more than one word (unless it is just a kind word and a name: `struct file`).
+    // Free text: more than one word (unless it is just a kind word and a name: `struct file`),
+    // and unless the words together name one symbol.
     if q.split_whitespace().count() > 1 && super::split_kind_prefix(q).0.is_none() {
+        if let Some((name, paths)) = symbol_in_words(ix, rs, q, common) {
+            let mut narrowed = common.clone();
+            narrowed.paths.extend(paths);
+            search(ix, rs, &name, &narrowed, opts, out);
+            return;
+        }
         locate(ix, q, common, &LocateOpts::default(), out);
         return;
     }
