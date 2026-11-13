@@ -44,9 +44,10 @@ Measured so far (the tables are under [Results](#results)):
 - **Fast and exact.** The whole Linux kernel indexes in 8 s. The call graph agrees with compilers
   at a precision of 0.982 to 1.000 on five repositories.
 - **No gain on the fix itself.** Fixing a bug costs about the same with and without codefast: 0.99
-  of the control with the failing tests given, 1.11 from the issue text alone and 0.98 on a second
-  set of the same kind. Reproducing, editing and running the tests again is the model's own work,
-  and an index does not shorten it.
+  of the control with the failing tests given, 1.11 from the issue text alone, and 0.96 and 1.02
+  on a second set of the same kind with the ranking of a pasted report handed over. Reproducing,
+  editing and running the tests again is the model's own work, and an index does not shorten it.
+  Five ways of helping were measured, and the limits section says which.
 
 ## What it is for
 
@@ -64,16 +65,18 @@ Measured so far (the tables are under [Results](#results)):
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/in-a-session-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/in-a-session-light.svg">
-    <img alt="Five moments of a session at which codefast adds facts through hooks. A prompt names a symbol: its definition, whole when it is short, and how widely it is used. A prompt quotes an error message: the line that writes it and who calls the function around it. The agent runs a search: what the search did not print, such as who calls the function. The agent edits a file: the places that still use a name the edit removed. The context is compacted: which definitions the uncommitted changes added, removed and altered." src="docs/assets/in-a-session-light.svg" width="880">
+    <img alt="Six moments of a session at which codefast adds facts through hooks. A prompt names a symbol: its definition, whole when it is short, and how widely it is used. A prompt quotes an error message: the line that writes it and who calls the function around it. A report of a problem is pasted: the files whose text its words match, ranked. The agent runs a search: what the search did not print, such as who calls the function. The agent edits a file: the places that still use a name the edit removed. The context is compacted: which definitions the uncommitted changes added, removed and altered." src="docs/assets/in-a-session-light.svg" width="880">
   </picture>
 </p>
 
 Agents seldom reach for an optional tool, so the Claude Code plugin and the Codex setup register
-hooks. They state facts and never tell the agent what to do. A hook with nothing new to say
-prints nothing, and none of them blocks or rewrites a tool call. What a card says was settled
-in sessions and not at a desk: a short definition comes whole, a table binding that no search
-finds is spelled out, and the call sites of a name that other things share are counted and
-not listed, because agents re-check such a list with grep
+hooks. They state facts and never tell the agent what to do. A hook with nothing new to say prints
+nothing, and none of them blocks or rewrites a tool call. A prompt that is a report of a problem
+rather than a question about a symbol gets the one thing an index can say about a symptom: the
+files whose text its words match, ranked, each with the symbol of it that matches best. What a
+card says was settled in sessions and not at a desk: a short definition comes whole, a table
+binding that no search finds is spelled out, and the call sites of a name that other things share
+are counted and not listed, because agents re-check such a list with grep
 ([`bench/tier2/LIVE.md`](bench/tier2/LIVE.md)).
 
 ## Get started
@@ -176,7 +179,7 @@ last column is our own number, or says that we have none yet.
 |---|---|---|
 | **A location without the code costs more reads.** When a language server tool returned source lines with its locations, its score on multi-file renames rose from 0.67 to 0.83 and follow-up reads fell from 15.2 to 3.2 ([arXiv 2608.13568](https://arxiv.org/abs/2608.13568), a small study). | Every reference and call site comes with its source line and the function it sits in. | 1.0 tool calls per kernel question (best-case ripgrep 2.0). |
 | **Text search loses accuracy across files.** On blast-radius tasks in a repository of 400k lines grep scored 0.71 at 12,596 tokens, structural tools 0.84 to 0.93 at 748 to 1,368 ([936 runs](https://dev.to/neko1313_4/how-much-does-context-cost-an-ai-coding-agent-grep-vs-graph-vs-lsp-measured-across-936-runs-33m8)). | `callers` follows ops tables, callbacks and function pointers. `path A B` returns the call chain. | 0.96 on 72 kernel questions (best-case ripgrep 0.89). |
-| **A better file ranking alone does not save tokens.** An index with the right file in its top 5 for 81% of queries (grep 39%) saved none in a live trial ([InventiveHQ](https://inventivehq.com/blog/code-index-vs-grep-ai-coding-agents-tokens)). | `locate` ranks the files for a bug report without a model. We report it as a ranking, not as a saving. | The right file is ranked first for 0.344 of 250 kernel bugs (best published 0.228). In sessions a bug fix costs 0.99 of the control with the failing tests given and 1.11 without them. |
+| **A better file ranking alone does not save tokens.** An index with the right file in its top 5 for 81% of queries (grep 39%) saved none in a live trial ([InventiveHQ](https://inventivehq.com/blog/code-index-vs-grep-ai-coding-agents-tokens)). | `locate` ranks the files for a bug report without a model, and a hook hands that ranking over when a report is pasted. We report it as a ranking, not as a saving. | The same thing again: handing the ranking over takes a step out of a bug fix (5.0 requests to 4.6, 6.9 to 6.8) and leaves the cost where it was, 0.96 and 1.02 of the control over 26 tasks and four runs each. The right file is ranked first for 0.344 of 250 kernel bugs (best published 0.228). |
 
 </details>
 
@@ -464,9 +467,13 @@ hand are small, and the five languages added in 0.2.0 are the youngest.
   calls and tables filled through a name-pasting macro are followed. Tables generated by including
   a list file several times (the LSM hooks, for one) are not.
 * It does not run builds, so code that is generated at build time is not indexed.
-* It does not save tokens everywhere. Fixing a bug costs the same with and without it. Every
-  live figure is from one harness and one model family, and single pairs of sessions vary
-  widely (`bench/tier2/LIVE.md`).
+* It does not save tokens everywhere. Fixing a bug costs the same with and without it, and five
+  ways of changing that were measured: more notes on the searches a bug fix uses (worse, 1.21),
+  the outline of a file being read in parts (in the same attempt), the plugin without its MCP
+  server (worse, 1.03), the ranking of a pasted report (0.96 and 1.02, a step fewer), and the
+  cards that ship. What a bug fix spends is the test runs and the edit loop, not the lookup.
+  Every live figure is from one harness and one model family, and single pairs of sessions vary
+  by a factor of two (`bench/tier2/LIVE.md`).
 * A rename changes what the index is sure of and lists the rest. It refuses a method that an
   interface ties to its name where it can see the tie (a declared implementation, an interface
   of the repository, the method names of Go's standard library). A Go type handed to another

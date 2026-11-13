@@ -143,6 +143,25 @@ That is the push-precision finding of the README met from the other side: a note
 but not needed is not free, and the rule stays that a hook speaks about one symbol the index
 pins down and says what the agent's own output did not show.
 
+A third attempt is the one that stayed. A report of a problem names no symbol for the index to
+answer about, so the card for it is the ranking of the files whose text its words match, with
+the best symbol of each. That ranking is the one `locate` makes, and on these very reports it
+puts the right file first for 0.41 of them and in the first three for 0.90, which is above the
+break-even precision the push study reports (0.45 to 0.68 for the top candidates). It fires
+only for a prompt of 900 bytes over 12 lines or more: every kind of question an agent is asked
+about code is shorter than that, and a report is not.
+
+Over two batches and 26 tasks, pooled against two or three control runs each:
+
+| | Cost | Requests | Solved |
+|---|---:|---|---|
+| Fix a bug, failing tests given (12) | 0.96 | 5.0 and 4.6 | 12 and 12 of 12 |
+| Fix a bug from the issue text alone (14) | 1.02 | 6.9 and 6.8 | 8.0 and 9.0 of 14 |
+
+So the card takes a step or two out of a bug fix and does not make it cheaper. Single tasks run
+from 0.58 to 1.43 of the control, which is the spread of this family and the reason both
+figures are pooled over four runs per task.
+
 ## What a card should say
 
 The prompt card of version 0.2.2 was settled by three small experiments on development tasks

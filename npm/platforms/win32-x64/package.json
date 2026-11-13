@@ -1,6 +1,6 @@
 {
   "name": "@yashsharmaa/codefast-win32-x64",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "The codefast binary for Windows on x86-64. Install @yashsharmaa/codefast instead: it selects this package.",
   "homepage": "https://github.com/YashSharmaa/codefast",
   "repository": {

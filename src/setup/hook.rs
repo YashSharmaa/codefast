@@ -95,6 +95,14 @@ const CARD_CODE_LINES: u32 = 50;
 /// either, the card gives their number and the command that lists them.
 const CARD_SITES: usize = 12;
 const SITES_BYTES: usize = 700;
+/// A prompt this long, over this many lines, is a report of a problem and not a question
+/// about a symbol: prose, a log, steps to reproduce. Every kind of question an agent is asked
+/// about code fits in a few lines; a report does not.
+const REPORT_BYTES: usize = 900;
+const REPORT_LINES: usize = 12;
+/// Files of the ranking a report gets, and the room the card may take.
+const REPORT_FILES: usize = 3;
+const REPORT_BYTES_OUT: usize = 420;
 /// Messages of a prompt that are traced to the line that writes them, and the files that may
 /// be read to find them. A prompt shorter than this quotes no message.
 const MAX_ORIGINS: usize = 2;
@@ -1136,6 +1144,42 @@ fn origin_cards(ix: &Index, rs: &Resolver, session: &Session, text: &str, cli: &
     }
 }
 
+/// Where the words of a report point. A question names what it is about, so the index can
+/// answer it. A report describes a symptom, and the most the index can say is which files its
+/// words rank highest. The card says that is what it is: on the bug reports measured here the
+/// first file is the right one for 0.41 of them, and one of the first three for 0.90.
+fn report_card(ix: &Index, text: &str, cli: &str) -> Option<String> {
+    let common = crate::query::Common { paths: Vec::new(), kinds: None, tests: false, budget: 0 };
+    let (_, ranked) = crate::query::locate::rank(ix, text, &common);
+    if ranked.files.len() < 2 {
+        return None;
+    }
+    let mut lines: Vec<String> = Vec::new();
+    for (f, _) in ranked.files.iter() {
+        if lines.len() == REPORT_FILES {
+            break;
+        }
+        // A report is about the code, not about the tests it quotes, and a file it names by
+        // path is one the agent has already found.
+        if ix.is_test_file(*f) || text.contains(ix.path(*f)) {
+            continue;
+        }
+        let best = ranked.defs.iter().find(|(d, _)| ix.def(*d).file() == *f).map(|(d, _)| ix.def(*d));
+        lines.push(match best {
+            Some(v) => format!("  {}: {} {}-{}", ix.path(*f), v.qualified(), v.rec.line, v.rec.end_line),
+            None => format!("  {}", ix.path(*f)),
+        });
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    let head = format!(
+        "of the {} files whose text matches the words of this one, these rank highest, tests aside (a ranking, not an answer: `{cli} locate` makes it):",
+        count(ranked.candidates)
+    );
+    Some(clip_bytes(&format!("{head}\n{}", lines.join("\n")), REPORT_BYTES_OUT))
+}
+
 fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id: Option<String>, cli: String, tx: mpsc::Sender<String>) {
     let Some(ix) = open_index(&place) else { return };
     let Some(session) = Session::open(&place, session_id.as_deref()) else { return };
@@ -1231,9 +1275,15 @@ fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id:
         code_left -= body.map_or(0, |(_, n)| n);
         if test { tests_sent += 1 } else { sent += 1 }
     }
-    // Last, because it reads files: where a quoted message comes from.
+    // Last, because they read files: where a quoted message comes from, and for a report of a
+    // problem (which names no symbol to answer about) the ranking of the files its words match.
     if !found.rename && text.len() >= ORIGIN_MIN_PROMPT {
         origin_cards(&ix, &rs, &session, &text, &cli, &mut seen, &tx);
+    }
+    if !found.rename && text.len() >= REPORT_BYTES && text.lines().count() >= REPORT_LINES && session.claim("report") {
+        if let Some(card) = report_card(&ix, &text, &cli) {
+            let _ = tx.send(card);
+        }
     }
 }
 
