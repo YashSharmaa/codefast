@@ -43,8 +43,8 @@ L39   mread   name                         in TestRun
 L40   call    run                          in TestRun nargs=2
 L40   mread   args                         in TestRun
 L40   mread   args                         in TestRun
-L40   mread   name                         in TestRun
-L40   mread   opts                         in TestRun
+L40   mread   name                         in TestRun qual=args
+L40   mread   opts                         in TestRun qual=args
 L41   mread   wantErr                      in TestRun
 L42   mcall   Fatalf                       in TestRun qual=testing|T nargs=2
 L44   mread   want                         in TestRun

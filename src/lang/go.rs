@@ -349,6 +349,8 @@ struct W<'a, 't> {
     /// (name, type path, is a channel) of names collected for declaration: parameters until the
     /// signature has been visited, the names of a `var` spec until its values have been.
     params: Vec<(u32, u32, bool)>,
+    /// The anonymous struct types of locals: field name and field type, by `type - ANON`.
+    anon: Vec<Vec<(u32, u32)>>,
     /// Names declared in each open scope, innermost last, each with what `decl_scope` and
     /// `decl_chan` said about the name before: leaving the scope restores it.
     scope_names: Vec<(u32, u32, bool)>,
@@ -389,6 +391,7 @@ pub fn extract(lang: Lang, src: &[u8], tree: &Tree, path: &str, facts: &mut File
         const_type: NONE,
         impls: Vec::new(),
         params: Vec::new(),
+        anon: Vec::new(),
         scope_names: Vec::new(),
         scope_starts: Vec::new(),
         scope_serials: Vec::new(),
@@ -892,7 +895,7 @@ impl<'a, 't> W<'a, 't> {
                 if let Some(lt) = self.cx.local_type(pid) {
                     // `x.f` with a local `x`: a value where the grammar expects a type
                     // (`fs[x.f]()`, `new(x.f)`).
-                    return self.cx.add_ref(name, RefKind::MemberRead, line_of(nm), lt, 255);
+                    return self.cx.add_ref(name, RefKind::MemberRead, line_of(nm), named(lt), 255);
                 }
                 self.alias_of(pid).unwrap_or(NONE)
             }
@@ -1061,6 +1064,107 @@ impl<'a, 't> W<'a, 't> {
 
     /// Type name of an expression whose type is spelled out: `T{}`, `&T{}`, `new(T)`,
     /// `(*T)(nil)`, `x.(T)`, `[]T{}`. `NONE` for anything that needs more than syntax.
+    /// The type of a local as written, where an anonymous struct counts: `[]struct{ in T; want U }`
+    /// is remembered with its fields, so that `tt.in.Method()` in a table-driven test has a
+    /// receiver type. Everything else is `type_name_of`.
+    fn local_type_of(&mut self, mut ty: Node<'t>) -> u32 {
+        let t = self.t;
+        for _ in 0..16 {
+            let next = match self.k(ty) {
+                K::PointerType | K::ParenthesizedType => self.inner(ty),
+                K::SliceType | K::ArrayType => child(ty, t.f_element),
+                K::MapType | K::ChannelType => child(ty, t.f_value),
+                K::StructType => return self.anon_struct(ty),
+                _ => return self.type_name_of(ty),
+            };
+            match next {
+                Some(x) => ty = x,
+                None => return NONE,
+            }
+        }
+        NONE
+    }
+
+    fn anon_struct(&mut self, st: Node<'t>) -> u32 {
+        let t = self.t;
+        if self.anon.len() >= 4096 {
+            return NONE;
+        }
+        let Some(body) = self.inner(st).filter(|b| self.k(*b) == K::FieldDeclarationList) else { return NONE };
+        // Its place is taken before the fields are read: a field may be another such struct.
+        let at = self.anon.len();
+        self.anon.push(Vec::new());
+        let mut fields: Vec<(u32, u32)> = Vec::new();
+        for i in 0..body.named_child_count().min(256) as u32 {
+            let Some(f) = body.named_child(i).filter(|f| self.k(*f) == K::FieldDeclaration) else { continue };
+            let Some(fty) = child(f, t.f_type) else { continue };
+            let ty = self.local_type_of(fty);
+            let mut named = false;
+            for j in 0..f.named_child_count().min(32) as u32 {
+                let Some(nm) = f.named_child(j).filter(|x| self.k(*x) == K::FieldIdentifier) else { continue };
+                named = true;
+                let text = self.cx.text(nm);
+                if !text.is_empty() {
+                    let id = self.cx.intern(text);
+                    fields.push((id, ty));
+                }
+            }
+            // An embedded field is called after its type.
+            if !named && ty != NONE && !is_anon(ty) {
+                let id = self.simple_name(ty);
+                fields.push((id, ty));
+            }
+        }
+        self.anon[at] = fields;
+        ANON + at as u32
+    }
+
+    /// The anonymous struct type an expression has, where locals say: the local itself, an
+    /// element of it, a field of it that is such a struct again, a literal of one.
+    fn anon_of_expr(&mut self, mut e: Node<'t>) -> Option<u32> {
+        let t = self.t;
+        for _ in 0..8 {
+            e = match self.k(e) {
+                K::Identifier => {
+                    let text = self.cx.text(e);
+                    if text.is_empty() {
+                        return None;
+                    }
+                    let id = self.cx.intern(text);
+                    return self.cx.local_type(id).filter(|&ty| is_anon(ty));
+                }
+                K::ParenthesizedExpression => self.inner(e)?,
+                K::IndexExpression | K::SliceExpression => child(e, t.f_operand)?,
+                K::UnaryExpression => {
+                    let op = child(e, t.f_operator).map(|o| o.kind_id());
+                    if op != Some(t.s_amp) && op != Some(t.s_star) {
+                        return None;
+                    }
+                    child(e, t.f_operand)?
+                }
+                K::SelectorExpression => {
+                    let (op, fl) = (child(e, t.f_operand)?, child(e, t.f_field)?);
+                    let owner = self.anon_of_expr(op)?;
+                    let field = self.cx.text(fl);
+                    return self.anon_field(owner, field).filter(|&ty| is_anon(ty));
+                }
+                K::CompositeLiteral => {
+                    let ty = child(e, t.f_type)?;
+                    let id = self.local_type_of(ty);
+                    return Some(id).filter(|&ty| is_anon(ty));
+                }
+                _ => return None,
+            };
+        }
+        None
+    }
+
+    /// The type of field `name` of a local anonymous struct type.
+    fn anon_field(&self, anon: u32, name: &[u8]) -> Option<u32> {
+        let fields = self.anon.get((anon - ANON) as usize)?;
+        fields.iter().find(|(f, _)| self.cx.name_bytes(*f) == name).map(|&(_, ty)| ty)
+    }
+
     fn expr_type_name(&mut self, mut e: Node<'t>) -> u32 {
         let t = self.t;
         for _ in 0..6 {
@@ -1173,7 +1277,7 @@ impl<'a, 't> W<'a, 't> {
     }
 
     fn push_name(&self, buf: &mut Vec<u8>, id: u32) -> bool {
-        if id == NONE {
+        if id == NONE || is_anon(id) {
             return false;
         }
         buf.extend_from_slice(self.cx.name_bytes(id));
@@ -1208,6 +1312,13 @@ impl<'a, 't> W<'a, 't> {
                 let ftext = self.cx.text(fl);
                 if ftext.is_empty() {
                     return false;
+                }
+                if let Some(owner) = self.anon_of_expr(op) {
+                    // `tt.want`: the field of a local anonymous struct, typed where it was written.
+                    return match self.anon_field(owner, ftext) {
+                        Some(ty) => self.push_name(buf, ty),
+                        None => false,
+                    };
                 }
                 if self.k(op) == K::Identifier {
                     let oname = self.cx.name(op);
@@ -1945,7 +2056,7 @@ impl<'a, 't> W<'a, 't> {
             self.params.push((id, NONE, false));
         });
         let n = self.params.len() - p0;
-        let declared = ty.map(|x| (self.type_name_of(x), self.is_chan_type(x)));
+        let declared = ty.map(|x| (self.local_type_of(x), self.is_chan_type(x)));
         for i in 0..n {
             let tp = match declared {
                 Some(d) => d,
@@ -1980,7 +2091,10 @@ impl<'a, 't> W<'a, 't> {
         };
         match e {
             // Only a value that stands alone is the channel itself: `v, ok := <-ch` is not.
-            Some(e) if self.k(e) != K::Comment => (self.qual_of(e), nv == n && self.is_chan_expr(e)),
+            Some(e) if self.k(e) != K::Comment => match self.anon_of_expr(e) {
+                Some(anon) => (anon, false),
+                None => (self.qual_of(e), nv == n && self.is_chan_expr(e)),
+            },
             _ => (NONE, false),
         }
     }
@@ -2052,7 +2166,13 @@ impl<'a, 't> W<'a, 't> {
             }
         });
         if let (Some(l), true) = (left, define) {
-            let mut elem = right.map(|r| self.qual_of(r)).unwrap_or(NONE);
+            let mut elem = match right {
+                Some(r) => match self.anon_of_expr(r) {
+                    Some(anon) => anon,
+                    None => self.qual_of(r),
+                },
+                None => NONE,
+            };
             // Ranging over a channel yields its elements as the first (and only) value.
             let mut elem_at = if elem_at == 1 && elem != NONE && right.is_some_and(|r| self.is_chan_expr(r)) { 0 } else { elem_at };
             // One name over the result of a call: an element if the call returns a channel or
@@ -2317,7 +2437,7 @@ impl<'a, 't> W<'a, 't> {
         let otext = self.cx.text(op);
         let oname = self.cx.intern(otext);
         if let Some(ty) = self.cx.local_type(oname) {
-            self.member_ref(fname, usage, written, line, ty);
+            self.member_ref(fname, usage, written, line, named(ty));
             return ri;
         }
         if let Some(path) = self.alias_of(oname) {
@@ -2545,7 +2665,7 @@ impl<'a, 't> W<'a, 't> {
                 if let Some(lt) = self.cx.local_type(pid) {
                     // `x.fs[i](v)`
                     values = true;
-                    self.cx.add_ref(name, RefKind::MemberCall, line_of(nm), lt, 1);
+                    self.cx.add_ref(name, RefKind::MemberCall, line_of(nm), named(lt), 1);
                 } else if let Some(path) = self.alias_of(pid) {
                     self.cx.add_ref(name, RefKind::Call, line_of(nm), path, 1);
                 } else {
@@ -2757,6 +2877,19 @@ impl<'a, 't> W<'a, 't> {
 
 thread_local! {
     static REPARSER: RefCell<Option<Parser>> = const { RefCell::new(None) };
+}
+
+/// Local types at and above this are anonymous struct types of the function being read
+/// (`W::anon`), not names. They never leave the extractor.
+const ANON: u32 = 0xF000_0000;
+
+fn is_anon(ty: u32) -> bool {
+    (ANON..NONE).contains(&ty)
+}
+
+/// A local's type as a qualifier: the name it has, or none for an anonymous struct.
+fn named(ty: u32) -> u32 {
+    if is_anon(ty) { NONE } else { ty }
 }
 
 fn reparse_new_expr(src: &[u8], old: &Tree) -> Option<Tree> {

@@ -385,3 +385,26 @@ fn go_result_lists_are_read_as_written() {
     }
     lacks(&p.ask(&["callers", "B.Hit"]), "Hit()\n");
 }
+
+#[test]
+fn go_table_tests_type_their_cases() {
+    // The rows of a table-driven test are anonymous structs. What a field of a row is has to
+    // be read where the table is declared.
+    let src = "package tbl\n\ntype Set struct{}\n\nfunc (s *Set) Add(x int) {}\n\ntype Bag struct{}\n\nfunc (b *Bag) Add(x int) {}\n\ntype Case struct{ S *Set }\n\n\
+               func run() {\n\ttests := []struct {\n\t\tname string\n\t\tset  *Set\n\t\tbags []Bag\n\t\tdeep struct{ inner Case }\n\t}{}\n\
+               \tfor _, tt := range tests {\n\t\ttt.set.Add(1)\n\t\ttt.bags[0].Add(2)\n\t\ttt.deep.inner.S.Add(3)\n\t}\n\
+               \tbyName := map[string]struct{ set *Set }{}\n\tfor _, c := range byName {\n\t\tc.set.Add(4)\n\t}\n\
+               \tvar one struct{ bag Bag }\n\tone.bag.Add(5)\n\
+               \tfor _, row := range []struct{ b *Bag }{{}} {\n\t\tfunc() { row.b.Add(6) }()\n\t}\n}\n";
+    let p = Project::new("go-tables", &[("tbl/tbl.go", src)]);
+    let set = p.ask(&["callers", "Set.Add"]);
+    has(&set, "all 3 call sites, 1 files");
+    for site in ["21 run: tt.set.Add(1)", "23 run: tt.deep.inner.S.Add(3)", "27 run: c.set.Add(4)"] {
+        has(&set, site);
+    }
+    let bag = p.ask(&["callers", "Bag.Add"]);
+    has(&bag, "all 3 call sites, 1 files");
+    for site in ["22 run: tt.bags[0].Add(2)", "30 run: one.bag.Add(5)", "row.b.Add(6)"] {
+        has(&bag, site);
+    }
+}
