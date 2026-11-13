@@ -212,6 +212,8 @@ pub struct Resolver<'a> {
     slot_binds: RefCell<FxHashMap<(Ty, Vec<u8>), Rc<Vec<(RefKey, Conf)>>>>,
     bound: RefCell<FxHashMap<(FileId, u32, Vec<u8>), Rc<Vec<DefId>>>>,
     importers: RefCell<FxHashMap<FileId, Rc<Vec<FileId>>>>,
+    macro_links: RefCell<Option<Rc<MacroLinks>>>,
+    pastes: RefCell<FxHashMap<Vec<u8>, Rc<Vec<(Vec<u8>, Vec<u8>)>>>>,
     aliases: RefCell<FxHashMap<DefId, Option<DefId>>>,
     canon: RefCell<FxHashMap<Vec<u8>, Vec<u8>>>,
     includes: RefCell<FxHashMap<FileId, Rc<Vec<Vec<u8>>>>>,
@@ -222,6 +224,50 @@ pub struct Resolver<'a> {
     imports: RefCell<FxHashMap<FileId, Rc<Vec<Imp>>>>,
     supers: RefCell<FxHashMap<Vec<u8>, Rc<Vec<Vec<u8>>>>>,
     subs: RefCell<FxHashMap<Vec<u8>, Rc<Vec<Vec<u8>>>>>,
+}
+
+/// Calls that only exist after macro expansion, as the Linux kernel writes them: a static call
+/// goes through a key (`static_call(key)(..)`), the key is tied to a member of an ops table
+/// (`static_call_update(key, ops.member)`), and wrapper macros build the key by pasting a name
+/// onto a prefix (`kvm_x86_call(vcpu_run)` is `static_call(kvm_x86_vcpu_run)`).
+#[derive(Default)]
+pub struct MacroLinks {
+    /// key -> the table slots its value is taken from
+    key_slots: FxHashMap<Vec<u8>, Vec<(Ty, Vec<u8>)>>,
+    /// key -> functions installed in it directly
+    key_funcs: FxHashMap<Vec<u8>, Vec<Vec<u8>>>,
+    /// pasted key prefix -> the table type whose members complete it
+    prefix_owner: Vec<(Vec<u8>, Ty)>,
+    /// wrapper macro -> key prefix
+    wrappers: FxHashMap<Vec<u8>, Vec<u8>>,
+}
+
+const STATIC_CALLS: [&[u8]; 4] = [b"static_call", b"static_call_cond", b"static_call_mod", b"static_call_query"];
+const STATIC_DEFS: [&[u8]; 4] = [b"DEFINE_STATIC_CALL", b"DEFINE_STATIC_CALL_NULL", b"DEFINE_STATIC_CALL_RET0", b"DECLARE_STATIC_CALL"];
+const STATIC_UPDATE: &[u8] = b"static_call_update";
+
+fn ident_at(s: &[u8], mut i: usize) -> (&[u8], usize) {
+    while i < s.len() && s[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    let st = i;
+    while i < s.len() && (s[i].is_ascii_alphanumeric() || s[i] == b'_') {
+        i += 1;
+    }
+    (&s[st..i], i)
+}
+
+/// `PREFIX ## param` right after position `i` (which follows an opening parenthesis).
+fn pasted_at<'s>(s: &'s [u8], i: usize) -> Option<(&'s [u8], &'s [u8], usize)> {
+    let (prefix, mut j) = ident_at(s, i);
+    while j < s.len() && s[j].is_ascii_whitespace() {
+        j += 1;
+    }
+    if prefix.is_empty() || !s[j..].starts_with(b"##") {
+        return None;
+    }
+    let (param, k) = ident_at(s, j + 2);
+    (!param.is_empty()).then_some((prefix, param, k))
 }
 
 /// One import of a file, with names resolved to text.
@@ -298,6 +344,8 @@ impl<'a> Resolver<'a> {
             slot_binds: RefCell::new(FxHashMap::default()),
             bound: RefCell::new(FxHashMap::default()),
             importers: RefCell::new(FxHashMap::default()),
+            macro_links: RefCell::new(None),
+            pastes: RefCell::new(FxHashMap::default()),
             aliases: RefCell::new(FxHashMap::default()),
             canon: RefCell::new(FxHashMap::default()),
             includes: RefCell::new(FxHashMap::default()),
@@ -3115,6 +3163,406 @@ impl<'a> Resolver<'a> {
         None
     }
 
+    // -----------------------------------------------------------------------------------------
+    // Macro-mediated calls (kernel static calls, name-pasting macros)
+    // -----------------------------------------------------------------------------------------
+
+    /// The text of a macro definition, continuation lines included.
+    fn macro_text(&self, v: &DefV) -> Vec<u8> {
+        let Some(src) = self.ix.source(v.file()) else { return Vec::new() };
+        let mut line = 1u32;
+        let mut start = 0usize;
+        let mut end = src.len();
+        for (i, &b) in src.iter().enumerate() {
+            if b == b'\n' {
+                line += 1;
+                if line == v.rec.line {
+                    start = i + 1;
+                }
+                if line == v.rec.end_line.min(v.rec.line + 12) + 1 {
+                    end = i;
+                    break;
+                }
+            }
+        }
+        if start >= end { Vec::new() } else { src[start..end].to_vec() }
+    }
+
+    /// For a macro that is nothing but a pasted name (`#define vt_op(name) vt_##name`): the
+    /// text before and after the parameter, once per definition of the macro.
+    fn paste_of(&self, mac: &[u8]) -> Rc<Vec<(Vec<u8>, Vec<u8>)>> {
+        if let Some(hit) = self.pastes.borrow().get(mac) {
+            return hit.clone();
+        }
+        let ix = self.ix;
+        let mut out: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+        for d in ix.defs_named(mac) {
+            let v = ix.def(d);
+            if v.kind() != DefKind::Macro || v.rec.arity_max != 1 {
+                continue;
+            }
+            let text = self.macro_text(&v);
+            // #define NAME(param) BODY
+            let Some(open) = memchr::memchr(b'(', &text) else { continue };
+            let Some(close) = memchr::memchr(b')', &text) else { continue };
+            if close < open {
+                continue;
+            }
+            let param: Vec<u8> = text[open + 1..close].iter().copied().filter(|b| !b.is_ascii_whitespace()).collect();
+            let body: Vec<u8> = text[close + 1..].iter().copied().filter(|b| !b.is_ascii_whitespace() && *b != b'\\').collect();
+            if param.is_empty() {
+                continue;
+            }
+            // prefix##param, param##suffix or prefix##param##suffix, and nothing else
+            let parts: Vec<&[u8]> = body.split(|&b| b == b'#').filter(|p| !p.is_empty()).collect();
+            let is_ident = |p: &[u8]| !p.is_empty() && p.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'_');
+            if !(2..=3).contains(&parts.len()) || !parts.iter().all(|p| is_ident(p)) || parts.iter().filter(|p| **p == param.as_slice()).count() != 1 {
+                continue;
+            }
+            let at = parts.iter().position(|p| *p == param.as_slice()).unwrap_or(0);
+            let prefix: Vec<u8> = parts[..at].concat();
+            let suffix: Vec<u8> = parts[at + 1..].concat();
+            if !out.iter().any(|(a, b)| *a == prefix && *b == suffix) {
+                out.push((prefix, suffix));
+            }
+        }
+        let rc = Rc::new(out);
+        self.pastes.borrow_mut().insert(mac.to_vec(), rc.clone());
+        rc
+    }
+
+    /// The names `mac(arg)` can expand to when `mac` only pastes a name together.
+    pub fn pasted_names(&self, mac: &[u8], arg: &[u8]) -> Vec<Vec<u8>> {
+        self.paste_of(mac).iter().map(|(p, s)| [p.as_slice(), arg, s.as_slice()].concat()).collect()
+    }
+
+    /// References on the same line of the same file as `r`.
+    fn same_line(&self, r: &RefV<'a>) -> Vec<RefV<'a>> {
+        self.ix.refs_of_file(r.file).filter(|x| x.line() == r.line()).collect()
+    }
+
+    fn macro_links(&self) -> Rc<MacroLinks> {
+        if let Some(hit) = self.macro_links.borrow().as_ref() {
+            return hit.clone();
+        }
+        let ix = self.ix;
+        let mut ml = MacroLinks::default();
+        let is_fn = |name: &[u8]| ix.defs_named(name).iter().any(|&d| ix.def(d).kind() == DefKind::Function);
+        let tie = |ml: &mut MacroLinks, key: &[u8], slot: Option<(Ty, Vec<u8>)>, func: Option<&[u8]>| {
+            if let Some(sl) = slot {
+                let v = ml.key_slots.entry(key.to_vec()).or_default();
+                if !v.contains(&sl) {
+                    v.push(sl);
+                }
+            }
+            if let Some(f) = func {
+                let v = ml.key_funcs.entry(key.to_vec()).or_default();
+                if !v.iter().any(|x| x.as_slice() == f) {
+                    v.push(f.to_vec());
+                }
+            }
+        };
+        let mut macros: Vec<DefId> = Vec::new();
+        for name in STATIC_DEFS.iter().chain(std::iter::once(&STATIC_UPDATE)).chain(STATIC_CALLS.iter()) {
+            let Some(id) = ix.name_id(name) else { continue };
+            let is_update = *name == STATIC_UPDATE;
+            let is_def = STATIC_DEFS.contains(name);
+            let mut sites: Vec<RefV<'a>> = Vec::new();
+            ix.for_each_ref_named(id, |r| {
+                if matches!(r.kind(), RefKind::Call | RefKind::MacroCall) {
+                    sites.push(r);
+                }
+            });
+            for r in sites {
+                let encl = r.encl();
+                if let Some(m) = encl.as_ref().filter(|e| e.kind() == DefKind::Macro) {
+                    // Inside a macro body: read from its text below.
+                    if !macros.contains(&m.id) {
+                        macros.push(m.id);
+                    }
+                    continue;
+                }
+                if !(is_update || is_def) {
+                    continue;
+                }
+                let line = self.same_line(&r);
+                let slot = line
+                    .iter()
+                    .find(|x| x.kind() == RefKind::MemberRead)
+                    .and_then(|m| self.owners_for_ref(m).into_iter().next().map(|o| (o, m.name().to_vec())));
+                let args: Vec<&[u8]> =
+                    line.iter().filter(|x| matches!(x.kind(), RefKind::Arg | RefKind::Read) && x.name() != r.name()).map(|x| x.name()).collect();
+                // The key: the variable the definition creates, else the argument that is not
+                // a function.
+                let key: Option<Vec<u8>> = if is_def {
+                    encl.as_ref().filter(|e| matches!(e.kind(), DefKind::Variable | DefKind::Function)).map(|e| e.name().to_vec())
+                } else {
+                    args.iter().find(|a| !is_fn(a) || ml.key_slots.contains_key(**a) || ml.key_funcs.contains_key(**a)).map(|a| a.to_vec())
+                };
+                let Some(key) = key else { continue };
+                let func = if slot.is_none() { args.iter().find(|a| **a != key.as_slice() && is_fn(a)).copied() } else { None };
+                tie(&mut ml, &key, slot, func);
+            }
+        }
+        for m in macros {
+            let v = ix.def(m);
+            let text = self.macro_text(&v);
+            let Some(open) = memchr::memchr(b'(', &text) else { continue };
+            let Some(close) = memchr::memchr(b')', &text) else { continue };
+            if close < open {
+                continue;
+            }
+            let params: Vec<Vec<u8>> =
+                text[open + 1..close].split(|&b| b == b',').map(|p| p.iter().copied().filter(|b| !b.is_ascii_whitespace()).collect()).collect();
+            let body = &text[close + 1..];
+            for name in STATIC_CALLS.iter().chain(STATIC_DEFS.iter()).chain(std::iter::once(&STATIC_UPDATE)) {
+                let mut from = 0usize;
+                while let Some(at) = memchr::memmem::find(&body[from..], name) {
+                    let start = from + at;
+                    from = start + name.len();
+                    // A whole word, followed by its argument list.
+                    if start > 0 && (body[start - 1].is_ascii_alphanumeric() || body[start - 1] == b'_') {
+                        continue;
+                    }
+                    let mut i = from;
+                    while i < body.len() && body[i].is_ascii_whitespace() {
+                        i += 1;
+                    }
+                    if body.get(i) != Some(&b'(') {
+                        continue;
+                    }
+                    let Some((prefix, param, after)) = pasted_at(body, i + 1) else { continue };
+                    if !params.iter().any(|p| p.as_slice() == param) {
+                        continue;
+                    }
+                    if STATIC_CALLS.contains(name) {
+                        ml.wrappers.insert(v.name().to_vec(), prefix.to_vec());
+                        continue;
+                    }
+                    // The rest of the argument list names the table: `((struct T *)0)->p` or
+                    // `var.p`.
+                    let end = memchr::memchr(b';', &body[after..]).map(|e| after + e).unwrap_or(body.len());
+                    let rest = &body[after..end];
+                    let mut owner: Option<Ty> = None;
+                    if let Some(st) = memchr::memmem::find(rest, b"struct") {
+                        let (tname, _) = ident_at(rest, st + 6);
+                        if !tname.is_empty() {
+                            owner = Some(Ty::named(&self.canon_type(tname)));
+                        }
+                    }
+                    if owner.is_none() {
+                        // `var.param` or `var->param`
+                        let mut j = 0usize;
+                        while j < rest.len() {
+                            let (id, k) = ident_at(rest, j);
+                            if id.is_empty() {
+                                j = k + 1;
+                                continue;
+                            }
+                            let mut n = k;
+                            while n < rest.len() && rest[n].is_ascii_whitespace() {
+                                n += 1;
+                            }
+                            let sep = if rest[n..].starts_with(b"->") {
+                                2
+                            } else if rest[n..].starts_with(b".") {
+                                1
+                            } else {
+                                0
+                            };
+                            if sep > 0 && ident_at(rest, n + sep).0 == param {
+                                let mut tys = Vec::new();
+                                self.value_tys(id, None, None, &mut tys);
+                                owner = tys.into_iter().next();
+                                break;
+                            }
+                            j = k;
+                        }
+                    }
+                    if let Some(o) = owner {
+                        if !ml.prefix_owner.iter().any(|(p, t)| p.as_slice() == prefix && *t == o) {
+                            ml.prefix_owner.push((prefix.to_vec(), o));
+                        }
+                    }
+                }
+            }
+        }
+        let rc = Rc::new(ml);
+        *self.macro_links.borrow_mut() = Some(rc.clone());
+        rc
+    }
+
+    /// The table slot a static call goes through, given the argument record of its key:
+    /// `static_call(key)(..)`, or a wrapper macro such as `kvm_x86_call(member)(..)`.
+    pub fn static_call_slot(&self, arg: &RefV) -> Option<(Ty, Vec<u8>)> {
+        if arg.kind() != RefKind::Arg || self.ix.lang(arg.file) != Lang::C {
+            return None;
+        }
+        let q = arg.qual()?;
+        let ml = self.macro_links();
+        if STATIC_CALLS.contains(&q) {
+            if let Some(s) = ml.key_slots.get(arg.name()).and_then(|v| v.first()) {
+                return Some(s.clone());
+            }
+            return ml
+                .prefix_owner
+                .iter()
+                .find(|(p, _)| arg.name().starts_with(p) && arg.name().len() > p.len())
+                .map(|(p, o)| (o.clone(), arg.name()[p.len()..].to_vec()));
+        }
+        let prefix = ml.wrappers.get(q)?;
+        ml.prefix_owner.iter().find(|(p, _)| p == prefix).map(|(_, o)| (o.clone(), arg.name().to_vec()))
+    }
+
+    /// Functions installed directly in the static-call key named by `arg`.
+    pub fn static_call_funcs(&self, arg: &RefV) -> Vec<DefId> {
+        let ml = self.macro_links();
+        let Some(q) = arg.qual() else { return Vec::new() };
+        if !STATIC_CALLS.contains(&q) {
+            return Vec::new();
+        }
+        let mut out: Vec<DefId> = Vec::new();
+        for f in ml.key_funcs.get(arg.name()).map(|v| v.as_slice()).unwrap_or(&[]) {
+            if let Some(&d) = self.resolve_call(f, arg.file, 255).first() {
+                if !out.contains(&d) {
+                    out.push(d);
+                }
+            }
+        }
+        out
+    }
+
+    /// Static-call sites that dispatch through slot `owner.field`.
+    fn static_slot_sites(&self, owner: &Ty, field: &[u8], out: &mut Vec<(RefV<'a>, Conf)>) {
+        let ix = self.ix;
+        if ix.name_id(b"static_call").is_none() {
+            return;
+        }
+        let ml = self.macro_links();
+        let push = |name: &[u8], quals: &dyn Fn(&[u8]) -> bool, out: &mut Vec<(RefV<'a>, Conf)>| {
+            if let Some(id) = ix.name_id(name) {
+                ix.for_each_ref_named(id, |r| {
+                    if r.kind() == RefKind::Arg && r.qual().is_some_and(quals) {
+                        out.push((r, Conf::Exact));
+                    }
+                });
+            }
+        };
+        for (key, slots) in ml.key_slots.iter() {
+            if slots.iter().any(|(o, f)| o.same(owner) && f.as_slice() == field) {
+                push(key, &|q| STATIC_CALLS.contains(&q), out);
+            }
+        }
+        for (prefix, o) in ml.prefix_owner.iter() {
+            if !o.same(owner) {
+                continue;
+            }
+            // The pasted key itself, and the wrapper macros that paste it.
+            push(&[prefix.as_slice(), field].concat(), &|q| STATIC_CALLS.contains(&q), out);
+            for (w, p) in ml.wrappers.iter() {
+                if p == prefix {
+                    push(field, &|q| q == w.as_slice(), out);
+                }
+            }
+        }
+    }
+
+    /// Call sites of the static-call keys that function `name` is installed in directly.
+    pub fn static_key_sites(&self, name: &[u8]) -> Vec<(Vec<u8>, RefV<'a>)> {
+        let ix = self.ix;
+        let mut out = Vec::new();
+        if ix.name_id(b"static_call").is_none() {
+            return out;
+        }
+        let ml = self.macro_links();
+        for (key, funcs) in ml.key_funcs.iter() {
+            if !funcs.iter().any(|f| f.as_slice() == name) {
+                continue;
+            }
+            if let Some(id) = ix.name_id(key) {
+                ix.for_each_ref_named(id, |r| {
+                    if r.kind() == RefKind::Arg && r.qual().is_some_and(|q| STATIC_CALLS.contains(&q)) {
+                        out.push((key.clone(), r));
+                    }
+                });
+            }
+        }
+        out
+    }
+
+    /// Functions written into slot `owner.field` through a name-pasting macro
+    /// (`.vcpu_run = vt_op(vcpu_run)`), with the place of each such entry.
+    pub fn pasted_bindings(&self, owner: &Ty, field: &[u8]) -> Vec<(RefV<'a>, Vec<DefId>)> {
+        let ix = self.ix;
+        let mut out: Vec<(RefV<'a>, Vec<DefId>)> = Vec::new();
+        let Some(fid) = ix.name_id(field) else { return out };
+        let mut sites: Vec<RefV<'a>> = Vec::new();
+        ix.for_each_ref_named(fid, |r| {
+            if r.kind() == RefKind::Arg && ix.lang(r.file) == Lang::C && r.qual().is_some_and(|q| !self.paste_of(q).is_empty()) {
+                sites.push(r);
+            }
+        });
+        for r in sites {
+            // The entry it initialises: a write of a member on the same line, of this type.
+            let line = self.same_line(&r);
+            let writes = line.iter().any(|w| w.kind() == RefKind::MemberWrite && w.name() == field && self.owners_for_ref(w).iter().any(|o| o.same(owner)));
+            if !writes {
+                continue;
+            }
+            let mut fns: Vec<DefId> = Vec::new();
+            for name in self.pasted_names(r.qual().unwrap_or(b""), field) {
+                for d in self.resolve_call(&name, r.file, 255).into_iter().take(1) {
+                    if matches!(ix.def(d).kind(), DefKind::Function) && !fns.contains(&d) {
+                        fns.push(d);
+                    }
+                }
+            }
+            if !fns.is_empty() {
+                out.push((r, fns));
+            }
+        }
+        out
+    }
+
+    /// The table slots function `name` is written into through a name-pasting macro.
+    pub fn pasted_slots_of(&self, name: &[u8], defs: &[DefId]) -> Vec<(RefV<'a>, Ty, Vec<u8>)> {
+        let ix = self.ix;
+        let mut out: Vec<(RefV<'a>, Ty, Vec<u8>)> = Vec::new();
+        if !defs.iter().any(|&d| ix.lang(ix.def(d).file()) == Lang::C) {
+            return out;
+        }
+        // Every way to cut the name into prefix + member (+ suffix) at an underscore.
+        for (i, &b) in name.iter().enumerate() {
+            if b != b'_' || i + 1 >= name.len() {
+                continue;
+            }
+            let member = &name[i + 1..];
+            let Some(mid) = ix.name_id(member) else { continue };
+            let mut sites: Vec<RefV<'a>> = Vec::new();
+            ix.for_each_ref_named(mid, |r| {
+                if r.kind() == RefKind::Arg && ix.lang(r.file) == Lang::C {
+                    sites.push(r);
+                }
+            });
+            for r in sites {
+                let Some(q) = r.qual() else { continue };
+                if !self.pasted_names(q, member).iter().any(|n| n.as_slice() == name) {
+                    continue;
+                }
+                for w in self.same_line(&r) {
+                    if w.kind() == RefKind::MemberWrite && w.name() == member {
+                        for o in self.owners_for_ref(&w) {
+                            if !out.iter().any(|(_, t, f)| *t == o && f.as_slice() == member) {
+                                out.push((r, o, member.to_vec()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// Functions bound into slot `owner.field` anywhere in the repository.
     pub fn slot_bindings(&self, owner: &Ty, field: &[u8]) -> Vec<(RefV<'a>, Conf)> {
         let key = (owner.clone(), field.to_vec());
@@ -3188,6 +3636,7 @@ impl<'a> Resolver<'a> {
                 out.push((r, Conf::Exact));
             }
         });
+        self.static_slot_sites(owner, field, &mut out);
         out
     }
 }

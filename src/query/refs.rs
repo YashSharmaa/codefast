@@ -259,6 +259,23 @@ pub fn refs(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, opts: 
             out.push(&format!("{label} ({}):", count(rs_.len())));
             list_refs(ix, &rs_, text, out);
         }
+        if t.class == Class::Member && opts.only.is_empty() {
+            if let Some(owner) = rs.target_owner(t) {
+                macro_bindings(ix, rs, &owner, &t.name, &pf, out);
+                // Dispatch that only exists after macro expansion (the kernel's static calls).
+                let mut sc: Vec<RefV> = rs
+                    .slot_calls(&owner, &t.name)
+                    .into_iter()
+                    .filter(|(r, c)| *c == Conf::Exact && r.kind() == RefKind::Arg && pf.matches(r.path()))
+                    .map(|(r, _)| r)
+                    .collect();
+                if !sc.is_empty() {
+                    sc.sort_by_cached_key(|r| proximity_key(ix, &def_path, r));
+                    out.push(&format!("called through a static call ({}):", count(sc.len())));
+                    list_refs(ix, &sc, sc.len() <= 12, out);
+                }
+            }
+        }
         let mentions = super::search::text_only_mentions(ix, rs, t);
         if !mentions.is_empty() && opts.only.is_empty() {
             let mut ms: Vec<&str> = mentions.iter().map(|f| ix.path(*f)).filter(|p| pf.matches(p)).collect();
@@ -284,6 +301,33 @@ pub fn refs(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, opts: 
             }
         }
     }
+}
+
+/// Functions written into a table slot through a name-pasting macro, one line each.
+fn macro_bindings(ix: &Index, rs: &Resolver, owner: &Ty, field: &[u8], pf: &PathFilter, out: &mut Out) -> usize {
+    let pasted: Vec<_> = rs.pasted_bindings(owner, field).into_iter().filter(|(r, _)| pf.matches(r.path())).collect();
+    if pasted.is_empty() {
+        return 0;
+    }
+    let mut n = 0;
+    out.push("set through a name-pasting macro:");
+    for (r, fns) in &pasted {
+        for &f in fns {
+            let v = ix.def(f);
+            out.line(&format!(
+                "  {} {}:{}  (written {}({}) at {}:{})",
+                v.name_str(),
+                v.path(),
+                v.rec.line,
+                String::from_utf8_lossy(r.qual().unwrap_or(b"")),
+                String::from_utf8_lossy(field),
+                r.path(),
+                r.line()
+            ));
+            n += 1;
+        }
+    }
+    n
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -351,6 +395,20 @@ pub fn caller_edges<'a>(rs: &Resolver<'a>, t: &Target) -> (Vec<Edge<'a>>, Vec<Re
         }
         _ => {}
     });
+    if t.class == Class::Callable {
+        // Written into a table through a name-pasting macro: `.vcpu_run = vt_op(vcpu_run)`.
+        for (r, owner, field) in rs.pasted_slots_of(&t.name, &t.defs) {
+            let q = [owner.name.as_slice(), b".", field.as_slice()].concat();
+            if !slots.iter().any(|(a, b)| *a == owner && *b == field) {
+                slots.push((owner, field));
+            }
+            edges.push(Edge { r, via: Via::Bind(q) });
+        }
+        // Installed in a static-call key: the key's call sites call it.
+        for (key, r) in rs.static_key_sites(&t.name) {
+            edges.push(Edge { r, via: Via::Slot(Vec::new(), key) });
+        }
+    }
     // A line that stores or passes the function is listed once, as the binding or the argument.
     let stored: FxHashSet<(crate::store::FileId, u32)> =
         edges.iter().filter(|e| matches!(e.via, Via::Bind(_) | Via::Arg(_))).map(|e| (e.r.file, e.r.line())).collect();
@@ -436,6 +494,56 @@ pub fn callee_edges<'a>(rs: &Resolver<'a>, d: &DefV<'a>) -> Vec<Callee<'a>> {
             continue;
         }
         if r.kind() == RefKind::Arg {
+            // `static_call(key)(..)` and wrapper macros around it: a call through a table slot,
+            // or of the functions installed in the key.
+            if let Some((owner, field)) = rs.static_call_slot(&r) {
+                let mut bound: Vec<DefId> = Vec::new();
+                for (b, conf) in rs.slot_bindings(&owner, &field) {
+                    if conf == Conf::Exact {
+                        if let Some(&best) = rs.bound_targets(&b).first() {
+                            if !bound.contains(&best) {
+                                bound.push(best);
+                            }
+                        }
+                    }
+                }
+                for (_, fns) in rs.pasted_bindings(&owner, &field) {
+                    for f in fns {
+                        if !bound.contains(&f) {
+                            bound.push(f);
+                        }
+                    }
+                }
+                seen.insert(key, out.len());
+                out.push(Callee {
+                    name: r.name(),
+                    line: r.line(),
+                    count: 1,
+                    targets: Vec::new(),
+                    slot: Some(([owner.name.as_slice(), b".", field.as_slice()].concat(), bound)),
+                    member: true,
+                    passed_to: None,
+                    external: false,
+                    by_name: false,
+                });
+                continue;
+            }
+            let direct = rs.static_call_funcs(&r);
+            if !direct.is_empty() {
+                seen.insert(key, out.len());
+                out.push(Callee {
+                    name: r.name(),
+                    line: r.line(),
+                    count: 1,
+                    targets: direct,
+                    slot: None,
+                    member: false,
+                    passed_to: None,
+                    external: false,
+                    by_name: false,
+                });
+                continue;
+            }
             // Only functions handed over as callbacks are edges; constants and variables are not.
             let targets: Vec<DefId> =
                 rs.bound_targets(&r).iter().copied().filter(|&t| matches!(ix.def(t).kind(), DefKind::Function | DefKind::Method)).collect();
@@ -499,6 +607,13 @@ pub fn callee_edges<'a>(rs: &Resolver<'a>, d: &DefV<'a>) -> Vec<Callee<'a>> {
                     if let Some(best) = rs.bound_targets(&b).first() {
                         if !bound.contains(best) {
                             bound.push(*best);
+                        }
+                    }
+                }
+                for (_, fns) in rs.pasted_bindings(owner, r.name()) {
+                    for f in fns {
+                        if !bound.contains(&f) {
+                            bound.push(f);
                         }
                     }
                 }
@@ -679,7 +794,8 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
                 let calls: Vec<RefV> =
                     rs.slot_calls(owner, &t.name).into_iter().filter(|(_, c)| *c == Conf::Exact).map(|(r, _)| r).filter(|r| pf.matches(r.path())).collect();
                 let binds = rs.slot_bindings(owner, &t.name);
-                out.push(&format!("{}  (slot: {} call sites, {} bound functions)", def_line(&p), count(calls.len()), count(binds.len())));
+                let pasted: usize = rs.pasted_bindings(owner, &t.name).iter().map(|(_, f)| f.len()).sum();
+                out.push(&format!("{}  (slot: {} call sites, {} bound functions)", def_line(&p), count(calls.len()), count(binds.len() + pasted)));
                 if !calls.is_empty() {
                     out.push("call sites:");
                     let mut cs = calls;
@@ -691,6 +807,7 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
                     out.push("bound functions:");
                     print_bindings(ix, rs, &binds, out);
                 }
+                macro_bindings(ix, rs, owner, &t.name, &pf, out);
                 continue;
             }
         }

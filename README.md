@@ -238,8 +238,9 @@ search.
 * It reads syntax, not types. A call through a value whose type only a compiler knows
   (inferred types, generics, narrowing) is not tied to its target. The answer counts such call
   sites and `codefast refs NAME --loose` lists them.
-* Macros that build names by pasting tokens can hide a definition or a call. The kernel's
-  `static_call()` is one such case.
+* Macros that build code by pasting tokens can hide a definition or a call. The kernel's
+  static calls and tables filled through a name-pasting macro are followed. Tables generated
+  by including a list file several times (the LSM hooks, for one) are not.
 * It does not run builds, so code that is generated at build time is not indexed.
 
 ## Reproducing the numbers

@@ -192,3 +192,37 @@ fn an_index_built_for_another_repository_is_never_served() {
     has(&ask(&a, "only_in_a"), "a.c:1");
     lacks(&ask(&a, "only_in_b"), "b.c:1");
 }
+
+#[test]
+fn c_static_calls_and_pasting_macros() {
+    let p = Project::new(
+        "c-macros",
+        &[
+            (
+                "ops.h",
+                "struct regs;\nstruct pmu_ops {\n\tint (*handle_irq)(struct regs *r);\n\tint (*vcpu_run)(int v);\n};\nextern struct pmu_ops pmu;\n#define DEFINE_STATIC_CALL_NULL(name, fn) int name\n#define static_call(name) (name##_tramp)\n#define static_call_update(name, fn) do { } while (0)\n#define ops_call(func) static_call(ops_##func)\n#define OPS_KEY(func) DEFINE_STATIC_CALL_NULL(ops_##func, *(((struct pmu_ops *)0)->func));\n",
+            ),
+            (
+                "core.c",
+                "#include \"ops.h\"\n\nDEFINE_STATIC_CALL_NULL(pmu_handle_irq, *pmu.handle_irq);\n\nstatic int nmi_handler(struct regs *r)\n{\n\treturn static_call(pmu_handle_irq)(r);\n}\n\nstatic void setup(void)\n{\n\tstatic_call_update(pmu_handle_irq, pmu.handle_irq);\n}\n\nint enter_guest(int v)\n{\n\treturn ops_call(vcpu_run)(v);\n}\n",
+            ),
+            (
+                "intel.c",
+                "#include \"ops.h\"\n\nstatic int intel_handle_irq(struct regs *r)\n{\n\treturn 1;\n}\n\nint vmx_vcpu_run(int v)\n{\n\treturn v;\n}\n\n#define vt_op(name) vmx_##name\n\nstruct pmu_ops intel_ops __initdata = {\n\t.handle_irq = intel_handle_irq,\n\t.vcpu_run = vt_op(vcpu_run),\n};\n",
+            ),
+        ],
+    );
+    // A variable declared with a trailing attribute macro keeps its own name.
+    has(&p.ask(&["find", "intel_ops"]), "intel.c:15");
+    // A function bound into a slot is reached through the static call tied to that slot.
+    let callers = p.ask(&["callers", "intel_handle_irq"]);
+    has(&callers, "dispatched via pmu_ops.handle_irq");
+    has(&callers, "7 nmi_handler: return static_call(pmu_handle_irq)(r);");
+    // A table entry written through a name-pasting macro, called through a wrapper macro.
+    let refs = p.ask(&["refs", "pmu_ops.vcpu_run"]);
+    has(&refs, "vmx_vcpu_run intel.c:8  (written vt_op(vcpu_run) at intel.c:17)");
+    has(&refs, "17 enter_guest: return ops_call(vcpu_run)(v);");
+    let callers = p.ask(&["callers", "vmx_vcpu_run"]);
+    has(&callers, "pmu_ops.vcpu_run in intel_ops");
+    has(&callers, "17 enter_guest: return ops_call(vcpu_run)(v);");
+}

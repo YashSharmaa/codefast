@@ -525,6 +525,24 @@ impl<'a, 't> W<'a, 't> {
         self.cx.pop_def();
     }
 
+    /// The variable's own name when the declarator the grammar found is an attribute macro
+    /// written after it (`int counter __read_mostly;`, `struct ops t __initdata = {..}`).
+    fn name_before_attribute(&self, d: Node<'t>, id: Node<'t>) -> Option<Node<'t>> {
+        let text = self.cx.text(id);
+        let macro_like = text.starts_with(b"__") || (text.len() > 2 && text.iter().all(|b| b.is_ascii_uppercase() || *b == b'_' || b.is_ascii_digit()));
+        if !macro_like {
+            return None;
+        }
+        let prev = d.prev_sibling()?;
+        if self.k(prev) != K::Error || prev.named_child_count() != 1 {
+            return None;
+        }
+        // The name itself, or a declarator around it (`table[] __initconst`, `*ptr __percpu`).
+        let x = prev.named_child(0)?;
+        let x = if self.k(x) == K::Identifier { x } else { self.declared_ident(x)? };
+        (self.k(x) == K::Identifier && x.start_byte() < x.end_byte()).then_some(x)
+    }
+
     fn declaration(&mut self, n: Node<'t>, c: &mut TreeCursor<'t>) {
         let t = self.t;
         let tname = match child(n, t.f_type) {
@@ -624,7 +642,14 @@ impl<'a, 't> W<'a, 't> {
                             };
                             match id {
                                 Some(id) => {
-                                    let nm = self.cx.name(id);
+                                    // `struct ops table __initdata = {..}`: the grammar takes
+                                    // the attribute macro for the declarator and leaves the
+                                    // real name in an error node in front of it.
+                                    let real = self.name_before_attribute(d, id);
+                                    if let Some(r) = real {
+                                        self.cx.mark(r);
+                                    }
+                                    let nm = self.cx.name(real.unwrap_or(id));
                                     let sig_end = if has_init { child(d, t.f_value).map(|v| v.start_byte()).unwrap_or(n.end_byte()) } else { n.end_byte() };
                                     let di = self.cx.def(nm, DefKind::Variable, n, sig_end);
                                     let dm = self.cx.def_mut(di);
