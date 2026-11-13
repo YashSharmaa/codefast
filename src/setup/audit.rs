@@ -9,7 +9,12 @@
 //! contains, and prints the command that turns a part off for this project alone.
 //!
 //! The numbers are estimates from the text on disk at about four characters per token. Claude
-//! Code's own `/context` and `claude plugin details NAME` are the exact figures.
+//! Code's own `/context` and `claude plugin details NAME` are the exact figures: on a
+//! configuration of 7 plugins, 43 skills and 3 loaded files the total here was 4% above the one
+//! `/context` gave (2026-11-13, Claude Code 2.1.323). Codex has no such command, so its figures
+//! rest on its documentation of what is loaded.
+//!
+//! Two harnesses are read: Claude Code and Codex.
 
 use super::harness::{Ctx, env_path};
 use crate::output::count;
@@ -95,6 +100,8 @@ pub struct Audit {
     /// names and instructions load: counted, not costed.
     pub servers: Vec<(String, String)>,
     pub profile: Vec<String>,
+    /// What could not be looked at, said in the report.
+    pub notes: Vec<String>,
 }
 
 impl Audit {
@@ -357,12 +364,10 @@ fn instruction_files(ctx: &Ctx, cfg: &Path) -> Vec<(PathBuf, &'static str)> {
     // that holds another harness account's `.claude/CLAUDE.md` counts here too: the harness
     // reads it as an instruction file of a parent directory.
     let mut dir = Some(ctx.root.as_path());
-    let mut any_claude = false;
     while let Some(d) = dir {
         for rel in ["CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md"] {
             let p = d.join(rel);
             if p.is_file() && !out.iter().any(|(q, _)| *q == p) {
-                any_claude |= d == ctx.root;
                 out.push((p, if d == ctx.root { "project" } else { "parent directory" }));
             }
         }
@@ -373,13 +378,48 @@ fn instruction_files(ctx: &Ctx, cfg: &Path) -> Vec<(PathBuf, &'static str)> {
         dir = d.parent();
     }
     out.extend(markdown(&ctx.project(".claude/rules"), 4).into_iter().map(|p| (p, "project")));
-    if !any_claude {
-        for rel in ["AGENTS.md", ".claude/AGENTS.md"] {
-            out.push((ctx.project(rel), "project"));
+    out.retain(|(p, _)| p.is_file());
+    // A loaded file brings in what it imports (`@AGENTS.md`, `@docs/rules.md`, `@~/notes.md`).
+    // `AGENTS.md` is not read of its own accord: `/context` of Claude Code 2.1.323 does not list
+    // it for a project that has one and no `CLAUDE.md`.
+    let mut i = 0;
+    while i < out.len() && out.len() < 64 {
+        let (path, source) = out[i].clone();
+        i += 1;
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let mut fenced = false;
+        for line in text.lines() {
+            if line.trim_start().starts_with("```") {
+                fenced = !fenced;
+            }
+            if fenced {
+                continue;
+            }
+            for word in line.split_whitespace() {
+                let Some(target) = word.strip_prefix('@').map(|t| t.trim_end_matches(|c: char| matches!(c, '.' | ',' | ')' | ':' | ';'))) else { continue };
+                if target.is_empty() || !target.contains('.') && !target.contains('/') {
+                    continue;
+                }
+                let to = match target.strip_prefix("~/") {
+                    Some(rest) => ctx.home(rest),
+                    None => path.parent().unwrap_or(Path::new("")).join(target),
+                };
+                if to.is_file() && !out.iter().any(|(q, _)| *q == to) {
+                    out.push((to, source));
+                }
+            }
         }
     }
-    out.retain(|(p, _)| p.is_file());
     out
+}
+
+/// The skills Claude Code keeps in step with the signed-in claude.ai account: one directory per
+/// organisation and account under `skills/synced`, of which the signed-in one is loaded.
+fn synced_skills(ctx: &Ctx, cfg: &Path) -> Vec<PathBuf> {
+    let state = read_json(&cfg.join(".claude.json")).or_else(|| read_json(&ctx.home(".claude.json")));
+    let id = |key: &str| state.as_ref().and_then(|s| s.get("oauthAccount")).and_then(|o| o.get(key)).and_then(Value::as_str).map(str::to_string);
+    let (Some(org), Some(account)) = (id("organizationUuid"), id("accountUuid")) else { return Vec::new() };
+    dirs(&cfg.join("skills/synced").join(format!("{org}_{account}")))
 }
 
 pub fn claude_code(ctx: &Ctx) -> Audit {
@@ -443,6 +483,12 @@ pub fn claude_code(ctx: &Ctx) -> Audit {
             }
         }
     }
+    for d in synced_skills(ctx, &cfg) {
+        let dir_name = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if let Some((name, tokens, desc)) = listed(&d.join("SKILL.md"), &dir_name).filter(|(n, ..)| !hidden.contains(n)) {
+            a.parts.push(Part { kind: "synced", matches: fit(&profile, &name, &desc), about: crate::output::clip(&desc, 70), name, source: "claude.ai".to_string(), tokens, off: String::new(), listed: 1 });
+        }
+    }
     // Instruction files are loaded whole. `about` holds a hash of the text here, which is how
     // one that repeats another is recognised.
     for (path, source) in instruction_files(ctx, &cfg) {
@@ -484,6 +530,205 @@ pub fn claude_code(ctx: &Ctx) -> Audit {
     a
 }
 
+// ----- Codex -----
+
+fn codex_dir(ctx: &Ctx) -> PathBuf {
+    env_path("CODEX_HOME").unwrap_or_else(|| ctx.home(".codex"))
+}
+
+/// A dotted TOML key as its parts: `plugins."a.b@c".enabled` is `plugins`, `a.b@c`, `enabled`.
+fn toml_key(s: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut cur = String::new();
+    let mut quote: Option<char> = None;
+    for c in s.chars() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), c) => cur.push(c),
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '.') => parts.push(std::mem::take(&mut cur).trim().to_string()),
+            (None, c) => cur.push(c),
+        }
+    }
+    parts.push(cur.trim().to_string());
+    parts
+}
+
+/// The `key = value` lines of a TOML file, each with the table it stands in. It reads what this
+/// audit needs (switches, names, one-line strings) and nothing else: an entry of an array of
+/// tables gets a number as the last part of its table, and a value that spans lines is skipped.
+fn toml_pairs(text: &str) -> Vec<(Vec<String>, String, String)> {
+    let mut table: Vec<String> = Vec::new();
+    let mut entries = 0usize;
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') {
+            let array = line.starts_with("[[");
+            let inner = line.trim_start_matches('[');
+            let inner = inner.rfind(']').map_or(inner, |i| &inner[..i]).trim_end_matches(']');
+            table = toml_key(inner);
+            if array {
+                entries += 1;
+                table.push(format!("#{entries}"));
+            }
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else { continue };
+        let mut key = toml_key(k.trim());
+        let Some(last) = key.pop() else { continue };
+        let v = v.trim();
+        let value = match v.chars().next() {
+            Some(q @ ('"' | '\'')) => match v[1..].find(q) {
+                Some(end) => v[1..1 + end].to_string(),
+                None => continue,
+            },
+            _ => v.split('#').next().unwrap_or("").trim().to_string(),
+        };
+        let mut at = table.clone();
+        at.extend(key);
+        out.push((at, last, value));
+    }
+    out
+}
+
+pub fn codex(ctx: &Ctx) -> Audit {
+    let cfg = codex_dir(ctx);
+    let mut a = Audit { harness: "Codex", ..Default::default() };
+    if !cfg.is_dir() {
+        return a;
+    }
+    let profile = profile(&ctx.root);
+    a.profile = profile.iter().cloned().collect();
+    // The user's file, then the project's: where both set a switch, the closer one counts.
+    let mut pairs: Vec<(Vec<String>, String, String)> = Vec::new();
+    for file in [cfg.join("config.toml"), ctx.project(".codex/config.toml")] {
+        match std::fs::read_to_string(&file) {
+            Ok(text) => pairs.extend(toml_pairs(&text)),
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                a.notes.push(format!("{} could not be read: the plugins and MCP servers it switches on are not counted.", ctx.show(&file)));
+            }
+            Err(_) => {}
+        }
+    }
+    let switch = |table: &[&str]| pairs.iter().rev().find(|(t, k, _)| k == "enabled" && t.iter().map(String::as_str).eq(table.iter().copied())).map(|(_, _, v)| v == "true");
+    // Plugins: the ones the configuration names and has not switched off. What each costs is
+    // the listing of its skills.
+    let ids: BTreeSet<String> = pairs.iter().filter(|(t, ..)| t.len() >= 2 && t[0] == "plugins" && t[1] != "_default").map(|(t, ..)| t[1].clone()).collect();
+    for id in ids {
+        if switch(&["plugins", &id]) == Some(false) {
+            continue;
+        }
+        let Some((name, market)) = id.split_once('@') else { continue };
+        // `cache/<marketplace>/<plugin>/<version>/`: the newest version is the one in use.
+        let Some(root) = dirs(&cfg.join("plugins/cache").join(market).join(name)).pop() else { continue };
+        let servers = [root.join(".mcp.json"), root.join("mcp.json")].iter().find_map(|f| read_json(f)).as_ref().and_then(|m| m.get("mcpServers").or(Some(m))).and_then(Value::as_object).map(|m| m.len()).unwrap_or(0);
+        for _ in 0..servers {
+            a.servers.push((id.clone(), "plugin".to_string()));
+        }
+        let mut parts = Vec::new();
+        for d in dirs(&root.join("skills")) {
+            let dir_name = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            parts.extend(listed(&d.join("SKILL.md"), &dir_name));
+        }
+        if parts.is_empty() {
+            continue;
+        }
+        let names: Vec<&str> = parts.iter().map(|p| p.0.as_str()).collect();
+        let text = format!("{} {}", names.join(" "), parts.iter().map(|p| p.2.as_str()).collect::<Vec<_>>().join(" "));
+        let shown: Vec<&str> = names.iter().take(4).copied().collect();
+        let about = if names.len() > shown.len() { format!("{}, +{}", shown.join(", "), names.len() - shown.len()) } else { shown.join(", ") };
+        a.parts.push(Part {
+            kind: "plugin",
+            name: id.clone(),
+            source: "plugin".to_string(),
+            tokens: parts.iter().map(|p| p.1).sum(),
+            about,
+            off: format!("[plugins.\"{id}\"]\n    enabled = false"),
+            matches: fit(&profile, name, &text),
+            listed: parts.len(),
+        });
+    }
+    // Skills: the listing holds each one's name, description and file path.
+    let hidden: BTreeSet<String> = {
+        let entry = |t: &Vec<String>| t.len() == 3 && t[0] == "skills" && t[1] == "config";
+        let off: BTreeSet<&Vec<String>> = pairs.iter().filter(|(t, k, v)| entry(t) && k == "enabled" && v == "false").map(|(t, ..)| t).collect();
+        pairs.iter().filter(|(t, k, _)| off.contains(t) && (k == "name" || k == "path")).map(|(_, _, v)| v.clone()).collect()
+    };
+    for (dir, source) in [(ctx.home(".agents/skills"), "user"), (ctx.project(".agents/skills"), "project")] {
+        for d in dirs(&dir) {
+            let file = d.join("SKILL.md");
+            let dir_name = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let Some((name, listing, desc)) = listed(&file, &dir_name) else { continue };
+            if hidden.contains(&name) || hidden.contains(file.to_string_lossy().as_ref()) {
+                continue;
+            }
+            let off = format!("[[skills.config]]\n    name = \"{name}\"\n    enabled = false");
+            a.parts.push(Part {
+                kind: "skill",
+                matches: fit(&profile, &name, &desc),
+                about: crate::output::clip(&desc, 70),
+                name,
+                source: source.to_string(),
+                tokens: listing + tokens(&file.to_string_lossy()),
+                off,
+                listed: 1,
+            });
+        }
+    }
+    // Sub-agents: a description each, shown when Codex chooses one.
+    for (dir, source) in [(cfg.join("agents"), "user"), (ctx.project(".codex/agents"), "project")] {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "toml")).collect();
+        files.sort();
+        for f in files {
+            let Ok(text) = std::fs::read_to_string(&f) else { continue };
+            let top = toml_pairs(&text);
+            let get = |key: &str| top.iter().find(|(t, k, _)| t.is_empty() && k == key).map(|(_, _, v)| v.clone());
+            let Some(desc) = get("description") else { continue };
+            let name = get("name").unwrap_or_else(|| f.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+            a.parts.push(Part { kind: "agent", matches: fit(&profile, &name, &desc), about: crate::output::clip(&desc, 70), tokens: tokens(&name) + tokens(&desc) + 4, name, source: source.to_string(), off: String::new(), listed: 1 });
+        }
+    }
+    // Instruction files: the user's, then the project's. In each place an override file takes
+    // the place of the plain one, and together they are cut at `project_doc_max_bytes`.
+    let limit: usize = pairs.iter().rev().find(|(t, k, _)| t.is_empty() && k == "project_doc_max_bytes").and_then(|(_, _, v)| v.parse().ok()).unwrap_or(32 * 1024);
+    let mut room = limit;
+    for (dir, source) in [(cfg.clone(), "user"), (ctx.root.clone(), "project")] {
+        let Some(path) = ["AGENTS.override.md", "AGENTS.md"].iter().map(|n| dir.join(n)).find(|p| p.is_file()) else { continue };
+        let Ok(mut text) = std::fs::read_to_string(&path) else { continue };
+        let mut cut = text.len().min(room);
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        text.truncate(cut);
+        room -= cut;
+        if text.is_empty() {
+            continue;
+        }
+        a.parts.push(Part {
+            kind: "instructions",
+            name: ctx.show(&path),
+            source: source.to_string(),
+            tokens: tokens(&text),
+            about: format!("{:016x}", xxhash_rust::xxh3::xxh3_64(text.trim().as_bytes())),
+            off: String::new(),
+            matches: Some(String::new()),
+            listed: 0,
+        });
+    }
+    // MCP servers the configuration declares and has not switched off.
+    let servers: BTreeSet<String> = pairs.iter().filter(|(t, ..)| t.len() >= 2 && t[0] == "mcp_servers").map(|(t, ..)| t[1].clone()).collect();
+    for id in servers {
+        if switch(&["mcp_servers", &id]) != Some(false) {
+            a.servers.push((id, "config".to_string()));
+        }
+    }
+    a
+}
+
 // ----- the report -----
 
 fn tok(n: usize) -> String {
@@ -496,20 +741,35 @@ pub fn report(a: &Audit) -> String {
         out.push_str(s);
         out.push('\n');
     };
+    let codex = a.harness == "Codex";
     if a.parts.is_empty() && a.servers.is_empty() {
         line(&mut out, &format!("{}: nothing of its configuration was found on this machine.", a.harness));
+        for n in &a.notes {
+            line(&mut out, n);
+        }
         return out;
     }
     let sum = |kind: &str| a.parts.iter().filter(|p| p.kind == kind).map(|p| p.tokens).sum::<usize>();
     let n = |kind: &str| a.parts.iter().filter(|p| p.kind == kind).count();
     line(&mut out, &format!("{}: about {} tokens of your configuration go into every request of a session in this project.", a.harness, count(a.total())));
-    line(&mut out, "(Estimated from the files. The harness's own figures: `/context` in a session, `claude plugin details NAME`.)");
+    if codex {
+        line(&mut out, "(Estimated from the files. Codex has no command that shows these figures, and it shortens the list of skills where it passes 2% of the model's context window.)");
+    } else {
+        line(&mut out, "(Estimated from the files. The harness's own figures: `/context` in a session, `claude plugin details NAME`.)");
+    }
+    for n in &a.notes {
+        line(&mut out, n);
+    }
     let listed: usize = a.parts.iter().filter(|p| p.kind == "plugin").map(|p| p.listed).sum();
-    for (kind, label) in [("plugin", "plugins"), ("skill", "skills of your own"), ("agent", "sub-agents"), ("instructions", "instruction files, loaded in full"), ("memory", "memory index")] {
+    for (kind, label) in [("plugin", "plugins"), ("skill", "skills of your own"), ("synced", "skills synced from your claude.ai account"), ("agent", "sub-agents"), ("instructions", "instruction files, loaded in full"), ("memory", "memory index")] {
         if n(kind) == 0 {
             continue;
         }
-        let extra = if kind == "plugin" { format!(", listing {} skills, commands and agents", count(listed)) } else { String::new() };
+        let extra = match kind {
+            "plugin" if codex => format!(", listing {} skills", count(listed)),
+            "plugin" => format!(", listing {} skills, commands and agents", count(listed)),
+            _ => String::new(),
+        };
         line(&mut out, &format!("  {:>10}  {} {label}{extra}", tok(sum(kind)), n(kind)));
     }
     if !a.servers.is_empty() {
@@ -546,15 +806,33 @@ pub fn report(a: &Audit) -> String {
         let plugins: Vec<&str> = loose.iter().filter(|p| p.kind == "plugin").map(|p| p.name.as_str()).collect();
         let skills: Vec<String> = loose.iter().filter(|p| p.kind == "skill").map(|p| format!("\"{}\": \"off\"", p.name)).collect();
         let agents: Vec<String> = loose.iter().filter(|p| p.kind == "agent").map(|p| format!("\"Agent({})\"", p.name)).collect();
-        line(&mut out, "To switch them off for this project only (they stay installed, and it applies from the next session):");
-        for id in plugins.iter().take(12) {
-            line(&mut out, &format!("  claude plugin disable {id} --scope local"));
-        }
-        if !skills.is_empty() {
-            line(&mut out, &format!("  in .claude/settings.local.json: \"skillOverrides\": {{{}}}", skills.join(", ")));
-        }
-        if !agents.is_empty() {
-            line(&mut out, &format!("  in .claude/settings.local.json: \"permissions\": {{\"deny\": [{}]}}", agents.join(", ")));
+        if codex {
+            // Codex documents a switch per project for a plugin, and only a general one for a skill.
+            if !plugins.is_empty() {
+                line(&mut out, "To switch a plugin off for this project only, in .codex/config.toml of the project (Codex reads it once the project is trusted):");
+                for id in plugins.iter().take(12) {
+                    line(&mut out, &format!("    [plugins.\"{id}\"]\n    enabled = false"));
+                }
+            }
+            let names: Vec<&str> = loose.iter().filter(|p| p.kind == "skill").map(|p| p.name.as_str()).collect();
+            if let Some(first) = names.first() {
+                line(&mut out, "To switch a skill off, in ~/.codex/config.toml (for every project: Codex documents no switch per project for a skill), one entry each:");
+                line(&mut out, &format!("    [[skills.config]]\n    name = \"{first}\"\n    enabled = false"));
+                if names.len() > 1 {
+                    line(&mut out, &format!("  and the same for: {}", names[1..].join(", ")));
+                }
+            }
+        } else {
+            line(&mut out, "To switch them off for this project only (they stay installed, and it applies from the next session):");
+            for id in plugins.iter().take(12) {
+                line(&mut out, &format!("  claude plugin disable {id} --scope local"));
+            }
+            if !skills.is_empty() {
+                line(&mut out, &format!("  in .claude/settings.local.json: \"skillOverrides\": {{{}}}", skills.join(", ")));
+            }
+            if !agents.is_empty() {
+                line(&mut out, &format!("  in .claude/settings.local.json: \"permissions\": {{\"deny\": [{}]}}", agents.join(", ")));
+            }
         }
         line(&mut out, "A match is a word: a language or a dependency of this project that a part names, or that it is about software work as such. Read the list before acting on it.");
     }
@@ -567,12 +845,15 @@ pub fn report(a: &Audit) -> String {
         for p in heavy.iter().take(16) {
             let why = match (p.kind, p.matches.as_deref()) {
                 ("instructions", _) => format!("  ({})", p.source),
+                // It comes with the account, whatever the project: nothing here switches it off.
+                ("synced", _) => "  (from your claude.ai account)".to_string(),
                 (_, Some("general")) => "  (about software work in general)".to_string(),
                 (_, Some(w)) if !w.is_empty() => format!("  (this project has: {w})"),
                 _ => String::new(),
             };
             let about = if p.kind == "instructions" || p.about.is_empty() { String::new() } else { format!("  {}", p.about) };
-            line(&mut out, &format!("  {:>10}  {} {}{about}{why}", tok(p.tokens), p.kind, p.name));
+            let kind = if p.kind == "synced" { "synced skill" } else { p.kind };
+            line(&mut out, &format!("  {:>10}  {kind} {}{about}{why}", tok(p.tokens), p.name));
         }
     }
     out
@@ -606,7 +887,12 @@ pub fn note(a: &Audit, cli: &str) -> Option<String> {
 
 pub fn run(root: &Path, _args: &[String]) -> String {
     let ctx = Ctx::new(root);
-    report(&claude_code(&ctx))
+    let audits = [claude_code(&ctx), codex(&ctx)];
+    let found: Vec<String> = audits.iter().filter(|a| !a.parts.is_empty() || !a.servers.is_empty() || !a.notes.is_empty()).map(report).collect();
+    if found.is_empty() {
+        return "Nothing of the configuration of Claude Code or Codex was found on this machine.\n".to_string();
+    }
+    found.join("\n")
 }
 
 /// The line for the start of a Claude Code session in `root`, if there is something to say.
