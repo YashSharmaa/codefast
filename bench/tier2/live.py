@@ -33,6 +33,7 @@ LIVE = ROOT / "target/live"
 SYFT = ROOT / "bench/repos/syft"
 LINUX = ROOT / "bench/repos/linux"
 LINUX_INDEX = ROOT / "target/bench-index/final-linux"
+SYFT_INDEX = ROOT / "target/bench-index/live-syft"
 DEV_IDS = {"django__django-18850", "tobymao__sqlglot-4519", "R-Collection-Add"}
 W_READ, W_WRITE, W_OUT = 0.1, 1.25, 5.0
 # Variables of the session this script may be started from: a child session must not inherit them.
@@ -79,12 +80,20 @@ def k_tasks():
     return [dict(id="K-" + i, family="K", repo_name="torvalds/linux", question=qs[i]["question"], qid=i) for i in order]
 
 
+def n_tasks():
+    """Who-calls-this questions on syft (make_n_tasks.py), and sessions of four of them."""
+    n = load("n")
+    long = [dict(id=f"L-{i // 4 + 1}", family="L", repo_name="anchore/syft", parts=n[i : i + 4]) for i in range(0, len(n) - 3, 4)]
+    return n, long
+
+
 def choose(a):
     d, r = load("d"), load("r")
     k = k_tasks()
+    n, long = n_tasks()
     if a.ids:
         want = a.ids.split(",")
-        by = {t["id"]: t for t in d + r + k}
+        by = {t["id"]: t for t in d + r + k + n + long}
         return [by[i] for i in want]
     order = lambda ts: sorted(ts, key=lambda t: hashlib.sha256(t["id"].encode()).hexdigest())
     if a.dev:
@@ -98,10 +107,28 @@ def choose(a):
         for g in groups:
             if g:
                 mixed.append(g.pop(0))
-    return [t for t in mixed if t["id"] not in DEV_IDS][: a.d] + [t for t in order(r) if t["id"] not in DEV_IDS][: a.r] + k[: a.k]
+    return [t for t in mixed if t["id"] not in DEV_IDS][: a.d] + [t for t in order(r) if t["id"] not in DEV_IDS][: a.r] + k[: a.k] + n[: a.n] + long[: a.l]
+
+
+def n_question(t):
+    return (f"Which functions call the method {t['name']} of {t['receiver']} (defined in {t['file']})? Other types have a method called {t['name']} too: "
+            f"calls of those do not count. Calls from test code do count.")
 
 
 def prompt_for(t, repo):
+    if t["family"] in ("N", "L"):
+        if t["family"] == "N":
+            ask = f"Answer this question about the code:\n\n{n_question(t)}"
+            end = "End with the complete list: one line per calling function, with the file it is in."
+        else:
+            qs = "\n".join(f"{i + 1}. {n_question(p)}" for i, p in enumerate(t["parts"]))
+            ask = f"Answer these {len(t['parts'])} questions about the code, one after the other:\n\n{qs}"
+            end = "End with the complete lists: under a heading `## Question K` for each question, one line per calling function, with the file it is in."
+        return f"""You are in a checkout of syft, a Go project that lists the software packages inside container images and file systems. It is in the current directory ({repo}).
+
+{ask}
+
+Rules: do not change any file and do not read anything outside {repo}. {end}"""
     if t["family"] == "K":
         return f"""You are in a checkout of the Linux kernel source, in the current directory ({repo}).
 
@@ -181,6 +208,13 @@ def prepare(t, arm, rep, a, binary):
         (run / "prompt.txt").write_text(prompt_for(t, LINUX))
         json.dump(row, open(run / "task.json", "w"), indent=1)
         return row
+    if t["family"] in ("N", "L"):
+        parts = [t] if t["family"] == "N" else t["parts"]
+        row = dict(id=t["id"], family=t["family"], arm=arm, rep=rep, repo=str(SYFT), run=str(run), repo_name=t["repo_name"], model=a.model, tree_state=tree_state(SYFT),
+                   parts=[dict(gold=p["gold"], wrong=p["wrong"]) for p in parts])
+        (run / "prompt.txt").write_text(prompt_for(t, SYFT))
+        json.dump(row, open(run / "task.json", "w"), indent=1)
+        return row
     src = SYFT if t["family"] == "R" else t["base"]
     shutil.copytree(src, repo, symlinks=True, ignore=shutil.ignore_patterns(".git", ".codefast", "__pycache__"))
     if spec.get("rules"):
@@ -236,7 +270,38 @@ def verify_k(row):
     return float(mod.score_k(k3, qn, final_text(row["run"])))
 
 
+def named(text, who):
+    """Whether an answer names a function together with its file."""
+    base = who["file"].rsplit("/", 1)[-1]
+    return bool(re.search(r"(?<![A-Za-z0-9_])" + re.escape(who["name"]) + r"(?![A-Za-z0-9_])", text)) and base in text
+
+
+def score_callers(text, part):
+    """F1 of an answer against the compiler's list of callers: found callers against all of
+    them, and against the callers of other types' methods of the same name it also lists."""
+    found = sum(1 for g in part["gold"] if named(text, g))
+    wrong = sum(1 for w in part["wrong"] if named(text, w))
+    if not found:
+        return 0.0
+    recall, precision = found / len(part["gold"]), found / (found + wrong)
+    return 2 * recall * precision / (recall + precision)
+
+
+def verify_n(row):
+    text = final_text(row["run"])
+    if row["family"] == "N":
+        return score_callers(text, row["parts"][0])
+    # One section per question. An answer that has no headings is read as a whole for each.
+    cuts = [m.start() for m in re.finditer(r"(?m)^#+\s*Question\s+\d+", text)]
+    sections = [text[a:b] for a, b in zip(cuts, cuts[1:] + [len(text)])] if len(cuts) == len(row["parts"]) else [text] * len(row["parts"])
+    return sum(score_callers(s, p) for s, p in zip(sections, row["parts"])) / len(row["parts"])
+
+
 def verify(row):
+    if row["family"] in ("N", "L"):
+        s = verify_n(row)
+        row["kscore"] = s
+        return s >= 0.9, row.get("tree_state") in (None, tree_state(row["repo"]))
     if row["family"] == "K":
         s = verify_k(row)
         row["kscore"] = s
@@ -269,6 +334,8 @@ def session(row, a, binary, plug):
     env.pop("CODEFAST_INDEX_DIR", None)
     if row["family"] == "K" and spec["plugin"]:
         env["CODEFAST_INDEX_DIR"] = str(LINUX_INDEX)
+    if row["family"] in ("N", "L") and spec["plugin"]:
+        env["CODEFAST_INDEX_DIR"] = str(SYFT_INDEX)
     env.update(spec.get("env", {}))
     cmd = [
         a.claude, "-p", "--model", a.model, "--output-format", "stream-json", "--verbose", "--include-hook-events",
@@ -435,6 +502,9 @@ def cmd_run(a):
     if any(t["family"] == "K" for t, _, _ in todo) and any(ARMS[arm]["plugin"] for _, arm, _ in todo):
         e = dict(os.environ, CODEFAST_INDEX_DIR=str(LINUX_INDEX))
         subprocess.run([str(binary), "--root", str(LINUX), "status"], capture_output=True, text=True, env=e)
+    if any(t["family"] in ("N", "L") for t, _, _ in todo) and any(ARMS[arm]["plugin"] for _, arm, _ in todo):
+        e = dict(os.environ, CODEFAST_INDEX_DIR=str(SYFT_INDEX))
+        subprocess.run([str(binary), "--root", str(SYFT), "index"], capture_output=True, text=True, env=e)
     if any(t["family"] == "R" for t, _, _ in todo):
         rc, out = sh("go build ./... && go vet -composites=false -unreachable=false ./...", cwd=SYFT)
         print("  compiler cache warmed" if rc == 0 else "  WARM FAILED: " + out[-300:], flush=True)
@@ -645,6 +715,8 @@ def main():
     p.add_argument("--d", type=int, default=16)
     p.add_argument("--r", type=int, default=8)
     p.add_argument("--k", type=int, default=0, help="kernel questions")
+    p.add_argument("--n", type=int, default=0, help="who-calls-this questions on syft")
+    p.add_argument("--l", type=int, default=0, help="sessions of four such questions")
     p.add_argument("--jobs", type=int, default=4)
     p.add_argument("--reps", type=int, default=1, help="runs per task and arm")
     p.add_argument("--resume", action="store_true", help="skip runs that already have an outcome")

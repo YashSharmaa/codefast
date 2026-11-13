@@ -10,7 +10,7 @@ it reads, and which paths must stay free. `docs/INSTALL.md` has the commands.
 |---|---|---|
 | Skill | `skills/codefast/SKILL.md`: when to use codefast and which command answers what. The agent runs `codefast ...` in its shell. | The name and description, about 140 tokens. The body (under 1,000 tokens) is read only when the skill is used. Both figures are Claude Code's own estimate (`claude plugin details codefast` in 2.1.323 reported 140 always on and 940 on invoke for the skill as it stood on the morning of 2026-11-13). |
 | MCP server | `codefast mcp`: five read-only tools (`search`, `show`, `refs`, `path`, `grep`) with the same plain-text answers as the command line. | The server instructions and five tool definitions. Most harnesses defer them until needed. |
-| Hooks | `codefast hook EVENT`, with the events `session-start`, `pre-tool-use` and `post-tool-use`: at session start they make sure the index exists, after a search for one known symbol they add where it is defined and who calls it, and before a whole-file read of a long source file they add one line naming the outline command. | Nothing unless they have something to add. They never block or rewrite a tool call. |
+| Hooks | `codefast hook EVENT`, with the events `session-start`, `user-prompt-submit`, `pre-tool-use` and `post-tool-use`. At session start they make sure the index exists. For a prompt that names a symbol they add where it is defined, what it is for and how widely it is used. After a search for one known symbol they add its definition and how it is used. After an edit they list the places that still use something the edit removed, renamed or gave another signature. Before a whole-file read of a long source file they add one line naming the outline command. After a compaction they list the definitions the uncommitted changes added, removed and altered. | Nothing unless they have something to add. They never block or rewrite a tool call. |
 | Rules block | A marked block of sixteen lines in a project's `AGENTS.md`, written by `codefast setup agents-md`: which command answers which question, and when plain grep is still right. For harnesses that read nothing else (Aider), and the one part that is in context without the agent choosing it. | Always: 1.0 KB, about 250 tokens. |
 | Launcher | `bin/codefast`: a POSIX shell script that finds or fetches the binary. It is what plugins put on `PATH` and what their MCP entries start. | None. |
 
@@ -221,12 +221,15 @@ npm package or a `codefast.exe` on `PATH` with a hand-written MCP entry. Not tes
 | Event | Matcher in Claude Code | Matcher in Codex | Command |
 |---|---|---|---|
 | `SessionStart` | none | none | `codefast hook session-start` |
+| `UserPromptSubmit` | none | none | `codefast hook user-prompt-submit` |
 | `PreToolUse` | `Read\|Bash` | `Bash` | `codefast hook pre-tool-use` |
-| `PostToolUse`, and `PostToolUseFailure` in Claude Code | `Bash\|Grep\|Glob` | `Bash` | `codefast hook post-tool-use` |
+| `PostToolUse` | `Bash\|Grep\|Glob\|Edit\|Write` | `Bash\|apply_patch` | `codefast hook post-tool-use` |
+| `PostToolUseFailure` in Claude Code | `Bash\|Grep\|Glob` | | `codefast hook post-tool-use` |
 
 This is the wiring `src/setup/hook.rs` documents. `Bash` is in every matcher because Claude Code
 on macOS and Linux searches through its Bash tool, and Codex has no other tool that reads or
-searches. Timeouts are 10 seconds for `SessionStart` and 5 for the others.
+searches. The tools that write files are matched after the fact, for the check of what an edit
+left behind. Timeouts are 10 seconds, and 5 for `PreToolUse` and `PostToolUseFailure`.
 
 The same wiring exists in three places, and `tests/hooks_manifests.rs` fails when they drift
 apart: `hooks/claude-code.json` (the plugin, which runs `"${CLAUDE_PLUGIN_ROOT}/bin/codefast"`),

@@ -28,12 +28,19 @@ Reach for it before `grep` + reading files whenever the question is about a symb
 | Which function prints a message | `codefast grep -F "Busy inodes after unmount"` |
 | Where to look for a bug report or stack trace | `codefast locate "<paste the report>"` (or `codefast locate - < report.txt`) |
 | The API of an installed dependency | `codefast dep` lists them, `codefast dep requests Session` looks inside one |
+| After an edit: what still uses something the edit removed, renamed or gave another signature | `codefast check` |
+| What the uncommitted changes added, removed and altered, by definition | `codefast changed` |
 
 Several targets can go in one call: `codefast show foo bar baz`.
 
 Before editing a function, start with `codefast context NAME`. It stands in for the usual
 opening moves (grep for the name, read the file, look for callers, look for tests) and often
 is all the reading the change needs.
+
+To rename a function or change its parameters, `codefast search NAME` lists every place that
+uses it, tests included, one line per file. After the edit `codefast check` lists the places
+that still use the old name or pass a number of arguments the new signature does not take. In
+a language without a compiler this is the only thing that says so before the code runs.
 
 ## Trusting the answers
 
@@ -51,9 +58,13 @@ have a method of that name, and counted otherwise (`codefast refs NAME --loose` 
 
 - Locations are `path:line`. Open them directly with your read / edit tools.
 - Source listings number the first and every fifth line.
-- A search card ends with `called by:` and the callers. `registered / bound`, `dispatched via`,
-  `passed as a callback` and `used as a value` say how a function is reached when nothing calls
-  it by name: through a table slot, an alias, or a callback.
+- A search card lists every use site as `path: function:line`, code first and tests after.
+  `registered / bound`, `dispatched via`, `passed as a callback` and `used as a value` say how
+  a function is reached when nothing calls it by name: through a table slot, an alias, or a
+  callback.
+- Calls on a receiver whose type is not written are shown with their source line when there
+  are only a few. Each of them may belong to another type's method of the same name: the line
+  is there so that a glance settles it.
 - `text-only mentions` lists files where the name appears only in comments, strings or files that
   are not parsed. Those are not references, but check them before a rename.
 - When an answer ends with `… N more`, narrow it instead of switching tools: `-p DIR` restricts

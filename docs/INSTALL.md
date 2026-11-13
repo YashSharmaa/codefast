@@ -542,11 +542,24 @@ tool call, and `CODEFAST_HOOKS=off` turns them off. The variable has to reach th
 Code runs hooks with your environment. Whether Codex does was not verified, and there `/hooks`
 disables a hook in any case.
 
-What they add: at the start of a session, two lines saying that the repository is indexed (the
-index is built in the background when there is none). After a `grep`, `rg`, `find -name` or the
-harness's own search for one known symbol, where it is defined and who calls it. Before a
-whole-file read of a source file longer than 400 lines, one line naming the outline command.
-Each is said once per session.
+What they add, each said once per session:
+
+- At the start of a session, one line saying that the repository is indexed (the index is built
+  in the background when there is none).
+- For a prompt that names a symbol the index can pin down: where it is defined, the sentence its
+  author wrote about it, and how widely it is used. At most two symbols.
+- After a `grep`, `rg`, `find -name` or the harness's own search for one known symbol: where it
+  is defined and how it is used.
+- After an edit (the harness's edit tools, or a shell command that may have written files): the
+  places that still use something the edit removed, renamed or gave another signature. An edit
+  that leaves nothing behind adds nothing.
+- Before a whole-file read of a source file longer than 400 lines, one line naming the outline
+  command.
+- After a compaction, the definitions the uncommitted changes added, removed and altered.
+
+Once a week per project, Claude Code also shows you (not the model) one line when plugins and
+skills that nothing in the project matches load more than about 1,500 tokens into every
+request. `codefast doctor context` prints the whole list with the switch for each.
 
 | Harness | How the hooks are registered |
 |---|---|
