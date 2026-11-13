@@ -73,8 +73,30 @@ pub fn module_stem(lang: Lang, path: &str) -> &str {
     s
 }
 
-fn strip_js_ext(t: &str) -> &str {
-    for ext in [".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".mts", ".cts"] {
+/// Component files (their script blocks are read as TypeScript): an import names them with
+/// their extension.
+const COMPONENT_EXTS: [&str; 3] = [".vue", ".svelte", ".astro"];
+
+fn component_ext(path: &str) -> Option<&'static str> {
+    COMPONENT_EXTS.into_iter().find(|e| path.ends_with(e))
+}
+
+/// `@/x`, `~/x`, `$lib/x`, `#internal/x`: a path below a source root that a bundler or a
+/// `tsconfig.json` names. The root is not known here, and a suffix match finds the file.
+fn strip_root_alias(t: &str) -> &str {
+    for lead in ["@@/", "~~/", "@/", "~/"] {
+        if let Some(rest) = t.strip_prefix(lead) {
+            return rest;
+        }
+    }
+    match t.as_bytes().first() {
+        Some(b'$') | Some(b'#') if t.len() > 1 => &t[1..],
+        _ => t,
+    }
+}
+
+pub fn strip_js_ext(t: &str) -> &str {
+    for ext in [".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte", ".astro"] {
         if let Some(s) = t.strip_suffix(ext) {
             return s;
         }
@@ -173,6 +195,10 @@ pub fn module_match(lang: Lang, from_path: &str, target: &str, def_path: &str) -
             }
         }
         Lang::JavaScript | Lang::TypeScript | Lang::Tsx => {
+            // `./Card.vue` is the component file and `./Card` is the `Card.ts` beside it.
+            if component_ext(def_path) != component_ext(target) {
+                return Fit::No;
+            }
             let stem = module_stem(lang, def_path);
             let t = strip_js_ext(target);
             if t.starts_with('.') {
@@ -186,7 +212,7 @@ pub fn module_match(lang: Lang, from_path: &str, target: &str, def_path: &str) -
                     Fit::No
                 }
             } else {
-                let t = t.trim_start_matches("@/").trim_start_matches("~/");
+                let t = strip_root_alias(t);
                 let t = t.strip_suffix("/index").unwrap_or(t);
                 if ends_with_components(stem, t) { Fit::Exact } else { Fit::No }
             }
@@ -312,7 +338,7 @@ pub fn target_key(lang: Lang, from_path: &str, target: &str) -> Option<String> {
         }
         Lang::JavaScript | Lang::TypeScript | Lang::Tsx => {
             let t = strip_js_ext(target);
-            let full = if t.starts_with('.') { norm_join(parent_dir(from_path), t) } else { t.trim_start_matches("@/").trim_start_matches("~/").to_string() };
+            let full = if t.starts_with('.') { norm_join(parent_dir(from_path), t) } else { strip_root_alias(t).to_string() };
             full.strip_suffix("/index").unwrap_or(&full).to_string()
         }
         Lang::Rust => {
@@ -457,6 +483,10 @@ mod tests {
         assert_eq!(m("src/vs/a/b.ts", "./c", "src/vs/a/c.ts"), Fit::Exact);
         assert_eq!(m("src/vs/a/b.ts", "../base/common/async.js", "src/vs/base/common/async.ts"), Fit::Exact);
         assert_eq!(m("src/vs/a/b.ts", "./widgets", "src/vs/a/widgets/index.ts"), Fit::Exact);
+        assert_eq!(m("src/pages/a.vue", "../parts/Card.vue", "src/parts/Card.vue"), Fit::Exact);
+        assert_eq!(m("src/pages/a.vue", "../parts/Card.vue", "src/parts/Card.ts"), Fit::No);
+        assert_eq!(m("src/pages/a.vue", "../parts/Card", "src/parts/Card.vue"), Fit::No);
+        assert_eq!(m("src/pages/a.vue", "../parts/Card", "src/parts/Card.ts"), Fit::Exact);
         assert_eq!(m("src/vs/a/b.ts", "vs/base/common/event", "src/vs/base/common/event.ts"), Fit::Exact);
         assert_eq!(m("src/vs/a/b.ts", "./c", "src/vs/x/c.ts"), Fit::No);
     }

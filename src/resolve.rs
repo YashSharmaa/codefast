@@ -227,6 +227,18 @@ pub struct Resolver<'a> {
     global_usings: RefCell<Option<Rc<Vec<Imp>>>>,
     ext_recv: RefCell<FxHashMap<DefId, Option<Vec<u8>>>>,
     reopen: RefCell<FxHashMap<DefId, Rc<Vec<DefId>>>>,
+    js_pkgs: RefCell<Option<Rc<FxHashMap<String, JsPackage>>>>,
+    foreign_fns: RefCell<FxHashMap<DefId, bool>>,
+}
+
+/// A package of a JavaScript workspace, as its `package.json` describes it.
+pub struct JsPackage {
+    /// Root-relative directory, empty for the repository root.
+    dir: String,
+    /// The modules a bare import of the package's name reaches, as module stems: what
+    /// `main`, `module`, `types`, `source` and `exports["."]` name, also with the build
+    /// directory replaced by `src`.
+    declared: Vec<String>,
 }
 
 /// Calls that only exist after macro expansion, as the Linux kernel writes them: a static call
@@ -420,6 +432,8 @@ impl<'a> Resolver<'a> {
             global_usings: RefCell::new(None),
             ext_recv: RefCell::new(FxHashMap::default()),
             reopen: RefCell::new(FxHashMap::default()),
+            js_pkgs: RefCell::new(None),
+            foreign_fns: RefCell::new(FxHashMap::default()),
         }
     }
 
@@ -761,7 +775,148 @@ impl<'a> Resolver<'a> {
 
     /// Does the file at `def_path` belong to module `target` as written in `from_path`? Path
     /// arithmetic, made exact for Go by the repository's `go.mod` files.
+    /// The packages this repository defines for JavaScript and TypeScript: every `package.json`
+    /// with a name, outside `node_modules`. The packages of a workspace import each other by
+    /// these names, and no path arithmetic leads from `@scope/hooks` to `packages/hooks`.
+    fn js_packages(&self) -> Rc<FxHashMap<String, JsPackage>> {
+        if let Some(hit) = self.js_pkgs.borrow().as_ref() {
+            return hit.clone();
+        }
+        let ix = self.ix;
+        let mut map: FxHashMap<String, JsPackage> = FxHashMap::default();
+        let mut manifests: Vec<FileId> = self.files_with_suffix(b"package.json").iter().copied().collect();
+        manifests.sort_by_key(|&f| ix.path(f).len());
+        for f in manifests {
+            let path = ix.path(f);
+            let Some(dir) = path.strip_suffix("package.json").filter(|d| d.is_empty() || d.ends_with('/')) else { continue };
+            if path.contains("node_modules/") {
+                continue;
+            }
+            let dir = dir.trim_end_matches('/');
+            let Some(src) = ix.source(f).filter(|s| s.len() <= 1 << 20) else { continue };
+            let Ok(v) = serde_json::from_slice::<serde_json::Value>(&src) else { continue };
+            let Some(name) = v.get("name").and_then(|n| n.as_str()).filter(|n| !n.is_empty()) else { continue };
+            let mut named: Vec<String> = Vec::new();
+            for key in ["source", "module", "main", "types", "typings", "svelte"] {
+                if let Some(p) = v.get(key).and_then(|x| x.as_str()) {
+                    named.push(p.to_string());
+                }
+            }
+            // `exports`: one path, or conditions (nested) for `.`.
+            fn strings(v: &serde_json::Value, depth: u32, out: &mut Vec<String>) {
+                match v {
+                    serde_json::Value::String(s) => out.push(s.clone()),
+                    serde_json::Value::Object(o) if depth < 4 => o.values().for_each(|x| strings(x, depth + 1, out)),
+                    _ => {}
+                }
+            }
+            match v.get("exports") {
+                Some(serde_json::Value::Object(o)) if o.keys().any(|k| k.starts_with('.')) => {
+                    if let Some(dot) = o.get(".") {
+                        strings(dot, 0, &mut named);
+                    }
+                }
+                Some(other) => strings(other, 0, &mut named),
+                None => {}
+            }
+            let mut declared: Vec<String> = Vec::new();
+            for p in named {
+                if p.contains('*') {
+                    continue;
+                }
+                let full = linkx::norm_join(dir, &p);
+                let stem = linkx::module_stem(Lang::TypeScript, &full).to_string();
+                // What is published is built: the source of `dist/index.js` is `src/index.ts`,
+                // or `index.ts` beside the manifest.
+                let below = stem.strip_prefix(dir).unwrap_or(&stem).trim_start_matches('/');
+                let (first, rest) = below.split_once('/').unwrap_or((below, ""));
+                let mut forms = vec![stem.clone()];
+                if matches!(first, "dist" | "build" | "out" | "lib" | "es" | "esm" | "cjs" | "types") {
+                    forms.push(linkx::norm_join(dir, &format!("src/{rest}")));
+                    forms.push(linkx::norm_join(dir, rest));
+                }
+                for f in forms {
+                    let f = f.strip_suffix("/index").unwrap_or(&f).to_string();
+                    if !declared.contains(&f) {
+                        declared.push(f);
+                    }
+                }
+            }
+            map.entry(name.to_string()).or_insert(JsPackage { dir: dir.to_string(), declared });
+        }
+        let rc = Rc::new(map);
+        *self.js_pkgs.borrow_mut() = Some(rc.clone());
+        rc
+    }
+
+    /// For a bare import that names a package of this repository: the package's directory, and
+    /// the module stems the import reaches (what the manifest declares first, the usual places
+    /// after it).
+    fn js_package_modules(&self, target: &str) -> Option<(String, Vec<String>)> {
+        if target.is_empty() || target.starts_with('.') || target.starts_with('/') {
+            return None;
+        }
+        let pkgs = self.js_packages();
+        if pkgs.is_empty() {
+            return None;
+        }
+        let scoped = target.starts_with('@');
+        let cut = target.match_indices('/').nth(if scoped { 1 } else { 0 }).map_or(target.len(), |(i, _)| i);
+        let p = pkgs.get(&target[..cut])?;
+        let rest = target[cut..].trim_start_matches('/');
+        let under = |sub: &str| linkx::norm_join(&p.dir, sub);
+        if rest.is_empty() {
+            let mut mods = p.declared.clone();
+            for usual in [under(""), under("src"), under("lib")] {
+                if !mods.contains(&usual) {
+                    mods.push(usual);
+                }
+            }
+            return Some((p.dir.clone(), mods));
+        }
+        let rest = linkx::strip_js_ext(rest);
+        let rest = rest.strip_suffix("/index").unwrap_or(rest);
+        Some((p.dir.clone(), vec![under(rest), under(&format!("src/{rest}")), under(&format!("lib/{rest}"))]))
+    }
+
+    /// The files of this repository that a bare import of a workspace package reaches.
+    fn js_package_files(&self, target: &str) -> Vec<FileId> {
+        let ix = self.ix;
+        let mut out: Vec<FileId> = Vec::new();
+        let Some((_, mods)) = self.js_package_modules(target) else { return out };
+        for m in &mods {
+            for ext in ["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs", "d.ts", "vue", "svelte"] {
+                let direct = if m.is_empty() { None } else { Some(format!("{m}.{ext}")) };
+                let index = if m.is_empty() { format!("index.{ext}") } else { format!("{m}/index.{ext}") };
+                for p in direct.into_iter().chain(std::iter::once(index)) {
+                    if let Some(f) = ix.file_by_path(&p) {
+                        if !out.contains(&f) {
+                            out.push(f);
+                        }
+                    }
+                }
+            }
+            // What the manifest names wins over the usual places.
+            if !out.is_empty() {
+                break;
+            }
+        }
+        out
+    }
+
     fn mfit(&self, lang: Lang, from_path: &str, target: &str, def_path: &str) -> Fit {
+        if matches!(lang, Lang::JavaScript | Lang::TypeScript | Lang::Tsx) {
+            if let Some((dir, mods)) = self.js_package_modules(target) {
+                let stem = linkx::module_stem(Lang::TypeScript, def_path);
+                return if mods.iter().any(|m| m == stem) {
+                    Fit::Exact
+                } else if !dir.is_empty() && def_path.starts_with(dir.as_str()) && def_path.as_bytes().get(dir.len()) == Some(&b'/') {
+                    Fit::Inside
+                } else {
+                    Fit::No
+                };
+            }
+        }
         if lang == Lang::Swift {
             // `import M` names a module, `import Darwin.C` a submodule of one.
             let m = target.split('.').next().unwrap_or("");
@@ -804,7 +959,10 @@ impl<'a> Resolver<'a> {
                     }
                 }
             }
-            if let Some(k) = linkx::target_key(lang, from_path, t) {
+            let package = if matches!(lang, Lang::JavaScript | Lang::TypeScript | Lang::Tsx) { self.js_package_files(t) } else { Vec::new() };
+            if !package.is_empty() {
+                out = package;
+            } else if let Some(k) = linkx::target_key(lang, from_path, t) {
                 if let Some(cands) = self.module_index().get(k.as_bytes()) {
                     for &f in cands {
                         if same_family(ix.lang(f), lang) && self.mfit(lang, from_path, t, ix.path(f)) == Fit::Exact {
@@ -3837,7 +3995,10 @@ impl<'a> Resolver<'a> {
                     Class::Type => want_type,
                     _ if want_type => false,
                     Class::Callable => true,
-                    Class::Value => v.flags() & dflag::FNPTR != 0 || self.alias_target(v.id).is_some(),
+                    // A constant that holds a function: one this repository defines (an alias),
+                    // or one it only names (`export const useData = useData$`, where `useData$`
+                    // comes from another package). Whoever calls the constant calls what it holds.
+                    Class::Value => v.flags() & dflag::FNPTR != 0 || self.alias_target(v.id).is_some() || (v.parent().is_none() && self.holds_a_foreign_function(v)),
                     _ => false,
                 }
             };
@@ -4073,6 +4234,34 @@ impl<'a> Resolver<'a> {
             }
         }
         self.aliases.borrow_mut().insert(d, out);
+        out
+    }
+
+    /// A constant whose one value is a name imported from outside this repository
+    /// (`export const useData = useData$`): nothing here defines what it holds, and a call of
+    /// the constant is all there is to find.
+    fn holds_a_foreign_function(&self, v: &DefV<'a>) -> bool {
+        if let Some(&hit) = self.foreign_fns.borrow().get(&v.id) {
+            return hit;
+        }
+        // Resolving what the constant is bound to may ask about the constant itself.
+        self.foreign_fns.borrow_mut().insert(v.id, false);
+        let ix = self.ix;
+        let mut out = false;
+        if matches!(v.kind(), DefKind::Variable | DefKind::Constant) && matches!(ix.lang(v.file()), Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Python) {
+            let name = v.name();
+            let into_slot = |q: &[u8]| q.len() > name.len() && q.ends_with(name) && q[q.len() - name.len() - 1] == b'.';
+            let own: Vec<RefV<'a>> = ix
+                .refs_of_file(v.file())
+                .filter(|r| r.kind() == RefKind::Bind && r.qual().is_some_and(into_slot) && r.line() >= v.rec.line && r.line() <= v.rec.end_line && r.encl().is_some_and(|e| e.id == v.id))
+                .collect();
+            if let [b] = own.as_slice() {
+                // (An import under another name can lead back to the constant itself, when it
+                // carries the name the import was given.)
+                out = self.bound_targets(b).iter().all(|&t| t == v.id) && self.file_imports(v.file()).iter().any(|i| i.name.as_deref() == Some(b.name()) || i.alias.as_deref() == Some(b.name()));
+            }
+        }
+        self.foreign_fns.borrow_mut().insert(v.id, out);
         out
     }
 

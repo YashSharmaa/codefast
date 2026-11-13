@@ -26,6 +26,8 @@ pub mod python;
 pub mod ruby;
 #[cfg(feature = "lang-rust")]
 pub mod rust;
+#[cfg(feature = "lang-js")]
+pub mod sfc;
 #[cfg(feature = "lang-swift")]
 pub mod swift;
 
@@ -120,7 +122,8 @@ impl Lang {
             "cc" | "cpp" | "cxx" | "hpp" | "hh" | "hxx" | "inl" | "ipp" | "tcc" | "C" | "H" => Lang::Cpp,
             "py" | "pyi" | "pyx" => Lang::Python,
             "js" | "mjs" | "cjs" | "jsx" => Lang::JavaScript,
-            "ts" | "mts" | "cts" => Lang::TypeScript,
+            // Component files: their script blocks are TypeScript (see `sfc`).
+            "ts" | "mts" | "cts" | "vue" | "svelte" | "astro" => Lang::TypeScript,
             "tsx" => Lang::Tsx,
             "go" => Lang::Go,
             "rs" => Lang::Rust,
@@ -231,6 +234,10 @@ pub fn extract(lang: Lang, src: &[u8], path: &str, parsers: &mut Parsers, facts:
     facts.nlines = count_lines(src);
     if !lang.has_extractor() {
         return false;
+    }
+    #[cfg(feature = "lang-js")]
+    if let Some(kind) = sfc::kind(path) {
+        return sfc::extract(kind, src, path, parsers, facts, scratch);
     }
     let Some(parser) = parsers.get(lang) else { return false };
     let Some(tree) = parser.parse(src, None) else { return false };
