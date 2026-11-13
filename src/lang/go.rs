@@ -1971,13 +1971,30 @@ impl<'a, 't> W<'a, 't> {
         } else if nv == 1 && i == 0 {
             v.named_child(0)
         } else {
-            None
+            // `a, b, err := f()`: a later name is the result at its place. The resolver reads
+            // the type off the function's signature.
+            return match v.named_child(0).filter(|e| nv == 1 && n > 1 && self.k(*e) == K::CallExpression) {
+                Some(e) => (self.suffixed(e, format!("#{i}").as_bytes()), false),
+                None => (NONE, false),
+            };
         };
         match e {
             // Only a value that stands alone is the channel itself: `v, ok := <-ch` is not.
             Some(e) if self.k(e) != K::Comment => (self.qual_of(e), nv == n && self.is_chan_expr(e)),
             _ => (NONE, false),
         }
+    }
+
+    /// The type path of a call with a pick after it (`f()#1`, `f()<-`), or `NONE` when the
+    /// call has no path that ends in the call itself (a conversion, `make`, `new`).
+    fn suffixed(&mut self, call: Node<'t>, suffix: &[u8]) -> u32 {
+        let q = self.qual_of(call);
+        if q == NONE || !self.cx.name_bytes(q).ends_with(b"()") {
+            return NONE;
+        }
+        let mut buf = self.cx.name_bytes(q).to_vec();
+        buf.extend_from_slice(suffix);
+        self.cx.intern(&buf)
     }
 
     // ----- statements that declare locals -----
@@ -2035,9 +2052,21 @@ impl<'a, 't> W<'a, 't> {
             }
         });
         if let (Some(l), true) = (left, define) {
-            let elem = right.map(|r| self.qual_of(r)).unwrap_or(NONE);
+            let mut elem = right.map(|r| self.qual_of(r)).unwrap_or(NONE);
             // Ranging over a channel yields its elements as the first (and only) value.
-            let elem_at = if elem_at == 1 && elem != NONE && right.is_some_and(|r| self.is_chan_expr(r)) { 0 } else { elem_at };
+            let mut elem_at = if elem_at == 1 && elem != NONE && right.is_some_and(|r| self.is_chan_expr(r)) { 0 } else { elem_at };
+            // One name over the result of a call: an element if the call returns a channel or
+            // an iterator, an index or a key otherwise. Which it is stands in the function's
+            // signature, so the path says "what it yields" and the resolver looks.
+            if elem_at == 1 && l.named_child_count() == 1 {
+                if let Some(r) = right.filter(|r| self.k(*r) == K::CallExpression) {
+                    let yielded = self.suffixed(r, b"<-");
+                    if yielded != NONE {
+                        elem = yielded;
+                        elem_at = 0;
+                    }
+                }
+            }
             for i in 0..l.named_child_count().min(4) {
                 let Some(x) = l.named_child(i as u32) else { break };
                 let text = self.cx.text(x);

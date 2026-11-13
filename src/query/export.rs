@@ -42,7 +42,7 @@ fn expand<'a>(ix: &'a Index, rs: &Resolver<'a>, target: DefId, depth: u32, seen:
 /// through macros expanded, member calls resolved through the receiver's static type. With
 /// `dynamic`, the candidates of dynamic dispatch (overrides, interface implementations,
 /// functions bound into a slot) are added.
-pub fn export_edges(ix: &Index, rs: &Resolver, pf: &PathFilter, dynamic: bool, w: &mut impl Write) -> std::io::Result<usize> {
+pub fn export_edges(ix: &Index, rs: &Resolver, pf: &PathFilter, dynamic: bool, loose: bool, w: &mut impl Write) -> std::io::Result<usize> {
     let mut n = 0usize;
     for f in ix.files() {
         if !pf.matches(ix.path(f)) {
@@ -59,6 +59,14 @@ pub fn export_edges(ix: &Index, rs: &Resolver, pf: &PathFilter, dynamic: bool, w
             let from = endpoint(&d);
             for c in callee_edges(rs, &d) {
                 // Only resolved edges are exported: a match by name alone is a hint, not an edge.
+                // With `loose` the hints are written out too, marked as such, so that they can
+                // be counted against an oracle.
+                if c.by_name && loose && c.passed_to.is_none() {
+                    for &t in &c.targets {
+                        writeln!(w, "{}", json!({"caller": from, "callee": endpoint(&ix.def(t)), "site_line": c.line, "kind": "name"}))?;
+                        n += 1;
+                    }
+                }
                 if c.passed_to.is_some() || c.by_name {
                     continue;
                 }

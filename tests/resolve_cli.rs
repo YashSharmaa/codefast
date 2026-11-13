@@ -246,3 +246,142 @@ fn references_to_a_member_that_is_gone_are_listed() {
     has(&out, "6 fill: s.Add(3)");
     lacks(&out, "o.Add(2)");
 }
+
+/// Two types have a method `Add`. Which one a call means is decided by the receiver's type,
+/// also where that type is written in another function's signature.
+const GO_STORE: &str = r#"package store
+
+import (
+	"example.com/ext"
+	"example.com/ext/progress"
+)
+
+type Set struct{}
+
+func (s *Set) Add(x int) {}
+
+type Bag struct{}
+
+func (b *Bag) Add(x int) {}
+
+type Item struct{}
+
+func (i Item) Touch() {}
+
+type Other struct{}
+
+func (o Other) Touch() {}
+
+// Sets is a map of sets by name.
+type Sets map[string]*Set
+
+// Progress gets its Add from a type of another package.
+type Progress struct {
+	*progress.Manual
+}
+
+// Reader is answered by whatever implements the interface it embeds.
+type Reader interface {
+	ext.Adder
+}
+
+func load() (int, *Set, error)        { return 0, nil, nil }
+func named() (n int, bag *Bag, e error) { return 0, nil, nil }
+func each() <-chan Item               { return nil }
+func byName() map[Other]Item          { return nil }
+func all() Sets                       { return nil }
+func start() *Progress                { return nil }
+func logger() ext.Logger              { return nil }
+func reader() Reader                  { return nil }
+"#;
+
+const GO_USE: &str = r#"package store
+
+func second() {
+	_, s, err := load()
+	_ = err
+	s.Add(1)
+}
+
+func secondNamed() {
+	_, b, _ := named()
+	b.Add(2)
+}
+
+func received() {
+	for it := range each() {
+		it.Touch()
+	}
+}
+
+func keys() {
+	for k := range byName() {
+		k.Touch()
+	}
+}
+
+func elements() {
+	all()["a"].Add(3)
+}
+
+func promoted() {
+	start().Add(4)
+}
+
+func foreign() {
+	logger().Add(5)
+}
+
+func dynamic() {
+	reader().Add(6)
+}
+"#;
+
+#[test]
+fn go_receivers_typed_by_another_functions_signature() {
+    let p = Project::new("go-results", &[("store/store.go", GO_STORE), ("store/use.go", GO_USE)]);
+    // The second result of `load`, and the elements of the named map `all` returns. The calls
+    // on a type of another package (through a function's result, or promoted from an embedded
+    // field) are nobody's here. The call on an interface that embeds a foreign one may reach
+    // either `Add`: it stays a match by name.
+    let set = p.ask(&["callers", "Set.Add"]);
+    has(&set, "2 call sites on a receiver of known type, 1 files, 1 more by name");
+    has(&set, "6 second: s.Add(1)");
+    has(&set, "27 elements: all()[\"a\"].Add(3)");
+    has(&set, "39 dynamic: reader().Add(6)");
+    for other in ["b.Add(2)", "start().Add(4)", "logger().Add(5)"] {
+        lacks(&set, other);
+    }
+    // The second result where the results are named.
+    let bag = p.ask(&["callers", "Bag.Add"]);
+    has(&bag, "11 secondNamed: b.Add(2)");
+    lacks(&bag, "s.Add(1)");
+    // One name ranging over a call is an element when the call returns a channel, and a key
+    // when it returns a map.
+    let touch = p.ask(&["callers", "Item.Touch"]);
+    has(&touch, "all 1 call sites, 1 files");
+    has(&touch, "16 received: it.Touch()");
+    let other = p.ask(&["callers", "Other.Touch"]);
+    has(&other, "all 1 call sites, 1 files");
+    has(&other, "22 keys: k.Touch()");
+}
+
+#[test]
+fn go_result_lists_are_read_as_written() {
+    // Through the command line: each of these is a function whose later result types a call.
+    let lib = "package lib\n\ntype A struct{}\n\nfunc (a A) Hit() {}\n\ntype B struct{}\n\nfunc (b B) Hit() {}\n\n\
+               func plain() (B, A)                          { return B{}, A{} }\n\
+               func grouped() (x, y B, z A)                 { return B{}, B{}, A{} }\n\
+               func nested(f func(int) (B, error)) (B, []A) { return B{}, nil }\n\
+               func generic[T any](v T) (T, map[string]*A)  { return v, nil }\n\
+               type R struct{}\n\nfunc (r *R) method() (B, chan A) { return B{}, nil }\n";
+    let uses = "package lib\n\nfunc one() {\n\t_, a := plain()\n\ta.Hit()\n}\n\nfunc two() {\n\t_, _, a := grouped()\n\ta.Hit()\n}\n\n\
+                func three() {\n\t_, as := nested(nil)\n\tas[0].Hit()\n}\n\nfunc four() {\n\t_, m := generic(1)\n\tm[\"k\"].Hit()\n}\n\n\
+                func five(r *R) {\n\t_, ch := r.method()\n\tx := <-ch\n\tx.Hit()\n}\n";
+    let p = Project::new("go-result-lists", &[("lib/lib.go", lib), ("lib/uses.go", uses)]);
+    let a = p.ask(&["callers", "A.Hit"]);
+    for site in ["5 one: a.Hit()", "10 two: a.Hit()", "15 three: as[0].Hit()", "20 four: m[\"k\"].Hit()"] {
+        has(&a, site);
+    }
+    lacks(&p.ask(&["callers", "B.Hit"]), "Hit()\n");
+}

@@ -97,6 +97,9 @@ enum Cmd {
         /// Also emit dynamic-dispatch candidates
         #[arg(long)]
         dynamic: bool,
+        /// Also emit what a call matches by name alone, one line per candidate (kind `name`)
+        #[arg(long)]
+        loose: bool,
     },
 }
 
@@ -524,11 +527,11 @@ fn run(cli: Cli) -> Result<()> {
             };
             query::trace::trace(&ix, &rs, &text, &common, &mut out);
         }
-        Cmd::ExportEdges { dynamic } => {
+        Cmd::ExportEdges { dynamic, loose } => {
             let pf = query::PathFilter::new(&common.paths);
             let stdout = std::io::stdout();
             let mut w = std::io::BufWriter::new(stdout.lock());
-            let n = query::export::export_edges(&ix, &rs, &pf, *dynamic, &mut w)?;
+            let n = query::export::export_edges(&ix, &rs, &pf, *dynamic, *loose, &mut w)?;
             eprintln!("{n} edges");
             return Ok(());
         }

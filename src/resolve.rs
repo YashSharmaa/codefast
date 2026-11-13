@@ -120,6 +120,202 @@ fn push_ty(out: &mut Vec<Ty>, t: Ty) {
 }
 
 /// Split `module|rest`: a name written with a module qualifier.
+/// Which of the values a call hands back a path segment stands for.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Pick {
+    /// The first result, which is what a definition's type name records.
+    First,
+    /// `f()#2`: the result at this position of a function with several (`a, b, c := f()`).
+    Nth(usize),
+    /// `f()<-`: what a channel or an iterator that the function returns yields
+    /// (`for x := range f()`).
+    Received,
+}
+
+/// A path segment without its pick: `f()#1` is `f()` and the second result.
+pub fn pick_of(seg: &[u8]) -> (&[u8], Pick) {
+    if let Some(s) = seg.strip_suffix(b"<-") {
+        return (s, Pick::Received);
+    }
+    if let Some(h) = seg.iter().rposition(|&b| b == b'#') {
+        if let Some(n) = std::str::from_utf8(&seg[h + 1..]).ok().and_then(|x| x.parse::<usize>().ok()) {
+            return (&seg[..h], Pick::Nth(n));
+        }
+    }
+    (seg, Pick::First)
+}
+
+/// The index after the bracket that closes the one at `i`.
+fn go_close(b: &[u8], i: usize) -> Option<usize> {
+    let (open, close) = match b.get(i)? {
+        b'(' => (b'(', b')'),
+        b'[' => (b'[', b']'),
+        b'{' => (b'{', b'}'),
+        _ => return None,
+    };
+    let mut depth = 0usize;
+    for (j, &c) in b.iter().enumerate().skip(i) {
+        if c == open {
+            depth += 1;
+        } else if c == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(j + 1);
+            }
+        }
+    }
+    None
+}
+
+/// The result types of a Go function as its signature writes them: `[]pkg.Package`, `error` for
+/// `func (c *C) f(x int) (pkgs []pkg.Package, err error)`. Also for a method of an interface,
+/// which is written without `func`.
+pub fn go_result_texts(sig: &str) -> Vec<String> {
+    let b = sig.as_bytes();
+    let ws = |mut i: usize| {
+        while i < b.len() && b[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        i
+    };
+    let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    let mut i = ws(0);
+    if sig[i..].starts_with("func") && !b.get(i + 4).copied().is_some_and(ident) {
+        i = ws(i + 4);
+    }
+    let mut params_done = None;
+    if b.get(i) == Some(&b'(') {
+        let Some(end) = go_close(b, i) else { return Vec::new() };
+        let j = ws(end);
+        // A receiver is followed by the name. Without a name this was the parameter list.
+        if b.get(j).copied().is_some_and(|c| c.is_ascii_alphabetic() || c == b'_') && {
+            let mut k = j;
+            while k < b.len() && ident(b[k]) {
+                k += 1;
+            }
+            matches!(b.get(ws(k)), Some(b'(' | b'['))
+        } {
+            i = j;
+        } else {
+            params_done = Some(end);
+        }
+    }
+    let after = match params_done {
+        Some(e) => e,
+        None => {
+            while i < b.len() && ident(b[i]) {
+                i += 1;
+            }
+            i = ws(i);
+            if b.get(i) == Some(&b'[') {
+                match go_close(b, i) {
+                    Some(e) => i = ws(e),
+                    None => return Vec::new(),
+                }
+            }
+            match go_close(b, i) {
+                Some(e) if b[i] == b'(' => e,
+                _ => return Vec::new(),
+            }
+        }
+    };
+    let rest = sig[after..].trim().trim_end_matches('{').trim();
+    if rest.is_empty() {
+        return Vec::new();
+    }
+    let rb = rest.as_bytes();
+    if !(rb[0] == b'(' && go_close(rb, 0) == Some(rb.len())) {
+        return vec![rest.to_string()];
+    }
+    // A list: split at the commas outside every bracket.
+    let inner = &rest[1..rest.len() - 1];
+    let mut parts: Vec<&str> = Vec::new();
+    let (mut depth, mut start) = (0i32, 0usize);
+    for (j, c) in inner.bytes().enumerate() {
+        match c {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b',' if depth == 0 => {
+                parts.push(inner[start..j].trim());
+                start = j + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(inner[start..].trim());
+    parts.retain(|p| !p.is_empty());
+    // Results are all named or all unnamed. A named one is a name, a space and a type.
+    let named = |p: &str| -> Option<String> {
+        let (first, more) = p.split_once(char::is_whitespace)?;
+        let plain = !first.is_empty() && first.bytes().all(ident) && !matches!(first, "chan" | "func" | "map" | "struct" | "interface");
+        plain.then(|| more.trim().to_string())
+    };
+    if !parts.iter().any(|p| named(p).is_some()) {
+        return parts.iter().map(|p| p.to_string()).collect();
+    }
+    // `a, b int`: a name without a type has the type of the next one that has one.
+    let mut out: Vec<String> = vec![String::new(); parts.len()];
+    let mut next = String::new();
+    for (j, p) in parts.iter().enumerate().rev() {
+        if let Some(t) = named(p) {
+            next = t;
+        }
+        out[j] = next.clone();
+    }
+    out
+}
+
+/// The named type a Go type text comes down to, with the package it is written with:
+/// `[]*pkg.Package` is `pkg` and `Package`, `map[string]Set` is `Set`. `yields`: what one name
+/// ranging over a value of the type is, which is an element of a channel or an iterator
+/// (`<-chan T`, `iter.Seq[T]`), a key of a map, and nothing with members otherwise.
+pub fn go_named(text: &str, yields: bool) -> Option<(Option<&str>, &str)> {
+    let mut s = text.trim();
+    let mut yielded = false;
+    if yields {
+        // One name ranging over a map is a key of it.
+        let m = s.trim_start_matches('*').trim_start();
+        if m.starts_with("map[") {
+            let end = go_close(m.as_bytes(), 3)?;
+            return go_named(&m[4..end - 1], false);
+        }
+    }
+    loop {
+        let b = s.as_bytes();
+        s = if let Some(r) = s.strip_prefix('*') {
+            r.trim_start()
+        } else if let Some(r) = s.strip_prefix("...") {
+            r.trim_start()
+        } else if let Some(r) = s.strip_prefix("<-chan ").or_else(|| s.strip_prefix("chan<- ")).or_else(|| s.strip_prefix("chan ")) {
+            yielded = true;
+            r.trim_start()
+        } else if let Some(r) = s.strip_prefix("iter.Seq[") {
+            yielded = true;
+            // The one type argument, up to the bracket that closes the list.
+            &r[..go_close(b, 8)?.checked_sub(10)?]
+        } else if s.starts_with("map[") {
+            // A value of the map is what an expression indexes or ranges to.
+            s[go_close(b, 3)?..].trim_start()
+        } else if b.first() == Some(&b'[') {
+            s[go_close(b, 0)?..].trim_start()
+        } else {
+            break;
+        };
+    }
+    if (yields && !yielded) || s.starts_with("func") || s.starts_with("struct") || s.starts_with("interface") {
+        return None;
+    }
+    let end = s.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.')).unwrap_or(s.len());
+    let name = &s[..end];
+    if name.is_empty() {
+        return None;
+    }
+    Some(match name.rsplit_once('.') {
+        Some((pkg, n)) if !n.is_empty() => (Some(pkg), n),
+        _ => (None, name),
+    })
+}
+
 pub fn split_module(s: &[u8]) -> (Option<&[u8]>, &[u8]) {
     match memchr::memchr(b'|', s) {
         Some(i) => (Some(&s[..i]), &s[i + 1..]),
@@ -2607,6 +2803,48 @@ impl<'a> Resolver<'a> {
     /// Types of member `name` of `ty`: the declared type of a field, or with `call` the declared
     /// result of a method. Members a type does not declare itself come from its supertypes.
     fn member_tys(&self, ty: &Ty, name: &[u8], call: bool, out: &mut Vec<Ty>, depth: u32) {
+        self.member_tys_pick(ty, name, call, Pick::First, out, depth)
+    }
+
+    /// The type name a definition declares for the value picked: its recorded type for the
+    /// first result, else the type its signature writes at that place, with the package the
+    /// signature's own type reference names.
+    fn picked_type(&self, v: &DefV<'a>, pick: Pick) -> Option<Vec<u8>> {
+        if pick == Pick::First {
+            return v.type_name().map(<[u8]>::to_vec);
+        }
+        let ix = self.ix;
+        if ix.lang(v.file()) != Lang::Go || !matches!(v.kind(), DefKind::Function | DefKind::Method) {
+            return None;
+        }
+        let texts = go_result_texts(&v.signature());
+        let (text, yields) = match pick {
+            Pick::Nth(n) => (texts.get(n)?, false),
+            _ => (texts.first()?, true),
+        };
+        let (pkg, name) = go_named(text, yields)?;
+        let Some(pkg) = pkg else { return Some(name.as_bytes().to_vec()) };
+        // The extractor has already worked out which import the package name stands for: the
+        // signature's reference to the type carries it.
+        let mut modules: Vec<&[u8]> = Vec::new();
+        for r in ix.refs_of_file(v.file()) {
+            if r.kind() == RefKind::Type && r.name() == name.as_bytes() && r.encl().is_some_and(|e| e.id == v.id) {
+                if let Some(q) = r.qual().filter(|q| !modules.contains(q)) {
+                    modules.push(q);
+                }
+            }
+        }
+        let module = match modules.as_slice() {
+            [one] => *one,
+            many => *many.iter().find(|m| m.rsplit(|&b| b == b'/').next() == Some(pkg.as_bytes()))?,
+        };
+        let mut out = module.to_vec();
+        out.push(b'|');
+        out.extend_from_slice(name.as_bytes());
+        Some(out)
+    }
+
+    fn member_tys_pick(&self, ty: &Ty, name: &[u8], call: bool, pick: Pick, out: &mut Vec<Ty>, depth: u32) {
         let ix = self.ix;
         let mut found = false;
         for d in self.members_of(ty, name) {
@@ -2630,9 +2868,9 @@ impl<'a> Resolver<'a> {
                 continue;
             }
             found = true;
-            if let Some(t) = v.type_name() {
+            if let Some(t) = self.picked_type(&v, pick) {
                 let scope = if ty.defs.is_empty() { None } else { Some(v.file()) };
-                for x in self.declared_tys(t, scope) {
+                for x in self.declared_tys(&t, scope) {
                     push_ty(out, x);
                 }
             }
@@ -2684,7 +2922,7 @@ impl<'a> Resolver<'a> {
         let before = out.len();
         for a in self.supertypes(ty) {
             let before = out.len();
-            self.member_tys(&a, name, call, out, depth + 1);
+            self.member_tys_pick(&a, name, call, pick, out, depth + 1);
             if out.len() > before {
                 break;
             }
@@ -2753,6 +2991,10 @@ impl<'a> Resolver<'a> {
 
     /// Declared result types of the functions `func` denotes.
     fn result_tys(&self, func: &[u8], module: Option<&[u8]>, scope: Option<FileId>, out: &mut Vec<Ty>) {
+        self.result_tys_pick(func, module, scope, Pick::First, out)
+    }
+
+    fn result_tys_pick(&self, func: &[u8], module: Option<&[u8]>, scope: Option<FileId>, pick: Pick, out: &mut Vec<Ty>) {
         let ix = self.ix;
         let accept = |v: &DefV| matches!(v.kind(), DefKind::Function | DefKind::Method);
         let defs: Vec<DefId> = match scope {
@@ -2761,8 +3003,8 @@ impl<'a> Resolver<'a> {
         };
         for d in defs {
             let v = ix.def(d);
-            if let Some(t) = v.type_name() {
-                for x in self.declared_tys(t, scope.map(|_| v.file())) {
+            if let Some(t) = self.picked_type(&v, pick) {
+                for x in self.declared_tys(&t, scope.map(|_| v.file())) {
                     push_ty(out, x);
                 }
             }
@@ -2784,7 +3026,7 @@ impl<'a> Resolver<'a> {
         self.type_paths.borrow_mut().insert(key.clone(), Rc::new(Vec::new()));
         let (module, rest) = split_module(path);
         let mut parts = split_path(rest);
-        let root = parts.remove(0);
+        let (root, root_pick) = pick_of(parts.remove(0));
         let mut cur: Vec<Ty> = Vec::new();
         // A type may itself be called `$Name` (generated code, some libraries).
         let dollar_type = if root.starts_with(b"$") && scope.is_some() { self.types_named(root, module, scope) } else { Vec::new() };
@@ -2819,8 +3061,8 @@ impl<'a> Resolver<'a> {
                 }
             }
         } else if let Some(func) = root.strip_suffix(b"()") {
-            self.result_tys(func, module, scope, &mut cur);
-            if cur.is_empty() && scope.is_some() {
+            self.result_tys_pick(func, module, scope, root_pick, &mut cur);
+            if cur.is_empty() && scope.is_some() && root_pick == Pick::First {
                 // `T(x)` is a conversion when `T` is a type the file cannot see is one.
                 cur = self.types_named(func, module, scope);
             }
@@ -2846,13 +3088,14 @@ impl<'a> Resolver<'a> {
             if cur.is_empty() {
                 break;
             }
+            let (seg, pick) = pick_of(seg);
             let (name, call) = match seg.strip_suffix(b"()") {
                 Some(n) => (n, true),
-                None => (*seg, false),
+                None => (seg, false),
             };
             let mut next = Vec::new();
             for t in &cur {
-                self.member_tys(t, name, call, &mut next, 0);
+                self.member_tys_pick(t, name, call, pick, &mut next, 0);
             }
             if next.is_empty() && i == 0 && !call && module.is_none() && scope.is_some_and(|f| ix.lang(f) == Lang::CSharp) {
                 // C# reads `Name` inside a type as a member of it first, else as a type: the
@@ -2952,7 +3195,7 @@ impl<'a> Resolver<'a> {
         }
         let path = path.strip_prefix(b"^").unwrap_or(path);
         let (module, rest) = split_module(path);
-        let root = split_path(rest)[0];
+        let root = pick_of(split_path(rest)[0]).0;
         let (name, is_type) = if let Some(v) = root.strip_prefix(b"$") {
             (v, false)
         } else if let Some(f) = root.strip_suffix(b"()") {
@@ -2979,6 +3222,44 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// The receiver's type is one of this repository's and has no member of this name, and
+    /// neither has anything it embeds here. In Go a method is declared with its type, so what
+    /// is called comes with a type of another package that the receiver embeds
+    /// (`type Progress struct { *progress.Manual }`), or belongs to the elements of a named map
+    /// or slice of them. Either way it is not a method some other type of this repository
+    /// happens to share the name with.
+    pub fn receiver_lacks(&self, path: &[u8], name: &[u8], from: FileId) -> bool {
+        if self.ix.lang(from) != Lang::Go {
+            return false;
+        }
+        let path = path.strip_prefix(b"^").unwrap_or(path);
+        let tys = self.type_path_from(path, Some(from));
+        // An interface is another matter: one that embeds an interface of another package
+        // (`io.ReaderAt`) is answered by whichever type here implements it.
+        let concrete = |t: &Ty| !t.defs.is_empty() && !t.defs.iter().any(|&d| matches!(self.ix.def(d).kind(), DefKind::Interface | DefKind::Trait));
+        !tys.is_empty() && tys.iter().all(|t| concrete(t) && !self.has_member(t, name) && !self.ancestors(t).iter().any(|a| self.has_member(a, name)))
+    }
+
+    /// Is the value a path starts from (`f()`, `$v`) defined in this repository and declared with
+    /// a type of another package? The type has to say so itself: it is written with a module, and
+    /// nothing here defines it. A bare name that leads nowhere (a type parameter, a builtin) is
+    /// not known to be anyone's.
+    fn root_holds_external(&self, module: Option<&[u8]>, root: &[u8], from: FileId) -> bool {
+        let ix = self.ix;
+        let (root, pick) = pick_of(root);
+        let (name, call) = match (root.strip_suffix(b"()"), root.strip_prefix(b"$")) {
+            (Some(f), _) => (f, true),
+            (None, Some(v)) => (v, false),
+            _ => return false,
+        };
+        let defs = self.scoped_defs(name, module, from, &|v| matches!(v.kind(), DefKind::Function | DefKind::Method) == call);
+        !defs.is_empty()
+            && defs.iter().all(|&d| {
+                let v = ix.def(d);
+                self.picked_type(&v, pick).is_some_and(|t| split_module(&t).0.is_some() && self.root_external(&t, v.file()))
+            })
+    }
+
     /// Does a receiver path end in a type of another package: its root is external, or one of
     /// its members exists and is declared with a type this repository does not define?
     pub fn path_external(&self, path: &[u8], from: FileId) -> bool {
@@ -2992,6 +3273,12 @@ impl<'a> Resolver<'a> {
         let path = path.strip_prefix(b"^").unwrap_or(path);
         let (module, rest) = split_module(path);
         let parts = split_path(rest);
+        // The root is ours and what it holds is not: a function of this repository that returns
+        // a type of another package (`log.WithFields(..).Trace(..)`), a variable declared with
+        // one (`var style lipgloss.Style`). Whatever is called on it is not ours either.
+        if self.type_path_from(&path[..path.len() - rest.len() + parts[0].len()], Some(from)).is_empty() && self.root_holds_external(module, parts[0], from) {
+            return true;
+        }
         if parts.len() < 2 {
             return false;
         }
@@ -3012,15 +3299,16 @@ impl<'a> Resolver<'a> {
             if !self.type_path_from(&prefix, Some(from)).is_empty() {
                 continue;
             }
+            let (seg, pick) = pick_of(seg);
             let (name, call) = match seg.strip_suffix(b"()") {
                 Some(n) => (n, true),
-                None => (*seg, false),
+                None => (seg, false),
             };
             for t in cur.iter() {
                 for d in self.members_of(t, name) {
                     let v = ix.def(d);
                     let is_fn = matches!(v.kind(), DefKind::Method | DefKind::Function);
-                    if call == is_fn && v.type_name().is_some() {
+                    if call == is_fn && self.picked_type(&v, pick).is_some() {
                         return true;
                     }
                 }
@@ -3338,7 +3626,7 @@ impl<'a> Resolver<'a> {
                         if types.is_empty() {
                             // A receiver that is positively a type of another package is not ours,
                             // unless the target extends a type of another package itself.
-                            if !foreign_owner && r.qual().is_some_and(|q| self.path_external(q, r.file)) {
+                            if !foreign_owner && r.qual().is_some_and(|q| self.path_external(q, r.file) || self.receiver_lacks(q, r.name(), r.file)) {
                                 return;
                             }
                             Conf::Name
