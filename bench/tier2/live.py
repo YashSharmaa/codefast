@@ -46,6 +46,8 @@ DENY = "WebSearch,WebFetch,CronCreate,CronDelete,CronList,RemoteTrigger,PushNoti
 ARMS = {
     "control": dict(plugin=False),
     "plugin": dict(plugin=True),
+    # The plugin without its MCP server: hooks, the skill and the command on PATH.
+    "lean": dict(plugin=True, lean=True),
     "nohooks": dict(plugin=True, env={"CODEFAST_HOOKS": "off"}),
     "rules": dict(plugin=True, rules=True),
 }
@@ -139,14 +141,20 @@ def sh(cmd, cwd=None, env=None, timeout=3600, inp=None):
     return p.returncode, p.stdout + p.stderr
 
 
-def plugin_dir(tag):
-    """The plugin as a harness receives it: the files a marketplace checkout would hold."""
-    dst = LIVE / tag / "plugin"
+def plugin_dir(tag, lean=False):
+    """The plugin as a harness receives it: the files a marketplace checkout would hold. The lean
+    variant declares no MCP server."""
+    dst = LIVE / tag / ("plugin-lean" if lean else "plugin")
     if dst.exists():
         shutil.rmtree(dst)
     dst.mkdir(parents=True)
     for part in (".claude-plugin", "hooks", "skills", "bin"):
         shutil.copytree(ROOT / part, dst / part, symlinks=True)
+    if lean:
+        manifest = dst / ".claude-plugin/plugin.json"
+        m = json.load(open(manifest))
+        m.pop("mcpServers", None)
+        json.dump(m, open(manifest, "w"), indent=2)
     return dst
 
 
@@ -271,7 +279,7 @@ def session(row, a, binary, plug):
     # mode would also drop the plugin's own server, so it is used only where no plugin is loaded.
     env["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false"
     if spec["plugin"]:
-        cmd += ["--plugin-dir", str(plug)]
+        cmd += ["--plugin-dir", str(plug) + ("-lean" if spec.get("lean") else "")]
     else:
         cmd += ["--strict-mcp-config"]
     t0 = time.time()
@@ -311,6 +319,9 @@ def is_codefast(cmd):
 def parse(path):
     """What one session did: requests, tokens, tools, hooks."""
     ev = events(path)
+    firsts = []  # (cache read, cache write, uncached input) of the session's first request
+    sizes = []  # per request of the main thread: (tokens of prompt, tokens of output)
+    early = 0  # characters hooks added before the first request
     r: dict[str, Any] = dict(requests=0, sub_requests=0, tools={}, cmds=[], cf_cli=0, cf_mcp=0, hooks={}, hook_bytes=0, result_chars={}, init={}, limits={}, final=None, usage={}, cost=0.0, turns=0, denials=0)
     seen, names = set(), {}
     for e in ev:
@@ -328,6 +339,8 @@ def parse(path):
                 k = e.get("hook_event", "?")
                 r["hooks"][k] = r["hooks"].get(k, 0) + 1
                 r["hook_bytes"] += len(ctx)
+                if not sizes:
+                    early += len(ctx)
         elif t == "rate_limit_event":
             info = e.get("rate_limit_info", {})
             for w, v in (info.get("unifiedWindows") or {}).items():
@@ -340,6 +353,14 @@ def parse(path):
                 r["requests"] += 1
                 if e.get("parent_tool_use_id"):
                     r["sub_requests"] += 1
+                else:
+                    u = m.get("usage", {})
+                    if not firsts:
+                        firsts.append((u.get("cache_read_input_tokens", 0), u.get("cache_creation_input_tokens", 0), u.get("input_tokens", 0)))
+                    sizes.append([u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("input_tokens", 0), u.get("output_tokens", 0)])
+            elif sizes and not e.get("parent_tool_use_id"):
+                # Later parts of the same reply: the output count grows, the prompt is the same.
+                sizes[-1][1] = max(sizes[-1][1], m.get("usage", {}).get("output_tokens", 0))
             for c in m.get("content", []):
                 if c.get("type") == "tool_use":
                     n = c["name"]
@@ -371,6 +392,9 @@ def parse(path):
             if mu:
                 r["usage"] = dict(input=sum(v.get("inputTokens", 0) for v in mu.values()), cache_read=sum(v.get("cacheReadInputTokens", 0) for v in mu.values()),
                                   cache_write=sum(v.get("cacheCreationInputTokens", 0) for v in mu.values()), output=sum(v.get("outputTokens", 0) for v in mu.values()))
+    r["first"] = firsts[0] if firsts else (0, 0, 0)
+    r["sizes"] = sizes
+    r["early_chars"] = early
     return r
 
 
@@ -395,6 +419,7 @@ def cmd_run(a):
     if not binary.exists() or a.refresh_bin:
         shutil.copy2(a.codefast, binary)
     plug = plugin_dir(a.tag)
+    plugin_dir(a.tag, lean=True)
     tasks = choose(a)
     todo = []
     # Repetitions are interleaved, so that a change in the account's speed or cache during the
@@ -461,6 +486,9 @@ def rows_of(tag):
         row["processed"] = u["input"] + u["cache_read"] + u["cache_write"]
         row["weighted"] = round(u["input"] + W_READ * u["cache_read"] + W_WRITE * u["cache_write"] + W_OUT * u["output"])
         row["cost"] = r["cost"]
+        row["first"] = r["first"]
+        prompt = (out.parent / "prompt.txt").read_text() if (out.parent / "prompt.txt").exists() else ""
+        row["warm"] = warm_cost(r["sizes"], len(prompt) + r["early_chars"], u["output"])
         row["tool_calls"] = sum(r["tools"].values())
         row["tools"] = r["tools"]
         row["cf_cli"], row["cf_mcp"] = r["cf_cli"], r["cf_mcp"]
@@ -476,6 +504,26 @@ def rows_of(tag):
     return rows
 
 
+def warm_cost(sizes, new_chars, total_output):
+    """Weighted tokens of a session priced from the size of each request alone, as if the cache
+    always held what an earlier request had already sent: what the harness itself sends at the
+    start of every session is read from the cache (it is there for anyone who started a session
+    within the hour), what is new in a request is written once, and what a previous request of
+    the session held is read. The billed figure (`weighted`) depends on what happened to be in
+    the cache when the run started, which says when the run ran and nothing about the arm.
+
+    `sizes` are (prompt tokens, output tokens) per request of the main thread, `new_chars` the
+    characters of the task prompt and of what hooks added before the first request."""
+    if not sizes:
+        return 0
+    new = min(sizes[0][0], round(new_chars / 3.0))
+    cost = W_READ * (sizes[0][0] - new) + W_WRITE * new
+    for prev, cur in zip(sizes, sizes[1:]):
+        grown = max(0, cur[0] - prev[0])
+        cost += W_READ * (cur[0] - grown) + W_WRITE * grown
+    return round(cost + W_OUT * max(total_output, sum(s[1] for s in sizes)))
+
+
 def cmd_score(a):
     rows = rows_of(a.tag)
     for r in rows if not a.quiet else []:
@@ -487,7 +535,7 @@ def cmd_score(a):
     report(rows)
 
 
-NUMERIC = ("requests", "sub_requests", "input", "cache_read", "cache_write", "output", "processed", "weighted", "cost", "tool_calls", "cf_cli", "cf_mcp", "hook_bytes",
+NUMERIC = ("requests", "sub_requests", "input", "cache_read", "cache_write", "output", "processed", "weighted", "warm", "cost", "tool_calls", "cf_cli", "cf_mcp", "hook_bytes",
            "read_chars", "bash_chars", "result_chars", "seconds", "score")
 
 
@@ -515,7 +563,7 @@ def report(rows):
     fams = sorted(set(r["family"] for r in rows))
     arms = sorted(set(r["arm"] for r in rows), key=lambda x: (x != "control", x))
     print()
-    print(f"{'family':6} {'arm':8} {'n':>3} {'solved':>6} {'requests':>8} {'cost $':>7} {'weighted':>9} {'out tok':>8} {'result kc':>9} {'cf calls':>8} {'adopt':>6} {'hooks':>6}")
+    print(f"{'family':6} {'arm':8} {'n':>3} {'solved':>6} {'requests':>8} {'cost $':>7} {'weighted':>9} {'warm':>8} {'out tok':>8} {'result kc':>9} {'cf calls':>8} {'adopt':>6} {'hooks':>6}")
     for fam in fams + ["all"]:
         for arm in arms:
             v = [r for r in rows if (fam == "all" or r["family"] == fam) and r["arm"] == arm]
@@ -524,7 +572,7 @@ def report(rows):
             n = len(v)
             m = lambda k: sum(x[k] for x in v) / n
             cf = lambda x: x["cf_cli"] + x["cf_mcp"]
-            print(f"{fam:6} {arm:8} {n:3d} {m('score'):6.2f} {m('requests'):8.1f} {m('cost'):7.3f} {m('weighted')/1000:8.1f}k {m('output'):8.0f} {m('result_chars')/1000:9.1f} {sum(cf(x) for x in v)/n:8.1f} {m('used'):6.2f} {sum(sum(x['hooks'].values()) for x in v)/n:6.1f}")
+            print(f"{fam:6} {arm:8} {n:3d} {m('score'):6.2f} {m('requests'):8.1f} {m('cost'):7.3f} {m('weighted')/1000:8.1f}k {m('warm')/1000:7.1f}k {m('output'):8.0f} {m('result_chars')/1000:9.1f} {sum(cf(x) for x in v)/n:8.1f} {m('used'):6.2f} {sum(sum(x['hooks'].values()) for x in v)/n:6.1f}")
     if "control" not in arms:
         return
     by = {}
@@ -541,7 +589,8 @@ def report(rows):
                 tot = lambda x, k: sum(p[x][k] for p in pairs)
                 ratio = lambda k: tot(arm, k) / max(tot("control", k), 1e-9)
                 wins = sum(1 for p in pairs if p[arm]["cost"] < p["control"]["cost"])
-                print(f"{arm:8} vs control  {name:15} {fam:4} n={len(pairs):2d}  cost = {ratio('cost'):.2f}  requests = {ratio('requests'):.2f}  weighted = {ratio('weighted'):.2f}  "
+                wins = sum(1 for p in pairs if p[arm]["warm"] < p["control"]["warm"])
+                print(f"{arm:8} vs control  {name:15} {fam:4} n={len(pairs):2d}  warm = {ratio('warm'):.2f}  cost = {ratio('cost'):.2f}  requests = {ratio('requests'):.2f}  weighted = {ratio('weighted'):.2f}  "
                       f"output = {ratio('output'):.2f}  tool results = {ratio('result_chars'):.2f}  cheaper in {wins}/{len(pairs)}")
 
 

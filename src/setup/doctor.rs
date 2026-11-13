@@ -17,6 +17,10 @@ const USAGE: &str = "Check the installation: the binary, the index of this repos
 on this machine. Nothing is created or changed.
 
 Usage: codefast doctor [--json]
+       codefast doctor context    what the harness loads into every request of a session in
+                                  this project (plugins, skills, sub-agents, instruction files),
+                                  what each costs, and how to switch off for this project only
+                                  the parts nothing in it matches
 ";
 
 /// `YYYY-MM-DD HH:MM:SS UTC` for seconds since the epoch.
@@ -341,6 +345,9 @@ fn text(ctx: &Ctx, r: &Value) -> String {
 }
 
 pub(super) fn run(root: &Path, args: &[String]) -> Result<String> {
+    if args.first().map(String::as_str) == Some("context") {
+        return Ok(super::audit::run(root, &args[1..]));
+    }
     let mut as_json = false;
     for arg in args {
         match arg.as_str() {

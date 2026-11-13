@@ -101,6 +101,10 @@ const LOCK_STALE: Duration = Duration::from_secs(600);
 const STAMP_FILE: &str = "refresh.stamp";
 const REFRESH_EVERY: Duration = Duration::from_secs(20);
 const SESSIONS_DIR: &str = "sessions";
+/// Touched when a session was told what its harness configuration costs, so that the next
+/// sessions of the week are not told again.
+const AUDIT_STAMP: &str = "audit.stamp";
+const AUDIT_EVERY: Duration = Duration::from_secs(7 * 24 * 3600);
 const SESSION_FILE_MAX: u64 = 256 << 10;
 const SESSION_KEEP: Duration = Duration::from_secs(14 * 24 * 3600);
 const ANONYMOUS_KEEP: Duration = Duration::from_secs(4 * 3600);
@@ -305,6 +309,21 @@ impl Payload {
             p.cursor = true;
         }
         Some(p)
+    }
+
+    /// [`Payload::reply`], with a line for the person at the keyboard as well (`systemMessage`:
+    /// shown by the harness, not sent to the model). Harnesses without that channel get the
+    /// plain reply.
+    fn reply_with(&self, event: Event, text: &str, to_user: Option<&str>) -> String {
+        let plain = self.reply(event, text);
+        let Some(msg) = to_user.filter(|_| !self.cursor && !plain.is_empty()) else { return plain };
+        match serde_json::from_str::<Value>(&plain) {
+            Ok(Value::Object(mut o)) => {
+                o.insert("systemMessage".to_string(), Value::String(msg.to_string()));
+                format!("{}\n", Value::Object(o))
+            }
+            _ => plain,
+        }
     }
 
     /// The hook output that carries `text` to the model, in the harness's own schema; empty
@@ -778,7 +797,23 @@ fn session_start(passed: &Path, payload: &Payload) -> String {
     // One line. What the tool can do is in its skill and its tool list: said again here, on
     // every session, it would be paid for on every request and read on none.
     let note = format!("{state}: `{cli} search NAME` prints a symbol's definition, its body and every place that uses it in one call.");
-    payload.reply(Event::SessionStart, &note)
+    payload.reply_with(Event::SessionStart, &note, context_cost(&place, payload, &cli).as_deref())
+}
+
+/// Once a week per project, for the person and not for the model: what the harness's own
+/// configuration puts into every request here without the project having a use for it. Only
+/// for Claude Code (which says so in the environment of its hooks), at the start of a session.
+fn context_cost(place: &Place, payload: &Payload, cli: &str) -> Option<String> {
+    if std::env::var_os("CLAUDECODE").is_none() || payload.agent.is_some() || !matches!(payload.source.as_deref(), None | Some("startup")) {
+        return None;
+    }
+    let stamp = place.index_dir.join(AUDIT_STAMP);
+    if age(&stamp).is_some_and(|a| a < AUDIT_EVERY) || !place.index_dir.is_dir() {
+        return None;
+    }
+    let note = super::audit::session_note(&place.root, cli)?;
+    std::fs::write(&stamp, b"").ok()?;
+    Some(format!("codefast: {note}."))
 }
 
 // ----- user-prompt-submit -----

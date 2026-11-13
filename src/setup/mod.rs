@@ -7,6 +7,7 @@
 //! nothing is written unless it was asked to apply, and an entry it did not write is never
 //! replaced without `--force`.
 
+mod audit;
 mod doctor;
 mod formats;
 mod harness;
