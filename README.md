@@ -43,9 +43,10 @@ Measured so far (the tables are under [Results](#results)):
   median of 155 tokens per answer. Best-case ripgrep: 0.89, two calls, 384 tokens.
 - **Fast and exact.** The whole Linux kernel indexes in 8 s. The call graph agrees with compilers
   at a precision of 0.982 to 1.000 on five repositories.
-- **No gain on the fix itself.** Fixing a bug costs 0.99 of the control with the failing tests
-  given and 1.11 from the issue text alone. Reproducing, editing and running the tests again is
-  the model's own work, and an index does not shorten it.
+- **No gain on the fix itself.** Fixing a bug costs about the same with and without codefast: 0.99
+  of the control with the failing tests given, 1.11 from the issue text alone and 0.98 on a second
+  set of the same kind. Reproducing, editing and running the tests again is the model's own work,
+  and an index does not shorten it.
 
 ## What it is for
 
@@ -218,16 +219,17 @@ not used before. Two runs per task and arm (`bench/results/live-heldout-haiku.js
 | **Fix a bug, failing tests given**<br>Issues of Django and sqlglot. Checked by running the tests of the real fix | 15 | 15 of 15 in each arm | 6.1 and 6.0 | 12.6k and 10.8k | **0.99** | 9 of 15 |
 | **Fix a bug from the issue text alone**<br>The same issues without their tests. Checked afterwards against the tests of the real fix | 15 | 7.5 of 15 in each arm | 6.9 and 7.5 | 9.6k and 10.1k | **1.11** | 4 of 15 |
 
-What this says. Where the work is finding things, a session costs a third to two thirds of what
-it did, and the longer the session runs the more it saves, because what an agent reads early is
-sent again with every later request. The gain is largest where a text search gives the wrong
-answer: a method whose name several types share, a message that could be written anywhere in
-the tree, a rename that has to find every call. Where a failing test already points at the
-line, or the code is in the model's memory as the kernel is, the agent takes the same steps
-with or without codefast. Fixing the bug is the model's own work, and an index does not shorten
-it: with the tests given a fix costs 0.99 of the control, and from the issue text alone
-1.11. The agent reached for codefast in 52 of 55 sessions about
-structure and 4 of 30 bug-fix sessions, with no word about it in the prompt.
+What this says. Where the work is finding things, a session costs a third to two thirds of what it
+did, and the longer the session runs the more it saves, because what an agent reads early is sent
+again with every later request. The gain is largest where a text search gives the wrong answer: a
+method whose name several types share, a message that could be written anywhere in the tree, a
+rename that has to find every call. Where a failing test already points at the line, or the code
+is in the model's memory as the kernel is, the agent takes the same steps with or without
+codefast. Fixing the bug is the model's own work, and an index does not shorten it: with the tests
+given a fix costs 0.99 of the control, and from the issue text alone 1.11. The other 14 issue-only
+tasks, kept for development, came out at 0.98, so read that family as no gain in either direction
+rather than as a cost. The agent reached for codefast in 52 of 55 sessions about structure and 4
+of 30 bug-fix sessions, with no word about it in the prompt.
 
 <details>
 <summary>The tasks the hooks were developed on</summary>

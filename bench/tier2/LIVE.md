@@ -111,6 +111,23 @@ rename command without a model (`rename_offline.py`), `rename-sample*.jsonl` the
 judged by the compiler, and `by-name.jsonl` the count of matches by name against the type
 checker.
 
+## What a bug fix costs
+
+The held-out bug-fix families came out at 0.99 (with the failing tests given) and 1.11 (from
+the issue text alone). To see whether the 1.11 is a cost the plugin imposes or the spread of
+that kind of task, the other 14 issue-only tasks, the ones kept for development, were run in
+three arms (`bench/results/live-bugfix-arms.jsonl`):
+
+| Arm | Cost | Solved |
+|---|---:|---:|
+| `control` | 1.00 | 7 of 14 |
+| `plugin` | 0.98 | 8 of 14 |
+| `lean` (the plugin without its MCP server) | 1.03 | 8 of 14 |
+
+So fixing a bug from an issue text is about as expensive either way, and which side of 1.00 a
+set of 15 tasks lands on is the spread of the family. Taking the MCP tool out does not make
+the plugin cheaper there: what it saves on the tool's definition it loses in steps.
+
 ## What a card should say
 
 The prompt card of version 0.2.2 was settled by three small experiments on development tasks
