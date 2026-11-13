@@ -1486,6 +1486,29 @@ impl<'r, 'a> PathSearch<'r, 'a> {
     }
 }
 
+/// Seconds of processor time this process has used so far, where the system tells.
+fn cpu_seconds() -> Option<f64> {
+    #[cfg(all(target_pointer_width = "64", any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "ios")))]
+    {
+        #[repr(C)]
+        struct Timespec {
+            sec: i64,
+            nsec: i64,
+        }
+        unsafe extern "C" {
+            fn clock_gettime(clock: i32, at: *mut Timespec) -> i32;
+        }
+        // CLOCK_PROCESS_CPUTIME_ID
+        let clock = if cfg!(any(target_os = "macos", target_os = "ios")) { 12 } else { 2 };
+        let mut at = Timespec { sec: 0, nsec: 0 };
+        // SAFETY: `at` is a valid `timespec` of the 64-bit layout these systems use.
+        if unsafe { clock_gettime(clock, &mut at) } == 0 {
+            return Some(at.sec as f64 + at.nsec as f64 * 1e-9);
+        }
+    }
+    None
+}
+
 /// Shortest call chain from `from` to `to`. The search runs from both ends at once: forwards
 /// over what each function calls, backwards over who calls it, always growing the side that is
 /// cheaper to grow, until the two meet.
@@ -1524,9 +1547,17 @@ pub fn path(ix: &Index, rs: &Resolver, from: &str, to: &str, common: &Common, ma
     let mut meet: Option<Key> = if ka == kb { Some(ka) } else { None };
     let mut expanded = 0usize;
     let started = std::time::Instant::now();
+    let cpu_at_start = cpu_seconds();
+    // The search may work for eight seconds. On a busy machine that is more than eight seconds
+    // on the clock, and an answer cut short by other people's work would differ from run to
+    // run: so the work is what is timed, and the clock only keeps the wait bounded.
+    let worked = || match (cpu_at_start, cpu_seconds()) {
+        (Some(a), Some(b)) => b - a,
+        _ => started.elapsed().as_secs_f64(),
+    };
     let mut depth = 0u32;
     let budget_nodes = 60_000usize;
-    while meet.is_none() && !ff.is_empty() && !bf.is_empty() && depth < max_depth && expanded < budget_nodes && started.elapsed().as_secs() < 8 {
+    while meet.is_none() && !ff.is_empty() && !bf.is_empty() && depth < max_depth && expanded < budget_nodes && worked() < 8.0 && started.elapsed().as_secs() < 40 {
         depth += 1;
         // Backward steps over a widely used function are expensive: weigh by how many files
         // mention the names on that frontier.
