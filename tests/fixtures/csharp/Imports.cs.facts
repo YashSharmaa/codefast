@@ -1,0 +1,45 @@
+lang=csharp ok=true lines=30 errors=0
+--- defs (7)
+  0 ns      Acme.App                     L10-30 parent=- type=- arity=0..0 flags=0x00 | namespace Acme.App
+  1 class   Loader                       L12-30 parent=Acme.App type=- arity=0..0 flags=0x00 | class Loader
+  2 field   cache                        L14-14 parent=Loader type=System.Collections.Generic|Dictionary arity=0..0 flags=0x02 | Map cache
+  3 field   buffer                       L15-15 parent=Loader type=System.Text|StringBuilder arity=0..0 flags=0x02 | System.Text.StringBuilder buffer
+  4 field   first                        L16-16 parent=Loader type=Acme.Model|Item arity=0..0 flags=0x02 | Acme.Model.Item first
+  5 field   entry                        L17-17 parent=Loader type=Acme.Model.Catalog|Entry arity=0..0 flags=0x02 | Acme.Model.Catalog.Entry entry
+  6 method  Load                         L19-29 parent=Loader type=- arity=1..1 flags=0x02 | void Load(string path)
+--- refs (26)
+L4    import  Math                         in <file> qual=System
+L5    import  Strings                      in <file> qual=Acme.Util
+L6    import  JsonConvert                  in <file> qual=Newtonsoft.Json
+L7    type    Item                         in <file>
+L7    import  Dictionary                   in <file> qual=System.Collections.Generic
+L14   type    Dictionary                   in Loader qual=System.Collections.Generic
+L14   new     Dictionary                   in cache qual=System.Collections.Generic nargs=0
+L16   type    Item                         in Loader qual=Acme.Model
+L17   type    Entry                        in Loader qual=Acme.Model.Catalog
+L21   mcall   ReadAllText                  in Load qual=Loader::File nargs=1
+L21   type    File                         in Load
+L21   mread   File                         in Load qual=Loader
+L22   call    Exists                       in Load qual=System.IO|File nargs=1
+L22   type    File                         in Load qual=System.IO
+L23   call    DeserializeObject            in Load qual=Newtonsoft.Json|JsonConvert nargs=1
+L23   type    Item                         in Load
+L23   type    JsonConvert                  in Load qual=Newtonsoft.Json
+L24   call    Abs                          in Load qual=Loader nargs=1
+L25   call    Clean                        in Load qual=Loader nargs=1
+L26   call    WriteLine                    in Load qual=System|Console nargs=1
+L27   call    Create                       in Load qual=Acme.Model|Item nargs=0
+L27   type    Item                         in Load qual=Acme.Model
+L28   mcall   Parse                        in Load qual=Loader::Catalog::Entry nargs=1
+L28   type    Catalog                      in Load
+L28   mread   Catalog                      in Load qual=Loader
+L28   mread   Entry                        in Load qual=Loader::Catalog
+--- imports (8)
+L1    target=System.Linq name=- alias=- flags=7
+L2    target=System name=- alias=- flags=3
+L3    target=System.IO name=- alias=- flags=3
+L4    target=System.Math name=- alias=- flags=3
+L5    target=Acme.Util.Strings name=- alias=- flags=2
+L6    target=Newtonsoft.Json name=JsonConvert alias=Json flags=0
+L7    target=System.Collections.Generic name=Dictionary alias=Map flags=1
+L8    target=Acme.Model name=- alias=- flags=2

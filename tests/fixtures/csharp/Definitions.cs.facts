@@ -1,0 +1,99 @@
+lang=csharp ok=true lines=88 errors=0
+--- defs (54)
+  0 ns      Acme.Shapes                  L4-88 parent=- type=- arity=0..0 flags=0x00 | namespace Acme.Shapes
+  1 iface   IShape                       L7-12 parent=Acme.Shapes type=- arity=0..0 flags=0x04 | public interface IShape
+  2 method  Area                         L9-9 parent=IShape type=- arity=0..0 flags=0x45 | double Area()
+  3 prop    Name                         L10-10 parent=IShape type=String arity=0..0 flags=0x45 | string Name { get; }
+  4 field   Changed                      L11-11 parent=IShape type=EventHandler arity=0..0 flags=0x24 | event EventHandler Changed
+  5 class   Shape                        L14-46 parent=Acme.Shapes type=- arity=0..0 flags=0x44 | public abstract class Shape : IShape, IComparable<Shape>
+  6 const   Sides                        L16-16 parent=Shape type=- arity=0..0 flags=0x04 | public const int Sides
+  7 field   Prefix                       L17-17 parent=Shape type=String arity=0..0 flags=0x02 | private static readonly string Prefix
+  8 field   id                           L18-18 parent=Shape type=- arity=0..0 flags=0x00 | protected int id
+  9 field   Scale                        L19-19 parent=Shape type=Func arity=0..0 flags=0x20 | internal Func<int, int> Scale
+ 10 method  Shape                        L21-21 parent=Shape type=- arity=1..1 flags=0x00 | protected Shape(int id)
+ 11 method  ~Shape                       L22-22 parent=Shape type=- arity=0..0 flags=0x00 | ~Shape()
+ 12 method  Area                         L24-24 parent=Shape type=- arity=0..0 flags=0x45 | public abstract double Area()
+ 13 prop    Name                         L25-25 parent=Shape type=String arity=0..0 flags=0x04 | public virtual string Name
+ 14 prop    Id                           L26-26 parent=Shape type=- arity=0..0 flags=0x04 | public int Id { get; private set; }
+ 15 prop    this                         L27-27 parent=Shape type=- arity=1..1 flags=0x04 | public int this[int index]
+ 16 field   Changed                      L28-28 parent=Shape type=EventHandler arity=0..0 flags=0x24 | public event EventHandler Changed
+ 17 prop    Moved                        L29-29 parent=Shape type=EventHandler arity=0..0 flags=0x24 | public event EventHandler Moved
+ 18 method  CompareTo                    L31-31 parent=Shape type=- arity=1..1 flags=0x04 | public int CompareTo(Shape other)
+ 19 method  operator+                    L32-32 parent=Shape type=Shape arity=2..2 flags=0x04 | public static Shape operator +(Shape a, Shape b)
+ 20 method  operator double              L33-33 parent=Shape type=- arity=1..1 flags=0x04 | public static explicit operator double(Shape s)
+ 21 method  CountAsync                   L35-40 parent=Shape type=- arity=1..255 flags=0x84 | public async Task<int> CountAsync(int start, int step = 1, params int[] rest)
+ 22 fn      Add                          L37-37 parent=CountAsync type=- arity=2..2 flags=0x00 | int Add(int a, int b)
+ 23 method  NativeCount                  L42-43 parent=Shape type=- arity=0..0 flags=0x03 | static extern int NativeCount()
+ 24 method  Hidden                       L45-45 parent=Shape type=- arity=0..0 flags=0x02 | void Hidden()
+ 25 class   Circle                       L48-54 parent=Acme.Shapes type=- arity=0..0 flags=0x04 | public sealed class Circle : Shape
+ 26 method  Circle                       L50-50 parent=Circle type=- arity=1..1 flags=0x04 | public Circle(double radius) : base(1)
+ 27 prop    Radius                       L51-51 parent=Circle type=- arity=0..0 flags=0x04 | public double Radius { get; init; }
+ 28 method  Area                         L52-52 parent=Circle type=- arity=0..0 flags=0x04 | public override double Area()
+ 29 method  Weight                       L53-53 parent=Circle type=- arity=0..0 flags=0x00 | double IComparable<Circle>.Weight()
+ 30 struct  Point                        L56-60 parent=Acme.Shapes type=- arity=0..0 flags=0x04 | public struct Point
+ 31 field   X                            L58-58 parent=Point type=- arity=0..0 flags=0x04 | public int X
+ 32 field   Y                            L58-58 parent=Point type=- arity=0..0 flags=0x04 | public int X, Y
+ 33 method  Point                        L59-59 parent=Point type=- arity=2..2 flags=0x04 | public Point(int x, int y)
+ 34 class   Size                         L62-62 parent=Acme.Shapes type=- arity=0..0 flags=0x04 | public record Size(int Width, int Height)
+ 35 prop    Width                        L62-62 parent=Size type=- arity=0..0 flags=0x04 | int Width
+ 36 prop    Height                       L62-62 parent=Size type=- arity=0..0 flags=0x04 | int Height
+ 37 struct  Pair                         L63-63 parent=Acme.Shapes type=- arity=0..0 flags=0x04 | public record struct Pair(string Key, object Value)
+ 38 prop    Key                          L63-63 parent=Pair type=String arity=0..0 flags=0x04 | string Key
+ 39 prop    Value                        L63-63 parent=Pair type=Object arity=0..0 flags=0x04 | object Value
+ 40 enum    Color                        L65-65 parent=Acme.Shapes type=- arity=0..0 flags=0x04 | public enum Color
+ 41 enumval Red                          L65-65 parent=Color type=Color arity=0..0 flags=0x04 | Red
+ 42 enumval Green                        L65-65 parent=Color type=Color arity=0..0 flags=0x04 | Green
+ 43 enumval Blue                         L65-65 parent=Color type=Color arity=0..0 flags=0x04 | Blue
+ 44 class   Notify                       L67-67 parent=Acme.Shapes type=- arity=1..1 flags=0x24 | public delegate void Notify(string message)
+ 45 class   ShapeExtensions              L69-73 parent=Acme.Shapes type=- arity=0..0 flags=0x04 | public static class ShapeExtensions
+ 46 method  Doubled                      L71-71 parent=ShapeExtensions type=- arity=0..0 flags=0x04 | public static double Doubled(this Shape shape)
+ 47 method  Largest                      L72-72 parent=ShapeExtensions type=Shape arity=0..0 flags=0x04 | public static T Largest<T>(this T[] shapes) where T : Shape
+ 48 class   Canvas                       L75-79 parent=Acme.Shapes type=- arity=0..0 flags=0x04 | public partial class Canvas<T> where T : IShape
+ 49 field   current                      L77-77 parent=Canvas type=IShape arity=0..0 flags=0x00 | private T current
+ 50 method  Pick                         L78-78 parent=Canvas type=IShape arity=0..0 flags=0x00 | T Pick()
+ 51 ns      Acme.Shapes.Inner            L81-87 parent=Acme.Shapes type=- arity=0..0 flags=0x00 | namespace Inner
+ 52 class   Nested                       L83-86 parent=Acme.Shapes.Inner type=- arity=0..0 flags=0x00 | class Nested
+ 53 class   Deeper                       L85-85 parent=Nested type=- arity=0..0 flags=0x02 | class Deeper
+--- refs (39)
+L11   type    EventHandler                 in IShape
+L14   type    Shape                        in Shape
+L14   impl    IComparable                  in Shape
+L14   impl    IShape                       in Shape
+L21   mwrite  id                           in Shape qual=Shape
+L25   mread   Prefix                       in Name qual=Shape
+L25   mread   id                           in Name qual=Shape
+L27   mwrite  id                           in this qual=Shape
+L28   type    EventHandler                 in Shape
+L29   type    EventHandler                 in Moved
+L29   mwrite  Changed                      in Moved qual=Shape
+L29   mwrite  Changed                      in Moved qual=Shape
+L31   call    Area                         in CompareTo qual=Shape nargs=0
+L31   mcall   Area                         in CompareTo qual=Shape nargs=0
+L31   mcall   CompareTo                    in CompareTo qual=Shape::Area() nargs=1
+L31   type    Shape                        in CompareTo
+L32   type    Shape                        in operator+
+L32   type    Shape                        in operator+
+L32   type    Shape                        in operator+
+L33   mcall   Area                         in operator double qual=Shape nargs=0
+L33   type    Shape                        in operator double
+L38   call    Yield                        in CountAsync qual=Task nargs=0
+L39   call    Add                          in CountAsync nargs=2
+L42   annot   DllImportAttribute           in NativeCount
+L48   extends Shape                        in Circle
+L50   call    Shape                        in Circle qual=Shape nargs=1
+L50   mwrite  Radius                       in Circle qual=Circle
+L52   mread   PI                           in Area qual=Math
+L52   mread   Radius                       in Area qual=Circle
+L52   mread   Radius                       in Area qual=Circle
+L53   type    Circle                       in Weight
+L53   type    IComparable                  in Weight
+L59   mwrite  X                            in Point qual=Point
+L59   mwrite  Y                            in Point qual=Point
+L71   mcall   Area                         in Doubled qual=Shape nargs=0
+L71   type    Shape                        in Doubled
+L72   type    Shape                        in Largest
+L75   type    IShape                       in Canvas
+L78   mread   current                      in Pick qual=Canvas
+--- imports (2)
+L1    target=System name=- alias=- flags=3
+L2    target=System.Threading.Tasks name=- alias=- flags=3

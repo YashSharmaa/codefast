@@ -84,6 +84,11 @@ pub fn classify(rel: &str) -> u8 {
             "vendor" | "third_party" | "third-party" | "thirdparty" | "node_modules" | "godeps" => flags |= fflag::VENDOR,
             "generated" | "gen" | "__generated__" => flags |= fflag::GENERATED,
             "docs" | "doc" | "documentation" => flags |= fflag::DOC,
+            // A .NET test project is a directory named after the project it tests:
+            // `Serilog.Tests`, `Foo.UnitTests`, `Foo.IntegrationTests`.
+            c if c.ends_with(".tests") || c.ends_with(".test") || c.ends_with(".unittests") || c.ends_with(".integrationtests") || c.ends_with(".specs") => {
+                flags |= fflag::TEST
+            }
             _ => {}
         }
     }
@@ -95,7 +100,12 @@ pub fn classify(rel: &str) -> u8 {
         || file.contains(".test.")
         || file.contains(".spec.")
         || file.contains("_spec.")
-        || (rel.ends_with("Test.java") || rel.ends_with("Tests.java") || rel.ends_with("Test.kt") || rel.ends_with("Tests.cs") || rel.ends_with("Test.php"))
+        || (rel.ends_with("Test.java")
+            || rel.ends_with("Tests.java")
+            || rel.ends_with("Test.kt")
+            || rel.ends_with("Tests.cs")
+            || rel.ends_with("Test.cs")
+            || rel.ends_with("Test.php"))
     {
         flags |= fflag::TEST;
     }

@@ -1,0 +1,14 @@
+lang=csharp ok=true lines=31 errors=0
+--- defs (7)
+  0 ns      Acme.Pre                     L1-31 parent=- type=- arity=0..0 flags=0x00 | namespace Acme.Pre
+  1 class   Reader                       L3-30 parent=Acme.Pre type=- arity=0..0 flags=0x04 | public class Reader
+  2 method  Mode                         L5-21 parent=Reader type=- arity=1..1 flags=0x04 | public int Mode(int kind)
+  3 method  Zero                         L24-24 parent=Reader type=- arity=0..0 flags=0x02 | int Zero()
+  4 method  One                          L25-25 parent=Reader type=- arity=0..0 flags=0x02 | int One()
+  5 method  Other                        L26-26 parent=Reader type=- arity=0..0 flags=0x02 | int Other()
+  6 method  HasInfo                      L29-29 parent=Reader type=- arity=0..0 flags=0x04 | public bool HasInfo()
+--- refs (3)
+L9    call    Zero                         in Mode qual=Reader nargs=0
+L14   call    One                          in Mode qual=Reader nargs=0
+L19   call    Other                        in Mode qual=Reader nargs=0
+--- imports (0)

@@ -1,0 +1,58 @@
+lang=csharp ok=true lines=36 errors=0
+--- defs (5)
+  0 ns      Acme.Locals                  L4-36 parent=- type=- arity=0..0 flags=0x00 | namespace Acme.Locals
+  1 class   Scopes                       L6-35 parent=Acme.Locals type=- arity=0..0 flags=0x00 | class Scopes
+  2 field   repo                         L8-8 parent=Scopes type=Repo arity=0..0 flags=0x02 | Repo repo
+  3 method  Run                          L10-34 parent=Scopes type=- arity=3..3 flags=0x02 | void Run(Repo r, int[] ids, (int A, string B) pair)
+  4 fn      Local                        L29-29 parent=Run type=- arity=1..1 flags=0x00 | int Local(int q)
+--- refs (47)
+L8    type    Repo                         in Scopes
+L10   type    Repo                         in Run
+L12   mcall   Find                         in Run qual=Repo nargs=1
+L12   mcall   Save                         in Run qual=Repo::Find() nargs=0
+L13   mcall   All                          in Run qual=Repo nargs=0
+L13   mcall   Save                         in Run qual=Item nargs=0
+L13   type    Item                         in Run
+L14   mcall   Map                          in Run qual=Repo nargs=0
+L14   mcall   Use                          in Run nargs=0
+L15   mcall   Split                        in Run qual=Repo nargs=0
+L16   mcall   Use                          in Run nargs=0
+L17   mcall   Begin                        in Run qual=Repo nargs=0
+L17   mcall   Commit                       in Run qual=Repo::Begin() nargs=0
+L18   new     Scope                        in Run nargs=0
+L19   mcall   Close                        in Run qual=Scope nargs=0
+L20   mcall   Save                         in Run qual=Repo nargs=0
+L21   mcall   Log                          in Run qual=RepoException nargs=0
+L21   type    RepoException                in Run
+L21   mread   Code                         in Run qual=RepoException
+L22   mcall   Get                          in Run qual=Repo nargs=0
+L22   mcall   Save                         in Run qual=Item nargs=0
+L22   type    Item                         in Run
+L23   mcall   Save                         in Run nargs=0
+L23   mcall   TryGet                       in Run qual=Repo nargs=2
+L24   mcall   Save                         in Run qual=Item nargs=0
+L24   mcall   TryGet                       in Run qual=Repo nargs=2
+L24   type    Item                         in Run
+L25   mcall   All                          in Run qual=Repo nargs=0
+L25   mcall   Trim                         in Run nargs=0
+L25   mread   Name                         in Run
+L26   mcall   All                          in Run qual=Repo nargs=0
+L26   mcall   Select                       in Run qual=Repo::All() nargs=1
+L26   mcall   Where                        in Run qual=Repo::All()::Select() nargs=1
+L26   mread   Id                           in Run
+L27   mcall   Get                          in Run qual=Repo nargs=0
+L27   mcall   Save                         in Run qual=Item nargs=0
+L27   type    Item                         in Run
+L27   mread   Name                         in Run qual=Item
+L28   type    Item                         in Run
+L28   type    Item                         in Run
+L28   mread   Id                           in Run qual=Item
+L29   mread   Count                        in Local qual=Scopes::repo
+L29   mread   repo                         in Local qual=Scopes
+L30   call    Local                        in Run nargs=1
+L31   mread   repo                         in Run qual=Scopes
+L32   mcall   Save                         in Run qual=Scopes::repo nargs=0
+L33   mwrite  value                        in Run qual=Scopes
+--- imports (2)
+L1    target=System name=- alias=- flags=3
+L2    target=System.Linq name=- alias=- flags=3

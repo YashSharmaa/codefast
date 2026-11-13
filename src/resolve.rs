@@ -224,6 +224,8 @@ pub struct Resolver<'a> {
     imports: RefCell<FxHashMap<FileId, Rc<Vec<Imp>>>>,
     supers: RefCell<FxHashMap<Vec<u8>, Rc<Vec<Vec<u8>>>>>,
     subs: RefCell<FxHashMap<Vec<u8>, Rc<Vec<Vec<u8>>>>>,
+    global_usings: RefCell<Option<Rc<Vec<Imp>>>>,
+    ext_recv: RefCell<FxHashMap<DefId, Option<Vec<u8>>>>,
 }
 
 /// Calls that only exist after macro expansion, as the Linux kernel writes them: a static call
@@ -317,7 +319,20 @@ pub fn scoped_language(lang: Lang) -> bool {
 /// Languages where a bare name must be defined in the file, imported, or (for package
 /// languages) defined in the same package: anything else is a builtin or an external symbol.
 fn strict_scoping(lang: Lang) -> bool {
-    matches!(lang, Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust | Lang::Java | Lang::Kotlin | Lang::Scala | Lang::Php)
+    matches!(
+        lang,
+        Lang::Python
+            | Lang::JavaScript
+            | Lang::TypeScript
+            | Lang::Tsx
+            | Lang::Go
+            | Lang::Rust
+            | Lang::Java
+            | Lang::Kotlin
+            | Lang::Scala
+            | Lang::Php
+            | Lang::CSharp
+    )
 }
 
 impl<'a> Resolver<'a> {
@@ -356,6 +371,8 @@ impl<'a> Resolver<'a> {
             imports: RefCell::new(FxHashMap::default()),
             supers: RefCell::new(FxHashMap::default()),
             subs: RefCell::new(FxHashMap::default()),
+            global_usings: RefCell::new(None),
+            ext_recv: RefCell::new(FxHashMap::default()),
         }
     }
 
@@ -510,9 +527,46 @@ impl<'a> Resolver<'a> {
         if let Some(hit) = self.imports.borrow().get(&f) {
             return hit.clone();
         }
+        let mut out = self.own_imports(f);
+        if self.ix.lang(f) == Lang::CSharp {
+            // `global using` directives hold in every file of the project.
+            for i in self.global_usings().iter() {
+                if !out.iter().any(|o| o.target == i.target && o.name == i.name && o.alias == i.alias) {
+                    out.push(i.clone());
+                }
+            }
+        }
+        let rc = Rc::new(out);
+        self.imports.borrow_mut().insert(f, rc.clone());
+        rc
+    }
+
+    /// The `global using` directives of all C# files (recorded with `REEXPORT`).
+    fn global_usings(&self) -> Rc<Vec<Imp>> {
+        if let Some(hit) = self.global_usings.borrow().as_ref() {
+            return hit.clone();
+        }
         let ix = self.ix;
-        let out: Vec<Imp> = ix
-            .imports_of_file(f)
+        let mut out: Vec<Imp> = Vec::new();
+        for f in ix.files() {
+            if ix.lang(f) != Lang::CSharp || !ix.imports_of_file(f).any(|im| im.flags & iflag::REEXPORT != 0) {
+                continue;
+            }
+            for i in self.own_imports(f) {
+                if i.flags & iflag::REEXPORT != 0 && !out.iter().any(|o| o.target == i.target && o.name == i.name && o.alias == i.alias) {
+                    out.push(i);
+                }
+            }
+        }
+        let rc = Rc::new(out);
+        *self.global_usings.borrow_mut() = Some(rc.clone());
+        rc
+    }
+
+    /// The imports a file writes itself.
+    fn own_imports(&self, f: FileId) -> Vec<Imp> {
+        let ix = self.ix;
+        ix.imports_of_file(f)
             .filter_map(|im| {
                 Some(Imp {
                     target: ix.local_name(f, im.target)?.to_vec(),
@@ -521,10 +575,7 @@ impl<'a> Resolver<'a> {
                     flags: im.flags,
                 })
             })
-            .collect();
-        let rc = Rc::new(out);
-        self.imports.borrow_mut().insert(f, rc.clone());
-        rc
+            .collect()
     }
 
     // -----------------------------------------------------------------------------------------
@@ -628,7 +679,9 @@ impl<'a> Resolver<'a> {
         let lang = ix.lang(from);
         let from_path = ix.path(from);
         let mut out: Vec<FileId> = Vec::new();
-        if let Some(t) = std::str::from_utf8(target).ok().filter(|t| !t.is_empty()) {
+        if lang == Lang::CSharp {
+            out = self.namespace_files(from, target);
+        } else if let Some(t) = std::str::from_utf8(target).ok().filter(|t| !t.is_empty()) {
             if lang == Lang::Php {
                 // A PHP import names a namespace, which is not tied to a path: the files that
                 // declare it. An include names a file.
@@ -731,7 +784,8 @@ impl<'a> Resolver<'a> {
                 out.push(d);
             }
         }
-        if out.is_empty() && depth < 5 {
+        // C# has no re-exports: a `global using` is visible in the importing files only.
+        if out.is_empty() && depth < 5 && ix.lang(m) != Lang::CSharp {
             // Cycles of re-exports end at this placeholder.
             self.exports.borrow_mut().insert(key.clone(), Rc::new(Vec::new()));
             let lang = ix.lang(m);
@@ -851,6 +905,24 @@ impl<'a> Resolver<'a> {
     pub fn qualified_exports(&self, from: FileId, q: &[u8], name: &[u8]) -> Option<Vec<DefId>> {
         let ix = self.ix;
         let files = self.module_files(from, q);
+        if files.is_empty() && ix.lang(from) == Lang::CSharp && !q.is_empty() {
+            // A type written before a nested type (`Outer.Inner`, `N.Outer.Inner`): its members.
+            let mut out: Vec<DefId> = Vec::new();
+            let mut tys = self.type_path_from(q, Some(from)).to_vec();
+            if tys.is_empty()
+                && let Some(i) = q.iter().rposition(|&b| b == b'.')
+            {
+                tys = self.types_named(&q[i + 1..], Some(&q[..i]), Some(from));
+            }
+            for t in tys.iter() {
+                for d in self.members_of(t, name) {
+                    if !out.contains(&d) {
+                        out.push(d);
+                    }
+                }
+            }
+            return if out.is_empty() { None } else { Some(out) };
+        }
         if !files.is_empty() {
             let mut out = self.exports_of(&files, name);
             if out.is_empty() {
@@ -1014,6 +1086,11 @@ impl<'a> Resolver<'a> {
     /// `None` in languages where every file is a namespace of its own.
     fn package_key(&self, f: FileId) -> Option<String> {
         let ix = self.ix;
+        if ix.lang(f) == Lang::CSharp {
+            // A C# namespace spans directories and says nothing about them.
+            let ns = self.package_of(f);
+            return Some(format!("p:{}", ns.as_deref().map(|n| String::from_utf8_lossy(n)).unwrap_or_default()));
+        }
         if !linkx::dir_is_package(ix.lang(f)) {
             return None;
         }
@@ -1046,6 +1123,25 @@ impl<'a> Resolver<'a> {
     /// Definitions named `name` in the other files of the package of `from`.
     fn package_defs(&self, from: FileId, name: &[u8]) -> Vec<DefId> {
         let Some(key) = self.package_key(from) else { return Vec::new() };
+        if self.ix.lang(from) == Lang::CSharp {
+            // The namespace of the file, then the namespaces around it, nearest first.
+            let mut k = key;
+            loop {
+                let hit = self.package_defs_in(from, k.clone(), name);
+                if !hit.is_empty() || k == "p:" {
+                    return hit;
+                }
+                k = match k.rfind('.') {
+                    Some(i) => k[..i].to_string(),
+                    None => "p:".to_string(),
+                };
+            }
+        }
+        self.package_defs_in(from, key, name)
+    }
+
+    /// Definitions named `name` in the files of the package `key`, other than `from`.
+    fn package_defs_in(&self, from: FileId, key: String, name: &[u8]) -> Vec<DefId> {
         let ck = (key, name.to_vec());
         let all: Rc<Vec<DefId>> = match self.pkg_defs.borrow().get(&ck) {
             Some(hit) => hit.clone(),
@@ -1070,6 +1166,36 @@ impl<'a> Resolver<'a> {
         all.iter().copied().filter(|&d| self.ix.def(d).file() != from).collect()
     }
 
+    /// The C# files of namespace `target` as written in file `from`: the namespace of that
+    /// name, else one below a namespace around `from` (`Linq` inside `namespace Newtonsoft.Json`
+    /// is `Newtonsoft.Json.Linq`).
+    fn namespace_files(&self, from: FileId, target: &[u8]) -> Vec<FileId> {
+        let t = String::from_utf8_lossy(target.strip_prefix(b"global::").unwrap_or(target)).into_owned();
+        if t.is_empty() {
+            return Vec::new();
+        }
+        let idx = self.package_index();
+        let pick =
+            |k: &str| -> Vec<FileId> { idx.get(k).map(|v| v.iter().copied().filter(|&f| self.ix.lang(f) == Lang::CSharp).collect()).unwrap_or_default() };
+        let out = pick(&format!("p:{t}"));
+        if !out.is_empty() {
+            return out;
+        }
+        let Some(own) = self.package_of(from) else { return out };
+        let mut ns = String::from_utf8_lossy(&own).into_owned();
+        while !ns.is_empty() {
+            let hit = pick(&format!("p:{ns}.{t}"));
+            if !hit.is_empty() {
+                return hit;
+            }
+            ns = match ns.rfind('.') {
+                Some(i) => ns[..i].to_string(),
+                None => String::new(),
+            };
+        }
+        out
+    }
+
     /// The package a file declares (Java `package a.b;`), when the language records one.
     fn package_of(&self, f: FileId) -> Option<Rc<Vec<u8>>> {
         if let Some(hit) = self.packages.borrow().get(&f) {
@@ -1077,7 +1203,18 @@ impl<'a> Resolver<'a> {
         }
         let ix = self.ix;
         let mut out = None;
-        if matches!(ix.lang(f), Lang::Java | Lang::Kotlin | Lang::Scala | Lang::Php) {
+        if ix.lang(f) == Lang::CSharp {
+            // The innermost of the namespaces the file opens before its first other
+            // definition; the global namespace when it opens none.
+            let mut ns: &[u8] = b"";
+            for v in ix.defs_of_file(f) {
+                if v.kind() != DefKind::Namespace {
+                    break;
+                }
+                ns = v.name();
+            }
+            out = Some(Rc::new(ns.to_vec()));
+        } else if matches!(ix.lang(f), Lang::Java | Lang::Kotlin | Lang::Scala | Lang::Php) {
             if let Some(v) = ix.defs_of_file(f).next() {
                 if v.kind() == DefKind::Namespace && v.parent().is_none() {
                     out = Some(Rc::new(v.name().to_vec()));
@@ -1097,6 +1234,11 @@ impl<'a> Resolver<'a> {
     pub fn same_package(&self, a: FileId, b: FileId) -> bool {
         let ix = self.ix;
         let lang = ix.lang(a);
+        if lang == Lang::CSharp && ix.lang(b) == Lang::CSharp {
+            // The names of a namespace and of the namespaces around it are visible inside it.
+            let (Some(x), Some(y)) = (self.package_of(a), self.package_of(b)) else { return false };
+            return y.is_empty() || x == y || (x.len() > y.len() && x.starts_with(&y) && x[y.len()] == b'.');
+        }
         if !linkx::dir_is_package(lang) || !same_family(lang, ix.lang(b)) {
             return false;
         }
@@ -1778,8 +1920,18 @@ impl<'a> Resolver<'a> {
         let lang = ix.lang(from);
         let from_path = ix.path(from);
         let ok = |d: &DefId| accept(&ix.def(*d));
-        let here: Vec<DefId> = self.defs_in_file(from, name).into_iter().filter(ok).collect();
+        let mut here: Vec<DefId> = self.defs_in_file(from, name).into_iter().filter(ok).collect();
         if !here.is_empty() {
+            if lang == Lang::CSharp && here.iter().all(|&d| ix.def(d).kind().is_type()) {
+                // The other parts of a partial type live in other files of the namespace.
+                if let Some(key) = self.package_key(from) {
+                    for d in self.package_defs_in(from, key, name) {
+                        if ok(&d) && ix.def(d).kind().is_type() && !here.contains(&d) {
+                            here.push(d);
+                        }
+                    }
+                }
+            }
             return here;
         }
         let imps = self.file_imports(from);
@@ -2214,8 +2366,21 @@ impl<'a> Resolver<'a> {
             }
         } else {
             cur = self.types_named(root, module, scope);
+            if cur.is_empty() && module.is_none() && !parts.is_empty() && scope.is_some_and(|f| ix.lang(f) == Lang::CSharp) {
+                // `Linq.Token` read as an outer type may be a namespace and a type in it.
+                let mut ns = root.to_vec();
+                while !parts.is_empty() && !parts[0].ends_with(b"()") {
+                    let seg = parts.remove(0);
+                    cur = self.types_named(seg, Some(&ns), scope);
+                    if !cur.is_empty() {
+                        break;
+                    }
+                    ns.push(b'.');
+                    ns.extend_from_slice(seg);
+                }
+            }
         }
-        for seg in parts {
+        for (i, seg) in parts.into_iter().enumerate() {
             if cur.is_empty() {
                 break;
             }
@@ -2226,6 +2391,29 @@ impl<'a> Resolver<'a> {
             let mut next = Vec::new();
             for t in &cur {
                 self.member_tys(t, name, call, &mut next, 0);
+            }
+            if next.is_empty() && i == 0 && !call && module.is_none() && scope.is_some_and(|f| ix.lang(f) == Lang::CSharp) {
+                // C# reads `Name` inside a type as a member of it first, else as a type: the
+                // C# extractor writes such a name as `C::Name`.
+                next = self.types_named(name, None, scope);
+            }
+            if next.is_empty() && call && scope.is_some_and(|f| ix.lang(f) == Lang::CSharp) {
+                // A C# extension method of the receiver's type: its declared result.
+                let cands = ix.defs_named(name);
+                if cands.len() <= 512 {
+                    for d in cands {
+                        let Some(recv) = self.ext_receiver(d) else { continue };
+                        if !cur.iter().any(|t| t.name == recv || self.ancestors(t).iter().any(|a| a.name == recv)) {
+                            continue;
+                        }
+                        let v = ix.def(d);
+                        if let Some(tn) = v.type_name() {
+                            for x in self.declared_tys(tn, Some(v.file())) {
+                                push_ty(&mut next, x);
+                            }
+                        }
+                    }
+                }
             }
             cur = next;
             cur.truncate(4);
@@ -2325,7 +2513,7 @@ impl<'a> Resolver<'a> {
             prefix.push(b'|');
         }
         prefix.extend_from_slice(parts[0]);
-        for seg in &parts[1..] {
+        for (i, seg) in parts[1..].iter().enumerate() {
             let cur = self.type_path_from(&prefix, Some(from));
             if cur.is_empty() {
                 return false;
@@ -2347,6 +2535,11 @@ impl<'a> Resolver<'a> {
                         return true;
                     }
                 }
+            }
+            // `C::Name` from the C# extractor where neither `C` nor its ancestors have a member
+            // `Name` and no type `Name` is visible: a type of a library (`Enum.Parse`).
+            if i == 0 && module.is_none() && ix.lang(from) == Lang::CSharp && !call {
+                return !cur.iter().any(|t| self.has_member(t, name) || self.ancestors(t).iter().any(|a| self.has_member(a, name)));
             }
             return false;
         }
@@ -2552,6 +2745,8 @@ impl<'a> Resolver<'a> {
         let rival_ranks: Vec<i64> = rivals.iter().map(rank_of).collect();
         let mut verdicts: FxHashMap<FileId, bool> = FxHashMap::default();
         let memberish = owner_canon.is_some();
+        // A C# extension method is called as a member of its `this` parameter's type.
+        let ext: Option<DefId> = if memberish { t.defs.iter().copied().find(|&d| self.ext_receiver(d).is_some()) } else { None };
         // No other definition anywhere carries the name.
         let lone = ix.defs_named_id(nid).count() == t.defs.len();
         ix.for_each_ref_named(nid, |r| {
@@ -2611,6 +2806,12 @@ impl<'a> Resolver<'a> {
                 // Members: fields, properties and methods are reached through a receiver.
                 (Some(owner), _) => {
                     let k = r.kind();
+                    if let (Some(e), RefKind::MemberCall) = (ext, k) {
+                        if let Some(c) = self.ext_match(&r, e) {
+                            emit(r, c);
+                            return;
+                        }
+                    }
                     if k.is_member() {
                         let types = self.owners_for_ref(&r);
                         if types.is_empty() {
@@ -2662,6 +2863,12 @@ impl<'a> Resolver<'a> {
                         } else if modular && tys.is_empty() && self.qualified_exports(r.file, q, &t.name).is_some_and(|l| t.defs.iter().any(|d| l.contains(d)))
                         {
                             // A member reached through a module-level object (`mod.registry.get()`).
+                            Conf::Exact
+                        } else if r.kind() == RefKind::Call
+                            && ix.lang(r.file) == Lang::CSharp
+                            && self.static_using_members(r.file, &t.name).iter().any(|d| t.defs.contains(d))
+                        {
+                            // `F()` with `using static N.T;` where `T` declares `F`.
                             Conf::Exact
                         } else {
                             return;
@@ -2812,6 +3019,9 @@ impl<'a> Resolver<'a> {
                         out = l;
                     }
                 }
+                if out.is_empty() && r.kind() == RefKind::MemberCall {
+                    out = self.extension_targets(r);
+                }
                 out
             }
             RefKind::Call | RefKind::MacroCall => {
@@ -2888,7 +3098,7 @@ impl<'a> Resolver<'a> {
             return out;
         }
         // An inner class reaches the members of the classes around it.
-        if matches!(ix.lang(from), Lang::Java | Lang::Kotlin | Lang::Scala) {
+        if matches!(ix.lang(from), Lang::Java | Lang::Kotlin | Lang::Scala | Lang::CSharp) {
             for t in &tys {
                 for &d in &t.defs {
                     let mut cur = ix.def(d).parent();
@@ -2917,6 +3127,139 @@ impl<'a> Resolver<'a> {
             }
         }
         out
+    }
+
+    /// Static members called `name` of the types that `using static N.T;` directives of C#
+    /// file `from` name.
+    pub fn static_using_members(&self, from: FileId, name: &[u8]) -> Vec<DefId> {
+        let mut out: Vec<DefId> = Vec::new();
+        for i in self.file_imports(from).iter() {
+            if i.name.is_some() || i.flags & iflag::WILDCARD == 0 || !self.module_files(from, &i.target).is_empty() {
+                continue;
+            }
+            // Not a namespace of this repository: `N.T` names a type (or something external).
+            let (module, ty) = match i.target.iter().rposition(|&b| b == b'.') {
+                Some(k) => (Some(&i.target[..k]), &i.target[k + 1..]),
+                None => (None, i.target.as_slice()),
+            };
+            for t in self.types_named(ty, module, Some(from)) {
+                for d in self.members_of(&t, name) {
+                    if !out.contains(&d) {
+                        out.push(d);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The simple name of the type a C# extension method extends: the type of its `this`
+    /// parameter, read off the signature. `None` for any other definition.
+    pub fn ext_receiver(&self, d: DefId) -> Option<Vec<u8>> {
+        if let Some(hit) = self.ext_recv.borrow().get(&d) {
+            return hit.clone();
+        }
+        let ix = self.ix;
+        let v = ix.def(d);
+        let mut out = None;
+        if v.kind() == DefKind::Method && ix.lang(v.file()) == Lang::CSharp && v.parent().is_some() {
+            let sig = v.signature();
+            // `(this T x`, possibly with a line break after the parenthesis.
+            let at = sig.match_indices("this ").map(|(i, _)| i).find(|&i| sig[..i].trim_end().ends_with('('));
+            if let Some(i) = at {
+                let i = sig[..i].trim_end().len() - 1;
+                let rest = sig[i + 1..].trim_start()[5..].trim_start();
+                let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.')).unwrap_or(rest.len());
+                let mut full = &rest[..end];
+                // `Foo<T>(this T x) where T : Bar`: the constraint is the extended type.
+                let generic = sig[..i].rfind('<').is_some_and(|j| sig[j..i].split(|c: char| c == ',' || c == '<' || c == '>').any(|p| p.trim() == full));
+                if generic {
+                    let pat = format!("where {full} :");
+                    if let Some(w) = sig.find(&pat) {
+                        let c = sig[w + pat.len()..].trim_start();
+                        let e = c.find(|ch: char| !(ch.is_alphanumeric() || ch == '_' || ch == '.')).unwrap_or(c.len());
+                        full = &c[..e];
+                    }
+                }
+                let simple = full.rsplit('.').next().unwrap_or(full);
+                let simple = match simple {
+                    "string" => "String",
+                    "object" => "Object",
+                    s => s,
+                };
+                if !simple.is_empty() {
+                    out = Some(simple.as_bytes().to_vec());
+                }
+            }
+        }
+        self.ext_recv.borrow_mut().insert(d, out.clone());
+        out
+    }
+
+    /// Whether the member call `r` can call extension method `d`: its receiver is of the
+    /// extended type or derives from it, and does not have a method of that name itself.
+    pub fn ext_match(&self, r: &RefV, d: DefId) -> Option<Conf> {
+        let recv = self.ext_receiver(d)?;
+        let Some(q) = r.qual() else { return Some(Conf::Name) };
+        let path = q.strip_prefix(b"^").unwrap_or(q);
+        let tys = self.type_path_from(path, Some(r.file));
+        if tys.is_empty() {
+            // A type this repository does not define (`string`, a library type): its name, as
+            // written or as declared for the member the path ends in.
+            let (_, rest) = split_module(path);
+            if rest == recv.as_slice() {
+                return Some(Conf::Likely);
+            }
+            if let Some(i) = path.windows(2).rposition(|w| w == b"::") {
+                let (head, seg) = (&path[..i], &path[i + 2..]);
+                let (seg, call) = match seg.strip_suffix(b"()") {
+                    Some(x) => (x, true),
+                    None => (seg, false),
+                };
+                for t in self.type_path_from(head, Some(r.file)).iter() {
+                    let mut ms = self.members_of(t, seg);
+                    if ms.is_empty() {
+                        ms = self.ancestors(t).iter().map(|a| self.members_of(a, seg)).find(|m| !m.is_empty()).unwrap_or_default();
+                    }
+                    for m in ms {
+                        let v = self.ix.def(m);
+                        let is_fn = matches!(v.kind(), DefKind::Method | DefKind::Function);
+                        if is_fn == call && v.type_name().is_some_and(|tn| split_module(tn).1.rsplit(|&b| b == b':').next() == Some(recv.as_slice())) {
+                            return Some(Conf::Likely);
+                        }
+                    }
+                }
+            }
+            return if self.path_external(path, r.file) { None } else { Some(Conf::Name) };
+        }
+        let name = r.name();
+        let ext_tys = self.types_named(&recv, None, Some(self.ix.def(d).file()));
+        let mut hit = false;
+        for t in tys.iter() {
+            // An instance method of the receiver's own type wins over any extension.
+            if self.has_member(t, name) || self.ancestors(t).iter().any(|a| self.has_member(a, name)) {
+                return None;
+            }
+            let fits = |x: &Ty| x.name == recv && (ext_tys.is_empty() || ext_tys.iter().any(|e| e.same(x)));
+            if fits(t) || self.ancestors(t).iter().any(fits) || self.supertype_names(&t.name).iter().any(|n| *n == recv) {
+                hit = true;
+            }
+        }
+        if hit { Some(Conf::Exact) } else { None }
+    }
+
+    /// The C# extension methods a member call `r` reaches when its receiver's type has no such
+    /// method.
+    pub fn extension_targets(&self, r: &RefV) -> Vec<DefId> {
+        let ix = self.ix;
+        if ix.lang(r.file) != Lang::CSharp {
+            return Vec::new();
+        }
+        let cands = ix.defs_named(r.name());
+        if cands.len() > 512 {
+            return Vec::new();
+        }
+        cands.into_iter().filter(|&d| ix.lang(ix.def(d).file()) == Lang::CSharp && matches!(self.ext_match(r, d), Some(Conf::Exact | Conf::Likely))).collect()
     }
 
     /// `resolve_ref` for a call site, with the scoping of nested functions: a function declared
@@ -3044,6 +3387,10 @@ impl<'a> Resolver<'a> {
                         // A statically imported member is written like a method of the class.
                         if found.is_empty() && matches!(lang, Lang::Java | Lang::Kotlin | Lang::Scala) {
                             found = self.scoped_defs(name, None, from, &|v| wanted(v) && v.file() != from);
+                        }
+                        // `using static N.T;` makes the static members of `T` callable by name.
+                        if found.is_empty() && lang == Lang::CSharp {
+                            found = self.static_using_members(from, name).into_iter().filter(|&d| wanted(&ix.def(d))).collect();
                         }
                         found
                     }

@@ -726,8 +726,10 @@ pub fn callee_edges<'a>(rs: &Resolver<'a>, d: &DefV<'a>) -> Vec<Callee<'a>> {
                         slot = None;
                     }
                 } else if slot.is_none() {
-                    external = r.qual().is_some_and(|q| rs.path_external(q, file));
-                    if !external && rs.member_owner_count(r.name()) <= 3 {
+                    // A C# extension method of the receiver's type.
+                    targets = rs.extension_targets(&r);
+                    external = targets.is_empty() && r.qual().is_some_and(|q| rs.path_external(q, file));
+                    if targets.is_empty() && !external && rs.member_owner_count(r.name()) <= 3 {
                         // No type to go by, but hardly any type has a method of this name.
                         let mut cands: Vec<DefId> = ix
                             .defs_named(r.name())

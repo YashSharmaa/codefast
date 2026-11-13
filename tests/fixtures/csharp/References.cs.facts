@@ -1,0 +1,114 @@
+lang=csharp ok=true lines=64 errors=0
+--- defs (15)
+  0 ns      Acme.Render                  L5-64 parent=- type=- arity=0..0 flags=0x00 | namespace Acme.Render
+  1 class   Painter                      L7-63 parent=Acme.Render type=- arity=0..0 flags=0x04 | public class Painter : Base, IPainter
+  2 field   _shape                       L11-11 parent=Painter type=Shape arity=0..0 flags=0x02 | private readonly Shape _shape
+  3 field   circle                       L12-12 parent=Painter type=Circle arity=0..0 flags=0x02 | private Circle circle
+  4 field   shapes                       L13-13 parent=Painter type=List arity=0..0 flags=0x02 | private List<Shape> shapes
+  5 field   Done                         L14-14 parent=Painter type=Notify arity=0..0 flags=0x24 | public event Notify Done
+  6 prop    Log                          L15-15 parent=Painter type=Action arity=0..0 flags=0x24 | public Action<string> Log { get; set; }
+  7 method  Painter                      L17-17 parent=Painter type=- arity=1..1 flags=0x04 | public Painter(Shape shape) : base(shape.Id)
+  8 method  Paint                        L19-55 parent=Painter type=- arity=1..1 flags=0x04 | public void Paint(Canvas<IShape> canvas)
+  9 method  OnDone                       L57-57 parent=Painter type=- arity=1..1 flags=0x02 | void OnDone(string message)
+ 10 method  OnChanged                    L58-58 parent=Painter type=- arity=2..2 flags=0x02 | void OnChanged(object sender, EventArgs args)
+ 11 method  Write                        L59-59 parent=Painter type=- arity=1..1 flags=0x02 | void Write(string text)
+ 12 method  Draw                         L60-60 parent=Painter type=- arity=1..1 flags=0x02 | void Draw(Shape shape)
+ 13 method  Compare                      L61-61 parent=Painter type=- arity=2..2 flags=0x02 | static int Compare(Shape a, Shape b)
+ 14 method  Reset                        L62-62 parent=Painter type=- arity=0..0 flags=0x02 | void Reset()
+--- refs (92)
+L8    mwrite  Priority                     in Painter qual=RendererAttribute
+L8    annot   RendererAttribute            in Painter
+L9    extends Base                         in Painter
+L9    impl    IPainter                     in Painter
+L11   type    Shape                        in Painter
+L12   type    Circle                       in Painter
+L12   new     Circle                       in circle nargs=1
+L13   type    List                         in Painter
+L13   type    Shape                        in Painter
+L13   type    Shape                        in shapes
+L13   new     List                         in shapes nargs=0
+L14   type    Notify                       in Painter
+L17   call    Base                         in Painter qual=Base nargs=1
+L17   type    Shape                        in Painter
+L17   mread   Id                           in Painter qual=Shape
+L17   mwrite  _shape                       in Painter qual=Painter
+L17   arg     Id                           in Painter qual=Base
+L19   type    Canvas                       in Paint
+L19   type    IShape                       in Paint
+L21   mwrite  Radius                       in Paint qual=Circle
+L21   new     Circle                       in Paint nargs=1
+L22   mcall   Area                         in Paint qual=Circle nargs=0
+L23   mcall   Area                         in Paint qual=Painter::_shape nargs=0
+L23   mread   _shape                       in Paint qual=Painter
+L24   mcall   Area                         in Paint qual=Painter::_shape nargs=0
+L24   mread   _shape                       in Paint qual=Painter
+L25   mcall   Area                         in Paint qual=Painter::circle nargs=0
+L25   mread   circle                       in Paint qual=Painter
+L26   mcall   Paint                        in Paint qual=^Painter nargs=1
+L27   mcall   Reset                        in Paint qual=Painter nargs=0
+L28   call    Reset                        in Paint qual=Painter nargs=0
+L29   mcall   Assist                       in Paint qual=Painter::Helper nargs=1
+L29   type    Helper                       in Paint
+L29   mread   Helper                       in Paint qual=Painter
+L30   mcall   Doubled                      in Paint qual=Circle nargs=0
+L31   type    Shape                        in Paint
+L31   new     Circle                       in Paint nargs=1
+L32   type    Circle                       in Paint
+L33   type    Circle                       in Paint
+L34   mcall   Area                         in Paint qual=Circle nargs=0
+L34   type    Circle                       in Paint
+L34   mread   Radius                       in Paint qual=Circle
+L35   type    Painter                      in Paint
+L36   mread   Paint                        in Paint qual=Painter
+L37   type    Point                        in Paint
+L37   new     Point                        in Paint nargs=2
+L38   mwrite  X                            in Paint qual=Point
+L39   mread   Y                            in Paint qual=Point
+L40   mread   OnDone                       in Paint qual=Painter
+L40   mwrite  Done                         in Paint qual=Painter
+L40   bind    OnDone                       in Paint qual=Painter.Done
+L41   mread   OnDone                       in Paint qual=Painter
+L41   mwrite  Done                         in Paint qual=Painter
+L41   bind    OnDone                       in Paint qual=Painter.Done
+L42   mread   OnChanged                    in Paint qual=Painter
+L42   mwrite  Changed                      in Paint qual=Circle
+L42   bind    OnChanged                    in Paint qual=Circle.Changed
+L43   mread   Write                        in Paint qual=Painter
+L43   mwrite  Log                          in Paint qual=Painter
+L43   bind    Write                        in Paint qual=Painter.Log
+L44   mcall   ForEach                      in Paint qual=Painter::shapes nargs=1
+L44   mread   Draw                         in Paint qual=Painter
+L44   mread   shapes                       in Paint qual=Painter
+L44   arg     Draw                         in Paint qual=ForEach
+L45   mcall   Sort                         in Paint qual=Painter::shapes nargs=1
+L45   mread   Compare                      in Paint qual=Painter
+L45   mread   shapes                       in Paint qual=Painter
+L45   arg     Compare                      in Paint qual=Sort
+L46   mcall   Done                         in Paint qual=Painter nargs=1
+L46   mread   Done                         in Paint qual=Painter
+L47   mcall   Log                          in Paint qual=Painter nargs=1
+L48   mcall   Area                         in Paint qual=Painter::_shape nargs=0
+L48   mread   _shape                       in Paint qual=Painter
+L49   mcall   Area                         in Paint qual=Canvas::Pick() nargs=0
+L49   mcall   Pick                         in Paint qual=Canvas nargs=0
+L50   mread   Count                        in Paint qual=Painter::shapes
+L50   mread   shapes                       in Paint qual=Painter
+L51   type    Color                        in Paint
+L51   type    Color                        in Paint
+L51   mread   Color                        in Paint qual=Painter
+L51   mread   Red                          in Paint qual=Painter::Color
+L52   mwrite  Width                        in Paint qual=Size
+L52   new     Size                         in Paint nargs=2
+L53   mcall   Area                         in Paint nargs=0
+L53   type    Shape                        in Paint
+L54   type    Circle                       in Paint
+L54   type    List                         in Paint
+L54   new     Dictionary                   in Paint nargs=0
+L58   type    EventArgs                    in OnChanged
+L60   type    Shape                        in Draw
+L61   type    Shape                        in Compare
+L61   type    Shape                        in Compare
+--- imports (3)
+L1    target=System name=- alias=- flags=3
+L2    target=System.Collections.Generic name=- alias=- flags=3
+L3    target=Acme.Shapes name=- alias=- flags=2

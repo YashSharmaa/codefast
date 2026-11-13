@@ -1,0 +1,19 @@
+lang=csharp ok=true lines=22 errors=0
+--- defs (7)
+  0 ns      Acme.Tests                   L4-22 parent=- type=- arity=0..0 flags=0x00 | namespace Acme.Tests
+  1 class   ShapeTests                   L6-22 parent=Acme.Tests type=- arity=0..0 flags=0x04 | public class ShapeTests
+  2 method  AreaIsPositive               L8-9 parent=ShapeTests type=- arity=0..0 flags=0x0c | public void AreaIsPositive()
+  3 method  ScalesWith                   L11-13 parent=ShapeTests type=- arity=1..1 flags=0x0c | public void ScalesWith(int factor)
+  4 method  Slow                         L15-16 parent=ShapeTests type=- arity=0..0 flags=0x0c | public void Slow()
+  5 method  MsTest                       L18-19 parent=ShapeTests type=- arity=0..0 flags=0x0c | public void MsTest()
+  6 method  Helper                       L21-21 parent=ShapeTests type=- arity=0..0 flags=0x04 | public void Helper()
+--- refs (6)
+L8    annot   FactAttribute                in AreaIsPositive
+L11   annot   TheoryAttribute              in ScalesWith
+L12   annot   InlineDataAttribute          in ScalesWith
+L15   annot   CategoryAttribute            in Slow
+L15   annot   TestAttribute                in Slow
+L18   annot   TestMethodAttribute          in MsTest
+--- imports (2)
+L1    target=Xunit name=- alias=- flags=2
+L2    target=NUnit.Framework name=- alias=- flags=2
