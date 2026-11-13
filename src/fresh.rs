@@ -67,13 +67,20 @@ fn diff(base: &Segment, walked: &[WalkedFile]) -> Diff {
     d
 }
 
+/// Whether a base segment was written by this version of the program.
+pub fn built_by_this_version(seg: &Segment) -> bool {
+    seg.meta("tool") == Some(env!("CARGO_PKG_VERSION"))
+}
+
 fn open_base(root: &Path, opts: &OpenOptions) -> Result<Segment> {
     let path = build::index_dir(root).join(BASE_SEGMENT);
     if path.exists() {
         if let Ok(seg) = Segment::open(&path) {
             // An index directory named by the environment can end up shared by two
-            // repositories. An index built for another root is rebuilt, never served.
-            if seg.meta("root").is_none_or(|r| Path::new(r) == root) {
+            // repositories. An index built for another root is rebuilt, never served. So is
+            // one built by another version of this program: its extractors may have read the
+            // same files differently, and a rebuild costs seconds.
+            if seg.meta("root").is_none_or(|r| Path::new(r) == root) && built_by_this_version(&seg) {
                 return Ok(seg);
             }
         }

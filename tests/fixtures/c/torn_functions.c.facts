@@ -1,0 +1,18 @@
+lang=c ok=true lines=37 errors=6
+--- defs (7)
+  0 struct  rq                           L3-3 parent=- type=- arity=0..0 flags=0x00 | struct rq
+  1 field   nr                           L3-3 parent=rq type=- arity=0..0 flags=0x00 | unsigned long nr;
+  2 fn      pick                         L6-15 parent=- type=- arity=1..1 flags=0x00 | int pick(int x)
+  3 fn      pick                         L9-15 parent=- type=- arity=1..1 flags=0x00 | int pick(long x)
+  4 fn      count_all                    L17-26 parent=- type=- arity=0..0 flags=0x00 | unsigned long count_all(void)
+  5 fn      cpu_waits                    L29-32 parent=- type=- arity=1..1 flags=0x00 | bool cpu_waits(int cpu)
+  6 fn      late_setup                   L34-37 parent=- type=- arity=1..1 flags=0x02 | static int __init late_setup(char *s)
+--- refs (7)
+L22   call    for_each_cpu                 in count_all
+L23   call    cpu_rq                       in count_all nargs=1
+L23   type    nr                           in count_all
+L31   call    cpu_rq                       in cpu_waits nargs=1
+L31   call    read_it                      in cpu_waits nargs=1
+L31   mread   nr                           in cpu_waits qual=cpu_rq()
+L36   call    count_all                    in late_setup nargs=0
+--- imports (0)

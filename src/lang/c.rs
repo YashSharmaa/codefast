@@ -198,6 +198,9 @@ struct W<'a, 't> {
     /// Lines whose symbol-defining or registering macro was handled by the lexical pass, with
     /// the first definition created there (`NONE` for registrations).
     lex: Vec<(u32, u32)>,
+    /// The byte at which a function ends that was put back together from the pieces of a
+    /// region the grammar could not parse (see [`W::recover_function`]).
+    recovered: Option<usize>,
 }
 
 pub fn extract(src: &[u8], tree: &Tree, path: &str, facts: &mut FileFacts, scratch: &mut Scratch) {
@@ -214,6 +217,7 @@ pub fn extract(src: &[u8], tree: &Tree, path: &str, facts: &mut FileFacts, scrat
         pp_params: Vec::new(),
         exports: Vec::new(),
         lex: Vec::new(),
+        recovered: None,
     };
     w.lexical_macros();
     let mut c = tree.walk();
@@ -306,7 +310,16 @@ impl<'a, 't> W<'a, 't> {
         if self.fn_depth == 0 && self.cx.s.def_stack.is_empty() && self.lex_at(line_of(n)).is_some() {
             return;
         }
+        // In a region the grammar could not parse, a statement can read as a declaration:
+        // `return sum;` has the "type" `return`, and a loop macro's argument reads as a type
+        // too. A keyword is never a type, and neither is a variable of the function.
+        if matches!(self.cx.text(n), b"return" | b"goto" | b"else" | b"break" | b"continue" | b"case" | b"default" | b"do" | b"while" | b"for" | b"if" | b"switch" | b"sizeof") {
+            return;
+        }
         let name = self.cx.name(n);
+        if self.fn_depth > 0 && self.cx.is_local(name) {
+            return;
+        }
         self.cx.add_ref(name, RefKind::Type, line_of(n), NONE, 255);
     }
 
@@ -451,6 +464,20 @@ impl<'a, 't> W<'a, 't> {
         let t = self.t;
         let found = child(n, t.f_declarator).and_then(|d| self.function_declarator(d));
         let Some((fdecl, name_node, _)) = found else { return self.macro_function(n, c) };
+        // Every function definition has a body, and nothing unparsable between its header and
+        // that body. One that fails either test is what the grammar makes of a statement in a
+        // region it could not parse: `for_each_cpu(i) sum += f(i)->x;` reads as a definition of
+        // `f` in the old style, with the next function's braces for a body. It is a call, and
+        // what follows it is more loose pieces.
+        if child(n, t.f_body).is_none() || self.torn(n) {
+            let params = child(fdecl, t.f_parameters).map(|p| p.named_child_count().min(254) as u8).unwrap_or(255);
+            let name = self.cx.name(name_node);
+            if !(self.fn_depth > 0 && self.cx.is_local(name)) {
+                self.cx.add_ref(name, RefKind::Call, line_of(name_node), NONE, params);
+            }
+            self.cx.mark(name_node);
+            return self.error_children(c);
+        }
         if self.fn_depth == 0 && self.containers.is_empty() && self.cx.s.handled.len() > 2048 {
             self.cx.s.handled.clear();
             self.cx.s.writes.clear();
@@ -482,6 +509,29 @@ impl<'a, 't> W<'a, 't> {
         self.fn_depth -= 1;
         self.cx.pop_scope();
         self.cx.pop_def();
+    }
+
+    /// Whether a function definition has something unparsable between its declarator and its
+    /// body. (Before the declarator an error node is ordinary: an attribute macro such as
+    /// `__init` between the return type and the name parses as one.)
+    fn torn(&self, n: Node<'t>) -> bool {
+        let mut c = n.walk();
+        if !c.goto_first_child() {
+            return false;
+        }
+        let mut after_declarator = false;
+        loop {
+            if is_field(&c, self.t.f_declarator) {
+                after_declarator = true;
+            } else if is_field(&c, self.t.f_body) {
+                return false;
+            } else if after_declarator && self.k(c.node()) == K::Error {
+                return true;
+            }
+            if !c.goto_next_sibling() {
+                return false;
+            }
+        }
     }
 
     /// `MACRO(name) { ... }` parses as a function definition whose "type" is the macro and
@@ -1795,13 +1845,27 @@ impl<'a, 't> W<'a, 't> {
     /// directly under ERROR nodes: they are noise, not references.
     fn error(&mut self, c: &mut TreeCursor<'t>) {
         self.cx.facts.parse_errors += 1;
+        self.error_children(c);
+    }
+
+    /// Walk the pieces of a region the grammar could not parse. Identifiers on their own are
+    /// noise here. A function header on its own is a function whose body was torn off: it is
+    /// put back together, so that the code after it belongs to it again.
+    fn error_children(&mut self, c: &mut TreeCursor<'t>) {
         if self.cx.depth >= MAX_DEPTH {
             return;
         }
         self.cx.depth += 1;
         if c.goto_first_child() {
             loop {
-                if self.k(c.node()) != K::Identifier {
+                let n = c.node();
+                if self.recovered.is_some_and(|end| n.start_byte() >= end) {
+                    self.close_recovered();
+                }
+                let k = self.k(n);
+                if k == K::FunctionDeclarator && self.recovered.is_none() && self.fn_depth == 0 && self.containers.is_empty() && self.recover_function(n) {
+                    // Its name and parameters are accounted for.
+                } else if k != K::Identifier {
                     self.visit(c);
                 }
                 if !c.goto_next_sibling() {
@@ -1813,7 +1877,77 @@ impl<'a, 't> W<'a, 't> {
         self.cx.depth -= 1;
     }
 
+    /// `int f(int a)` followed in the text by `{ ... }`, where the grammar saw a declarator and
+    /// then loose statements. The function is defined from its header to the closing brace at
+    /// the start of a line, and everything up to there is read as its body. False when the
+    /// text after the header is not a body (a prototype, a function pointer in an expression).
+    fn recover_function(&mut self, n: Node<'t>) -> bool {
+        let Some((fdecl, name_node, ptr_inside)) = self.function_declarator(n) else { return false };
+        if ptr_inside || self.k(name_node) != K::Identifier {
+            return false;
+        }
+        let src = self.cx.src;
+        // Up to the opening brace only attribute words may stand (`__init`, `__must_hold(x)`).
+        let mut open = n.end_byte();
+        let limit = src.len().min(open + 160);
+        while open < limit && (src[open].is_ascii_alphanumeric() || matches!(src[open], b'_' | b' ' | b'\t' | b'\n' | b'\r' | b'(' | b')')) {
+            open += 1;
+        }
+        if open >= limit || src[open] != b'{' {
+            return false;
+        }
+        // The body ends at the first closing brace that starts a line: where every C style puts
+        // the end of a function, and a rule that braces hidden by `#ifdef` cannot upset.
+        let mut end = None;
+        let mut i = open;
+        let stop = src.len().min(open + (1 << 20));
+        while let Some(nl) = memchr::memchr(b'\n', &src[i..stop]) {
+            i += nl + 1;
+            if src.get(i) == Some(&b'}') {
+                end = Some(i + 1);
+                break;
+            }
+        }
+        let Some(end) = end else { return false };
+        // The header from the start of its line: the return type stands before the declarator.
+        let line_start = src[..n.start_byte()].iter().rposition(|&b| b == b'\n').map_or(0, |p| p + 1);
+        let lead = &src[line_start..n.start_byte()];
+        let start = if lead.len() <= 96 && !lead.iter().any(|b| matches!(b, b';' | b'}' | b'{' | b'#')) { line_start } else { n.start_byte() };
+        let name = self.cx.name(name_node);
+        let (amin, amax) = self.arity(fdecl);
+        let d = self.cx.add_def(Def {
+            name,
+            parent: NONE,
+            qual: NONE,
+            line: line_of(n),
+            end_line: line_of(n) + memchr::memchr_iter(b'\n', &src[n.start_byte()..end]).count() as u32,
+            sig_off: start as u32,
+            sig_len: (open - start).min(u16::MAX as usize) as u16,
+            kind: DefKind::Function,
+            flags: if memchr::memmem::find(lead, b"static").is_some() && !self.cx.is_header { dflag::LOCAL } else { 0 },
+            type_name: NONE,
+            arity_min: amin,
+            arity_max: amax,
+        });
+        self.cx.mark(name_node);
+        self.cx.push_def(d);
+        self.cx.push_scope();
+        self.fn_depth += 1;
+        self.declare_params(fdecl);
+        self.recovered = Some(end);
+        true
+    }
+
+    fn close_recovered(&mut self) {
+        if self.recovered.take().is_some() {
+            self.fn_depth -= 1;
+            self.cx.pop_scope();
+            self.cx.pop_def();
+        }
+    }
+
     fn finish(&mut self) {
+        self.close_recovered();
         self.restore_order();
         if self.exports.is_empty() {
             return;

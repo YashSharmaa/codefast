@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = []
+# dependencies = ["tiktoken"]
 # ///
 """Live agent experiment: real, headless Claude Code sessions with and without the codefast plugin.
 
@@ -11,11 +11,14 @@ gives the cost: requests, tokens by kind, list-price dollars, every tool call an
 that fired. The outcome is checked afterwards in the run's copy (tests or compiler).
 
     live.py run   --tag T --arms control,plugin --model haiku [--dev | --d N --r N | --ids a,b] [--jobs 4]
+    live.py verify --tag T                         check again the outcome of runs already made
     live.py score --tag T [--out FILE]
     live.py show  --tag T --id ID --arm ARM        one run, step by step
 
-Tasks come from make_d_tasks.py (D: make failing tests pass) and make_r_tasks.py (R: carry a
-rename through its call sites). Development tasks (round3.DEV_IDS) are never reported.
+Tasks come from make_d_tasks.py (D: make failing tests pass), make_r_tasks.py (R: carry a
+rename through its call sites, Go) and bench/k3 (K: a question about the Linux kernel, answered
+in the shared kernel checkout and scored against the verified answer). Development tasks
+(DEV_IDS) are never reported.
 
 Environment: CLAUDE_BIN (default ~/.local/bin/claude), CLAUDE_CONFIG_DIR (which login to use,
 required), CODEFAST_BIN (the binary under test, default target/release/codefast).
@@ -28,6 +31,8 @@ ROOT = Path(__file__).resolve().parents[2]
 AB = ROOT / "target/ab"
 LIVE = ROOT / "target/live"
 SYFT = ROOT / "bench/repos/syft"
+LINUX = ROOT / "bench/repos/linux"
+LINUX_INDEX = ROOT / "target/bench-index/final-linux"
 DEV_IDS = {"django__django-18850", "tobymao__sqlglot-4519", "R-Collection-Add"}
 W_READ, W_WRITE, W_OUT = 0.1, 1.25, 5.0
 # Variables of the session this script may be started from: a child session must not inherit them.
@@ -61,11 +66,23 @@ def file_hash(repo, files):
     return h.hexdigest()
 
 
+def k_tasks():
+    """The kernel questions of the pilot's second round, one of each family first."""
+    ids = json.load(open(ROOT / "bench/tier2/tasks.json"))["kernel_questions_round2"]
+    qs = {}
+    for line in open(ROOT / "bench/k3/questions.verified.jsonl"):
+        q = json.loads(line)
+        qs[q["id"]] = q
+    order = ids[0::2] + ids[1::2]
+    return [dict(id="K-" + i, family="K", repo_name="torvalds/linux", question=qs[i]["question"], qid=i) for i in order]
+
+
 def choose(a):
     d, r = load("d"), load("r")
+    k = k_tasks()
     if a.ids:
         want = a.ids.split(",")
-        by = {t["id"]: t for t in d + r}
+        by = {t["id"]: t for t in d + r + k}
         return [by[i] for i in want]
     order = lambda ts: sorted(ts, key=lambda t: hashlib.sha256(t["id"].encode()).hexdigest())
     if a.dev:
@@ -79,10 +96,18 @@ def choose(a):
         for g in groups:
             if g:
                 mixed.append(g.pop(0))
-    return [t for t in mixed if t["id"] not in DEV_IDS][: a.d] + [t for t in order(r) if t["id"] not in DEV_IDS][: a.r]
+    return [t for t in mixed if t["id"] not in DEV_IDS][: a.d] + [t for t in order(r) if t["id"] not in DEV_IDS][: a.r] + k[: a.k]
 
 
 def prompt_for(t, repo):
+    if t["family"] == "K":
+        return f"""You are in a checkout of the Linux kernel source, in the current directory ({repo}).
+
+Answer this question about the code:
+
+{t['question']}
+
+Rules: do not change any file and do not read anything outside {repo}. Be exact and complete: name every function and every file path the question asks for, and give line numbers where they identify a place. End with the answer itself, not with an account of how you found it."""
     if t["family"] == "D":
         cmd = t["test_cmd"].replace("{repo}", str(repo))
         return f"""You are working in a checkout of the {t['repo_name']} project, in the current directory ({repo}).
@@ -142,6 +167,12 @@ def prepare(t, arm, rep, a, binary):
     if run.exists():
         shutil.rmtree(run)
     run.mkdir(parents=True)
+    if t["family"] == "K":
+        # Nothing is changed, so every run reads the one kernel checkout and its one index.
+        row = dict(id=t["id"], family="K", arm=arm, rep=rep, repo=str(LINUX), run=str(run), repo_name=t["repo_name"], model=a.model, qid=t["qid"], tree_state=tree_state(LINUX))
+        (run / "prompt.txt").write_text(prompt_for(t, LINUX))
+        json.dump(row, open(run / "task.json", "w"), indent=1)
+        return row
     src = SYFT if t["family"] == "R" else t["base"]
     shutil.copytree(src, repo, symlinks=True, ignore=shutil.ignore_patterns(".git", ".codefast", "__pycache__"))
     if spec.get("rules"):
@@ -152,7 +183,7 @@ def prepare(t, arm, rep, a, binary):
     (repo / ".git/info/exclude").write_text(".codefast/\n")
     subprocess.run(git + ["add", "-A"], cwd=repo, check=True, capture_output=True)
     subprocess.run(git + ["commit", "-q", "-m", "base"], cwd=repo, check=True, capture_output=True)
-    row = dict(id=t["id"], family=t["family"], arm=arm, rep=rep, repo=str(repo), repo_name=t["repo_name"], model=a.model)
+    row = dict(id=t["id"], family=t["family"], arm=arm, rep=rep, repo=str(repo), run=str(run), repo_name=t["repo_name"], model=a.model)
     if t["family"] == "D":
         row.update(check=t["test_cmd"].replace("{repo}", str(repo)), test_files=t["test_files"], tests_hash=file_hash(repo, t["test_files"]))
     else:
@@ -166,7 +197,43 @@ def prepare(t, arm, rep, a, binary):
     return row
 
 
+def tree_state(repo):
+    """What git says differs in a work tree (a kernel checkout on a file system that ignores
+    case is never clean, so the state is compared, not expected to be empty)."""
+    rc, out = sh("git status --porcelain --untracked-files=no", cwd=repo)
+    return hashlib.sha256(out.encode()).hexdigest()[:16]
+
+
+def final_text(run):
+    text = ""
+    for e in events(Path(run) / "run.jsonl"):
+        if e.get("type") == "result":
+            text = e.get("result") or ""
+    return text
+
+
+def verify_k(row):
+    """The answer's score against the verified one, from 0 to 1."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("score_ab", ROOT / "bench/tier2/score_ab.py")
+    mod = importlib.util.module_from_spec(spec)
+    argv, sys.argv = sys.argv, [sys.argv[0]]
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.argv = argv
+    k3 = mod.load_k3()
+    qn = next(json.loads(l) for l in open(ROOT / "bench/k3/questions.verified.jsonl") if json.loads(l)["id"] == row["qid"])
+    return float(mod.score_k(k3, qn, final_text(row["run"])))
+
+
 def verify(row):
+    if row["family"] == "K":
+        s = verify_k(row)
+        row["kscore"] = s
+        # The tree is shared: a run that changed it would spoil the others.
+        return s >= 0.999, row.get("tree_state") in (None, tree_state(row["repo"]))
     try:
         rc, _ = sh(row["check"], timeout=1800)
         ok = rc == 0
@@ -185,12 +252,15 @@ def verify(row):
 
 def session(row, a, binary, plug):
     spec = ARMS[row["arm"]]
-    run = Path(row["repo"]).parent
+    run = Path(row["run"])
     env = {k: v for k, v in os.environ.items() if k not in SCRUB}
     env["CLAUDE_CONFIG_DIR"] = a.config_dir
     env["CODEFAST_BIN"] = str(binary)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env.pop("CODEFAST_HOOKS", None)
+    env.pop("CODEFAST_INDEX_DIR", None)
+    if row["family"] == "K" and spec["plugin"]:
+        env["CODEFAST_INDEX_DIR"] = str(LINUX_INDEX)
     env.update(spec.get("env", {}))
     cmd = [
         a.claude, "-p", "--model", a.model, "--output-format", "stream-json", "--verbose", "--include-hook-events",
@@ -211,8 +281,13 @@ def session(row, a, binary, plug):
             rc = p.returncode
         except subprocess.TimeoutExpired:
             rc = 124
-    ok, clean = verify(row)
-    res = dict(row, exit=rc, seconds=round(time.time() - t0), passed=ok, clean=clean)
+    secs = round(time.time() - t0)
+    try:
+        ok, clean = verify(row)
+    except Exception as e:  # the session is on disk: `live.py verify` can check it again
+        print(f"  check failed for {row['id']} {row['arm']}: {type(e).__name__}: {e}", flush=True)
+        ok, clean = False, False
+    res = dict(row, exit=rc, seconds=secs, passed=ok, clean=clean)
     json.dump(res, open(run / "outcome.json", "w"), indent=1)
     return res
 
@@ -332,6 +407,9 @@ def cmd_run(a):
                     continue
                 todo.append((t, arm, rep))
     print(f"{len(tasks)} tasks x {len(arms)} arms x {a.reps} repetitions, {len(todo)} runs to do, model {a.model}, {a.jobs} at a time", flush=True)
+    if any(t["family"] == "K" for t, _, _ in todo) and any(ARMS[arm]["plugin"] for _, arm, _ in todo):
+        e = dict(os.environ, CODEFAST_INDEX_DIR=str(LINUX_INDEX))
+        subprocess.run([str(binary), "--root", str(LINUX), "status"], capture_output=True, text=True, env=e)
     if any(t["family"] == "R" for t, _, _ in todo):
         rc, out = sh("go build ./... && go vet -composites=false -unreachable=false ./...", cwd=SYFT)
         print("  compiler cache warmed" if rc == 0 else "  WARM FAILED: " + out[-300:], flush=True)
@@ -347,7 +425,7 @@ def cmd_run(a):
         for res in ex.map(one, rows):
             if res is None:
                 continue
-            r = parse(Path(res["repo"]).parent / "run.jsonl")
+            r = parse(Path(res["run"]) / "run.jsonl")
             lim = r["limits"]
             worst = max([v for k, v in lim.items() if k != "status" and isinstance(v, (int, float))] or [0])
             print(f"  {res['id']:28} {res['arm']:8} exit={res['exit']} passed={res['passed']} clean={res['clean']} req={r['requests']:3d} ${r['cost']:.3f} {res['seconds']}s limits={lim}", flush=True)
@@ -355,6 +433,22 @@ def cmd_run(a):
                 print(f"  STOPPING: account usage window at {worst:.2f} (status {lim.get('status')})", flush=True)
                 stop = True
     cleanup_projects(a.config_dir)
+
+
+def cmd_verify(a):
+    """Check the outcome of every finished session of a tag again (after a change to a checker,
+    or when the batch stopped before it could)."""
+    for task in sorted((LIVE / a.tag).glob("*/*/task.json")):
+        row = json.load(open(task))
+        run = task.parent
+        row.setdefault("run", str(run))
+        if not (run / "run.jsonl").exists() or (run / "outcome.json").exists() and not a.force:
+            continue
+        ok, clean = verify(row)
+        old = json.load(open(run / "outcome.json")) if (run / "outcome.json").exists() else {}
+        res = dict(row, exit=old.get("exit", 0), seconds=old.get("seconds", 0), passed=ok, clean=clean)
+        json.dump(res, open(run / "outcome.json", "w"), indent=1)
+        print(f"  {row['id']:28} {row['arm']:8} passed={ok} clean={clean}", flush=True)
 
 
 def rows_of(tag):
@@ -376,7 +470,7 @@ def rows_of(tag):
         row["result_chars"] = sum(r["result_chars"].values())
         row["final"], row["exit"], row["seconds"] = r["final"], res["exit"], res["seconds"]
         row["passed"], row["clean"] = res["passed"], res["clean"]
-        row["score"] = 1.0 if res["passed"] and res["clean"] else 0.0
+        row["score"] = res["kscore"] if "kscore" in res else (1.0 if res["passed"] and res["clean"] else 0.0)
         row["violations"] = (["control arm used the tool"] if res["arm"] == "control" and (r["cf_cli"] or r["cf_mcp"]) else []) + (["ended early: " + str(r["final"])] if r["final"] != "success" else [])
         rows.append(row)
     return rows
@@ -501,6 +595,7 @@ def main():
     p.add_argument("--ids", default="")
     p.add_argument("--d", type=int, default=16)
     p.add_argument("--r", type=int, default=8)
+    p.add_argument("--k", type=int, default=0, help="kernel questions")
     p.add_argument("--jobs", type=int, default=4)
     p.add_argument("--reps", type=int, default=1, help="runs per task and arm")
     p.add_argument("--resume", action="store_true", help="skip runs that already have an outcome")
@@ -512,6 +607,9 @@ def main():
     p.add_argument("--claude", default=os.environ.get("CLAUDE_BIN", str(Path.home() / ".local/bin/claude")))
     p.add_argument("--config-dir", default=os.environ.get("CLAUDE_CONFIG_DIR", ""))
     p.add_argument("--codefast", default=os.environ.get("CODEFAST_BIN", str(ROOT / "target/release/codefast")))
+    p = sub.add_parser("verify")
+    p.add_argument("--tag", required=True)
+    p.add_argument("--force", action="store_true", help="also runs that have an outcome")
     p = sub.add_parser("score")
     p.add_argument("--tag", required=True)
     p.add_argument("--out", default="")
@@ -522,7 +620,7 @@ def main():
     p.add_argument("--arm", required=True)
     p.add_argument("--width", type=int, default=220)
     a = ap.parse_args()
-    {"run": cmd_run, "score": cmd_score, "show": cmd_show}[a.cmd](a)
+    {"run": cmd_run, "verify": cmd_verify, "score": cmd_score, "show": cmd_show}[a.cmd](a)
 
 
 if __name__ == "__main__":

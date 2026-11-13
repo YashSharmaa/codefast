@@ -500,7 +500,7 @@ fn locate(base: &Path, dir: &Dir, path: &str) -> Option<PathBuf> {
 /// The working tree is not walked and nothing is written, so this costs two memory maps
 /// whatever the repository size.
 pub(super) fn open_at(root: &Path, index_dir: &Path) -> Option<Index> {
-    let base = Segment::open(&index_dir.join(BASE_SEGMENT)).ok()?;
+    let base = Segment::open(&index_dir.join(BASE_SEGMENT)).ok().filter(fresh::built_by_this_version)?;
     let files = base.n_files();
     let overlay = Segment::open(&index_dir.join(OVERLAY_SEGMENT)).ok().filter(|o| o.meta("base").is_some() && o.meta("base") == base.meta("build_id"));
     let mut dead: Vec<u32> = Vec::new();
