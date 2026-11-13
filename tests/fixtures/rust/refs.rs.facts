@@ -1,0 +1,225 @@
+lang=rust ok=true lines=125 errors=0
+--- defs (17)
+  0 var     REGISTRY                     L5-5 parent=- type=Mutex arity=0..0 flags=0x00 | static REGISTRY: Mutex<Registry> =
+  1 const   RETRIES                      L6-6 parent=- type=- arity=0..0 flags=0x00 | const RETRIES: u32 =
+  2 struct  Server                       L8-14 parent=- type=- arity=0..0 flags=0x04 | pub struct Server
+  3 field   cfg                          L9-9 parent=Server type=Config arity=0..0 flags=0x00 | cfg: Arc<Config>
+  4 field   handler                      L10-10 parent=Server type=- arity=1..1 flags=0x20 | handler: fn(&Request) -> Response
+  5 field   peers                        L11-11 parent=Server type=Vec arity=0..0 flags=0x00 | peers: Vec<Peer>
+  6 field   state                        L12-12 parent=Server type=RefCell arity=0..0 flags=0x00 | state: RefCell<State>
+  7 field   last                         L13-13 parent=Server type=Option arity=0..0 flags=0x00 | last: Option<Request>
+  8 impl    Server                       L16-73 parent=- type=- arity=0..0 flags=0x00 | impl Server
+  9 method  new                          L17-20 parent=Server type=Server arity=2..2 flags=0x04 | pub fn new(cfg: Config, peers: &[Peer]) -> Self
+ 10 method  run                          L22-49 parent=Server type=Result arity=3..3 flags=0x00 | fn run(&mut self, req: &Request, out: &mut dyn Sink, limit: Option<Limit>) -> Result<u32, net::Error
+ 11 method  check                        L51-65 parent=Server type=Result arity=1..1 flags=0x00 | fn check(&self, req: &Request) -> Result<(), net::Error>
+ 12 method  count                        L67-72 parent=Server type=- arity=2..2 flags=0x00 | fn count(peers: &[Peer], floor: u32) -> u32
+ 13 impl    Server                       L75-91 parent=- type=- arity=0..0 flags=0x00 | impl Handler for Server
+ 14 method  handle                       L76-90 parent=Server type=Response arity=1..1 flags=0x00 | fn handle(&self, req: &Request) -> Response
+ 15 fn      generic                      L93-112 parent=- type=Vec arity=4..4 flags=0x00 | fn generic<T: Visitor, U>(v: &mut T, items: Vec<Item>, maybe: Option<Item>, cb: impl Fn(u32) -> U) -
+ 16 fn      shadow                       L114-125 parent=- type=- arity=1..1 flags=0x00 | fn shadow(count: u32)
+--- refs (199)
+L2    import  Config                       in <file> qual=crate::net
+L2    import  Handler                      in <file> qual=crate::net
+L2    import  net                          in <file> qual=crate
+L3    import  Arc                          in <file> qual=std::sync
+L3    import  Mutex                        in <file> qual=std::sync
+L5    call    new                          in REGISTRY qual=Mutex nargs=1
+L5    call    new                          in REGISTRY qual=Registry nargs=0
+L5    type    Mutex                        in REGISTRY
+L5    type    Mutex                        in REGISTRY
+L5    type    Registry                     in REGISTRY
+L5    type    Registry                     in REGISTRY
+L9    type    Arc                          in Server
+L9    type    Config                       in Server
+L10   type    Request                      in Server
+L10   type    Response                     in Server
+L11   type    Peer                         in Server
+L11   type    Vec                          in Server
+L12   type    RefCell                      in Server
+L12   type    State                        in Server
+L13   type    Option                       in Server
+L13   type    Request                      in Server
+L16   type    Server                       in Server
+L17   type    Config                       in new
+L17   type    Peer                         in new
+L18   call    new                          in new qual=Arc nargs=1
+L18   type    Arc                          in new
+L19   call    default                      in new qual=State nargs=0
+L19   call    new                          in new qual=RefCell nargs=1
+L19   mcall   to_vec                       in new qual=slice nargs=0
+L19   type    RefCell                      in new
+L19   type    State                        in new
+L19   mwrite  cfg                          in new qual=Server
+L19   mwrite  handler                      in new qual=Server
+L19   mwrite  last                         in new qual=Server
+L19   mwrite  peers                        in new qual=Server
+L19   mwrite  state                        in new qual=Server
+L19   bind    default_handler              in new qual=Server.handler
+L19   new     Server                       in new
+L22   type    Error                        in run qual=crate::net
+L22   type    Limit                        in run
+L22   type    Option                       in run
+L22   type    Request                      in run
+L22   type    Result                       in run
+L22   type    Sink                         in run
+L23   mcall   load                         in run qual=Server::cfg nargs=0
+L23   mread   cfg                          in run qual=Server
+L24   mcall   check                        in run qual=Server nargs=1
+L25   mcall   handler                      in run qual=Server nargs=1
+L26   mcall   write                        in run qual=Sink nargs=1
+L27   call    count                        in run qual=Server nargs=2
+L27   read    RETRIES                      in run
+L27   mread   peers                        in run qual=Server
+L28   mcall   clone                        in run qual=Request nargs=0
+L28   mwrite  last                         in run qual=Server
+L29   type    Duration                     in run
+L29   mread   cfg                          in run qual=Server
+L29   mwrite  timeout                      in run qual=Server::cfg
+L30   mwrite  handler                      in run qual=Server
+L30   bind    fallback                     in run qual=Server.handler
+L31   mcall   advance                      in run nargs=1
+L31   mcall   borrow_mut                   in run qual=Server::state nargs=0
+L31   mread   state                        in run qual=Server
+L33   mcall   enforce                      in run qual=Limit nargs=1
+L35   mcall   first                        in run qual=Server::peers nargs=0
+L35   mcall   unwrap                       in run qual=Server::peers::first() nargs=0
+L35   mread   peers                        in run qual=Server
+L36   mcall   ping                         in run nargs=0
+L37   mread   peers                        in run qual=Server
+L38   mcall   ping                         in run nargs=0
+L40   mcall   enumerate                    in run nargs=0
+L40   mcall   iter                         in run qual=Server::peers nargs=0
+L40   mread   peers                        in run qual=Server
+L41   mcall   send                         in run nargs=1
+L43   mcall   lock                         in run qual=$REGISTRY nargs=0
+L43   mcall   unwrap                       in run qual=$REGISTRY::lock() nargs=0
+L43   read    REGISTRY                     in run
+L44   mcall   register                     in run nargs=1
+L45   call    clamp                        in run qual=crate::util nargs=3
+L45   call    helper                       in run nargs=2
+L46   call    open                         in run qual=crate::net::transport nargs=1
+L46   type    Tcp                          in run
+L46   mread   cfg                          in run qual=Server
+L46   mread   port                         in run qual=Server::cfg
+L47   call    handle                       in run qual=Handler nargs=2
+L47   type    Handler                      in run
+L51   type    Error                        in check qual=crate::net
+L51   type    Request                      in check
+L51   type    Result                       in check
+L52   type    Request                      in check
+L52   mread   method                       in check qual=Request
+L52   mread   path                         in check qual=Request
+L53   mcall   normalize                    in check qual=Request::path nargs=0
+L55   type    Method                       in check
+L55   type    Method                       in check
+L55   read    Get                          in check qual=Method
+L55   read    Head                         in check qual=Method
+L56   call    TooLarge                     in check qual=crate::net|Error nargs=1
+L56   mcall   len                          in check qual=Method::Post::body nargs=0
+L56   mcall   len                          in check qual=Method::Post::body nargs=0
+L56   type    Error                        in check qual=crate::net
+L56   type    Method                       in check
+L56   type    Post                         in check qual=Method
+L56   read    MAX_BODY                     in check
+L56   mread   body                         in check qual=Method::Post
+L57   mcall   audit                        in check qual=Request::method nargs=0
+L57   type    Method                       in check
+L57   read    Custom                       in check qual=Method
+L58   read    UNKNOWN                      in check
+L59   macro   unreachable                  in check
+L61   mcall   take                         in check qual=Server::last nargs=0
+L61   mread   last                         in check qual=Server
+L62   mcall   replay                       in check nargs=0
+L67   type    Peer                         in count
+L69   mcall   weight                       in count qual=Peer nargs=0
+L69   type    Peer                         in count
+L70   mcall   for_each                     in count nargs=1
+L70   mcall   iter                         in count qual=slice nargs=0
+L75   type    Server                       in Server
+L75   impl    Handler                      in Server
+L76   type    Request                      in handle
+L76   type    Response                     in handle
+L77   call    default                      in handle qual=Response nargs=0
+L77   type    Response                     in handle
+L78   type    Status                       in handle
+L78   read    Ok                           in handle qual=Status
+L78   mwrite  status                       in handle qual=Response
+L79   mcall   insert                       in handle qual=Response::headers nargs=2
+L79   mcall   to_string                    in handle qual=Request::path nargs=0
+L79   mread   headers                      in handle qual=Response
+L79   mread   path                         in handle qual=Request
+L80   call    from                         in handle qual=Body nargs=1
+L80   call    new                          in handle qual=Box nargs=1
+L80   type    Body                         in handle
+L80   type    Body                         in handle
+L80   type    Box                          in handle
+L80   type    Box                          in handle
+L81   mcall   seal                         in handle qual=Body nargs=0
+L82   mcall   clone                        in handle qual=Response nargs=0
+L83   mcall   send                         in handle qual=Response nargs=0
+L84   call    new                          in handle qual=Box nargs=1
+L84   type    Box                          in handle
+L84   mwrite  inner                        in handle qual=Wrapper
+L84   mwrite  tag                          in handle qual=Wrapper
+L84   new     Wrapper                      in handle
+L85   mcall   flush                        in handle qual=Wrapper::inner nargs=0
+L85   mread   inner                        in handle qual=Wrapper
+L86   call    from                         in handle qual=String nargs=1
+L86   type    String                       in handle
+L87   mcall   len                          in handle qual=String nargs=0
+L88   mcall   trim                         in handle qual=str nargs=0
+L93   type    Fn                           in generic
+L93   type    Item                         in generic
+L93   type    Item                         in generic
+L93   type    Option                       in generic
+L93   type    Vec                          in generic
+L93   type    Vec                          in generic
+L93   type    Visitor                      in generic
+L95   type    Into                         in generic
+L95   type    Send                         in generic
+L95   type    Wide                         in generic
+L97   mcall   visit                        in generic qual=Visitor nargs=1
+L98   mcall   touch                        in generic qual=Item nargs=0
+L99   mcall   touch                        in generic qual=Item nargs=0
+L99   mcall   unwrap                       in generic qual=Option nargs=0
+L100  mcall   is_some                      in generic qual=Option nargs=0
+L102  mcall   into                         in generic nargs=0
+L103  mcall   len                          in generic qual=Vec nargs=0
+L104  call    make_item                    in generic nargs=0
+L105  mcall   touch                        in generic qual=make_item() nargs=0
+L106  mcall   collect                      in generic nargs=0
+L106  mcall   iter                         in generic qual=Vec nargs=0
+L106  mcall   map                          in generic nargs=1
+L106  type    Id                           in generic
+L106  type    Item                         in generic
+L106  type    Vec                          in generic
+L106  read    id                           in generic qual=Item
+L107  call    default_visitor              in generic qual=Visitor nargs=0
+L108  call    from                         in generic qual=Into nargs=1
+L109  mcall   fetch_add                    in generic qual=$COUNTER nargs=2
+L109  type    Ordering                     in generic
+L109  read    COUNTER                      in generic
+L109  read    SeqCst                       in generic qual=Ordering
+L110  write   GLOBAL                       in generic
+L111  call    new                          in generic qual=Vec nargs=0
+L111  type    Vec                          in generic
+L120  call    helper                       in shadow nargs=2
+L121  call    split                        in shadow nargs=0
+L121  type    Point                        in shadow
+L121  mread   x                            in shadow qual=Point
+L121  mread   y                            in shadow qual=Point
+L122  call    use_all                      in shadow nargs=5
+L123  call    base                         in shadow qual=Config nargs=0
+L123  type    Config                       in shadow
+L123  read    RETRIES                      in shadow
+L123  mwrite  on_error                     in shadow qual=Config
+L123  mwrite  retries                      in shadow qual=Config
+L123  bind    error                        in shadow qual=Config.on_error
+L123  new     Config                       in shadow
+L124  mread   retries                      in shadow qual=Config
+--- imports (5)
+L2    target=crate name=net alias=- flags=0
+L2    target=crate::net name=Config alias=- flags=0
+L2    target=crate::net name=Handler alias=- flags=0
+L3    target=std::sync name=Arc alias=- flags=1
+L3    target=std::sync name=Mutex alias=- flags=1

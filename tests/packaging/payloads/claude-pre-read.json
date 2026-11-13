@@ -1,0 +1,12 @@
+{
+  "session_id": "0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11",
+  "prompt_id": "550e8400-e29b-41d4-a716-446655440000",
+  "transcript_path": "{{HOME}}/.claude/projects/-work-project/0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11.jsonl",
+  "cwd": "{{REPO}}",
+  "permission_mode": "default",
+  "effort": { "level": "medium" },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Read",
+  "tool_input": { "file_path": "{{REPO}}/src/big.c" },
+  "tool_use_id": "toolu_01READ0000001"
+}

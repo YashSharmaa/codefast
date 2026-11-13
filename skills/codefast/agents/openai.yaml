@@ -1,0 +1,4 @@
+interface:
+  display_name: "codefast"
+  short_description: "Find definitions, callers and call paths without reading files"
+  default_prompt: "Use $codefast to find who calls this function and how execution reaches it."

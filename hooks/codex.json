@@ -1,0 +1,40 @@
+{
+  "description": "codefast lifecycle hooks for a Codex config layer: what `codefast setup --harness codex --hooks --scope project` writes. Merge the hooks object into ~/.codex/hooks.json or <repo>/.codex/hooks.json. Codex does not load hooks from a plugin that uses the Agent Plugins manifest, so they are registered here instead. They need codefast on PATH, only add context, and CODEFAST_HOOKS=off turns all of them off.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "codefast hook session-start 2>/dev/null || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "codefast hook pre-tool-use 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "codefast hook post-tool-use 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

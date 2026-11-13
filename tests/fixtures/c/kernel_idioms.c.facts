@@ -1,0 +1,66 @@
+lang=c ok=true lines=40 errors=2
+--- defs (23)
+  0 macro   FOO_MAX                      L3-3 parent=- type=- arity=0..0 flags=0x00 | #define FOO_MAX 16
+  1 macro   foo_wrap                     L4-4 parent=- type=- arity=2..2 flags=0x00 | #define foo_wrap(x, y) do_foo(x, (y) + FOO_MAX)
+  2 var     foo_lock                     L5-5 parent=- type=DEFINE_MUTEX arity=0..0 flags=0x02 | static DEFINE_MUTEX(foo_lock);
+  3 var     foo_pcpu                     L6-6 parent=- type=- arity=0..0 flags=0x10 | DEFINE_PER_CPU(struct foo, foo_pcpu)
+  4 var     foo_list                     L7-7 parent=- type=LIST_HEAD arity=0..0 flags=0x02 | static LIST_HEAD(foo_list);
+  5 struct  foo                          L8-14 parent=- type=- arity=0..0 flags=0x00 | struct foo
+  6 field   flags                        L9-9 parent=foo type=- arity=0..0 flags=0x00 | int flags;
+  7 field   b                            L10-10 parent=foo type=bar arity=0..0 flags=0x00 | struct bar *b;
+  8 field   f_op                         L11-11 parent=foo type=file_operations arity=0..0 flags=0x00 | const struct file_operations *f_op;
+  9 field   handler                      L12-12 parent=foo type=- arity=2..2 flags=0x20 | int (*handler)(struct foo *f, int x);
+ 10 field   lock                         L13-13 parent=foo type=spinlock_t arity=0..0 flags=0x00 | spinlock_t lock;
+ 11 type    anon_t                       L15-15 parent=- type=- arity=0..0 flags=0x00 | typedef struct
+ 12 field   a                            L15-15 parent=anon_t type=- arity=0..0 flags=0x00 | int a;
+ 13 enum    color                        L16-16 parent=- type=- arity=0..0 flags=0x00 | enum color
+ 14 enumval RED                          L16-16 parent=color type=- arity=0..0 flags=0x00 | RED
+ 15 enumval GREEN                        L16-16 parent=color type=- arity=0..0 flags=0x00 | GREEN = 2
+ 16 enumval BLUE                         L16-16 parent=color type=- arity=0..0 flags=0x00 | BLUE
+ 17 var     counter                      L17-17 parent=- type=- arity=0..0 flags=0x02 | static int counter;
+ 18 var     ext_var                      L18-18 parent=- type=- arity=0..0 flags=0x01 | extern int ext_var;
+ 19 fn      do_foo                       L19-19 parent=- type=- arity=2..2 flags=0x05 | int do_foo(struct foo *f, int n);
+ 20 fn      helper                       L20-20 parent=- type=- arity=1..1 flags=0x02 | static inline int helper(struct foo *f)
+ 21 fn      foo_init                     L21-33 parent=- type=- arity=0..0 flags=0x02 | static int __init foo_init(void)
+ 22 var     my_ops                       L37-40 parent=- type=foo_ops arity=0..0 flags=0x02 | static const struct foo_ops my_ops =
+--- refs (37)
+L4    call    do_foo                       in foo_wrap
+L4    read    FOO_MAX                      in foo_wrap
+L5    type    DEFINE_MUTEX                 in foo_lock
+L6    call    DEFINE_PER_CPU               in foo_pcpu
+L6    type    foo                          in foo_pcpu
+L7    type    LIST_HEAD                    in foo_list
+L10   type    bar                          in foo
+L11   type    file_operations              in foo
+L12   type    foo                          in foo
+L13   type    spinlock_t                   in foo
+L19   type    foo                          in do_foo
+L20   type    foo                          in helper
+L20   mread   flags                        in helper qual=foo
+L23   call    kmalloc                      in foo_init nargs=2
+L23   type    foo                          in foo_init
+L23   arg     GFP_KERNEL                   in foo_init qual=kmalloc
+L26   read    ENOMEM                       in foo_init
+L27   mwrite  flags                        in foo_init qual=foo
+L27   bind    FOO_MAX                      in foo_init qual=foo.flags
+L28   mread   b                            in foo_init qual=foo
+L28   mwrite  count                        in foo_init qual=foo::b
+L29   write   counter                      in foo_init
+L30   mcall   read                         in foo_init qual=foo::f_op nargs=2
+L30   mread   f_op                         in foo_init qual=foo
+L31   mwrite  handler                      in foo_init qual=foo
+L31   bind    helper                       in foo_init qual=foo.handler
+L32   call    foo_wrap                     in foo_init nargs=2
+L32   mcall   handler                      in foo_init qual=foo nargs=2
+L34   call    module_init                  in <file>
+L34   bind    foo_init                     in <file> qual=@module_init
+L36   call    MODULE_LICENSE               in <file> nargs=1
+L37   type    foo_ops                      in my_ops
+L38   mwrite  open                         in my_ops qual=foo_ops
+L38   bind    foo_open                     in my_ops qual=foo_ops.open
+L39   mwrite  cb                           in my_ops qual=foo_ops::nested
+L39   mwrite  nested                       in my_ops qual=foo_ops
+L39   bind    foo_cb                       in my_ops qual=foo_ops::nested.cb
+--- imports (2)
+L1    target=linux/fs.h name=- alias=- flags=1
+L2    target=internal.h name=- alias=- flags=0

@@ -1,0 +1,8 @@
+{
+  "_comment": "Query parameters an agent would read off the question text. Every arm receives the same parameters. scope = directory named or implied by the question; nothing here comes from the gold answer.",
+  "F5-01": {"scope": "fs/ext4"},
+  "F5-02": {"scope": "kernel/sched"},
+  "F5-03": {"scope": "drivers/nvme"},
+  "F5-04": {"scope": "security/selinux"},
+  "F5-05": {"scope": "arch/x86/kvm"}
+}

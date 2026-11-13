@@ -1,0 +1,141 @@
+lang=java ok=true lines=170 errors=0
+--- defs (62)
+  0 ns      com.acme.shop                L2-3 parent=- type=- arity=0..0 flags=0x00 | package com.acme.shop
+  1 class   Catalog                      L12-152 parent=- type=- arity=0..0 flags=0x44 | public abstract class Catalog<T extends Item> extends Store<T> implements Searchable, java.io.Closea
+  2 field   MAX_ITEMS                    L14-14 parent=Catalog type=- arity=0..0 flags=0x04 | public static final int MAX_ITEMS =
+  3 field   LOG                          L15-15 parent=Catalog type=Logger arity=0..0 flags=0x02 | private static final Logger LOG =
+  4 field   index                        L16-16 parent=Catalog type=Map arity=0..0 flags=0x00 | protected Map<String, List<T>> index =
+  5 field   counts                       L17-17 parent=Catalog type=- arity=0..0 flags=0x00 | int[] counts
+  6 field   shelves                      L17-17 parent=Catalog type=- arity=0..0 flags=0x00 | int[] counts, shelves[]
+  7 field   tags                         L18-18 parent=Catalog type=java.util|Set arity=0..0 flags=0x02 | private volatile java.util.Set<String> tags
+  8 field   onClose                      L19-19 parent=Catalog type=Runnable arity=0..0 flags=0x20 | final Runnable onClose =
+  9 method  Catalog                      L21-24 parent=Catalog type=- arity=1..255 flags=0x04 | public Catalog(String name, Money... prices)
+ 10 method  Catalog                      L26-28 parent=Catalog type=- arity=0..0 flags=0x02 | private Catalog()
+ 11 method  lookup                       L30-30 parent=Catalog type=Item arity=1..1 flags=0x45 | public abstract T lookup(String id) throws NotFoundException, java.io.IOException
+ 12 method  checksum                     L32-32 parent=Catalog type=- arity=1..1 flags=0x01 | protected native long checksum(byte[] data)
+ 13 method  sorted                       L34-37 parent=Catalog type=List arity=2..2 flags=0x04 | public final <R extends Comparable<R>> List<R> sorted(Function<? super T, ? extends R> key, int limi
+ 14 method  describe                     L39-41 parent=Catalog type=String arity=0..255 flags=0x00 | static String describe(Object... parts)
+ 15 method  flush                        L43-43 parent=Catalog type=- arity=0..0 flags=0x00 | void flush()
+ 16 class   Entry                        L54-64 parent=Catalog type=- arity=0..0 flags=0x04 | public static class Entry<K>
+ 17 field   key                          L55-55 parent=Entry type=- arity=0..0 flags=0x02 | private final K key
+ 18 method  Entry                        L57-59 parent=Entry type=- arity=1..1 flags=0x00 | Entry(K key)
+ 19 method  key                          L61-63 parent=Entry type=- arity=0..0 flags=0x00 | K key()
+ 20 iface   Visitor                      L66-80 parent=Catalog type=- arity=0..0 flags=0x00 | protected interface Visitor<R>
+ 21 field   DEPTH                        L67-67 parent=Visitor type=- arity=0..0 flags=0x04 | int DEPTH =
+ 22 method  visit                        L69-69 parent=Visitor type=- arity=1..1 flags=0x45 | R visit(Item item)
+ 23 method  visitAll                     L71-73 parent=Visitor type=- arity=1..1 flags=0x04 | default R visitAll(List<Item> items)
+ 24 method  noop                         L75-77 parent=Visitor type=Visitor arity=0..0 flags=0x04 | static Visitor<Void> noop()
+ 25 method  helper                       L79-79 parent=Visitor type=- arity=0..0 flags=0x02 | private void helper()
+ 26 enum    Status                       L82-106 parent=Catalog type=- arity=0..0 flags=0x00 | enum Status implements Labeled
+ 27 enumval ACTIVE                       L83-83 parent=Status type=Status arity=0..0 flags=0x04 | ACTIVE("a")
+ 28 enumval RETIRED                      L84-90 parent=Status type=Status arity=0..0 flags=0x04 | RETIRED("r")
+ 29 method  label                        L86-89 parent=RETIRED type=String arity=0..0 flags=0x00 | String label()
+ 30 enumval UNKNOWN                      L91-91 parent=Status type=Status arity=0..0 flags=0x04 | UNKNOWN
+ 31 field   code                         L93-93 parent=Status type=String arity=0..0 flags=0x02 | private final String code
+ 32 method  Status                       L95-97 parent=Status type=- arity=1..1 flags=0x00 | Status(String code)
+ 33 method  Status                       L99-101 parent=Status type=- arity=0..0 flags=0x00 | Status()
+ 34 method  label                        L103-105 parent=Status type=String arity=0..0 flags=0x00 | String label()
+ 35 class   Price                        L108-122 parent=Catalog type=- arity=0..0 flags=0x04 | public record Price(long cents, @Nullable String currency, List<String>... notes) implements Compara
+ 36 field   cents                        L108-108 parent=Price type=- arity=0..0 flags=0x04 | long cents
+ 37 field   currency                     L108-108 parent=Price type=String arity=0..0 flags=0x04 | String currency
+ 38 field   notes                        L108-108 parent=Price type=List arity=0..0 flags=0x04 | List<String>... notes
+ 39 field   FREE                         L109-109 parent=Price type=Price arity=0..0 flags=0x00 | static final Price FREE =
+ 40 method  Price                        L111-113 parent=Price type=- arity=3..3 flags=0x04 | public Price
+ 41 method  Price                        L115-117 parent=Price type=- arity=1..1 flags=0x00 | Price(long cents)
+ 42 method  compareTo                    L119-121 parent=Price type=- arity=1..1 flags=0x04 | public int compareTo(Price other)
+ 43 iface   Audited                      L124-132 parent=Catalog type=- arity=0..0 flags=0x04 | public @interface Audited
+ 44 prop    value                        L125-125 parent=Audited type=String arity=0..0 flags=0x04 | String value() default ""
+ 45 prop    levels                       L127-127 parent=Audited type=- arity=0..0 flags=0x04 | int[] levels() default {}
+ 46 prop    type                         L129-129 parent=Audited type=Class arity=0..0 flags=0x04 | Class<? extends Item> type()
+ 47 field   VERSION                      L131-131 parent=Audited type=- arity=0..0 flags=0x04 | int VERSION =
+ 48 method  listeners                    L134-151 parent=Catalog type=Object arity=0..0 flags=0x00 | Object listeners()
+ 49 class   Counter                      L135-141 parent=listeners type=- arity=0..0 flags=0x00 | class Counter implements Runnable
+ 50 field   n                            L136-136 parent=Counter type=- arity=0..0 flags=0x00 | int n
+ 51 method  run                          L138-140 parent=Counter type=- arity=0..0 flags=0x04 | public void run()
+ 52 field   last                         L143-143 parent=listeners type=String arity=0..0 flags=0x00 | String last
+ 53 method  visit                        L145-149 parent=listeners type=String arity=1..1 flags=0x04 | public String visit(Item item)
+ 54 iface   Shape                        L154-154 parent=- type=- arity=0..0 flags=0x00 | sealed interface Shape permits Circle, Square
+ 55 class   CatalogTests                 L156-166 parent=- type=- arity=0..0 flags=0x00 | class CatalogTests
+ 56 method  checksLookup                 L157-158 parent=CatalogTests type=- arity=0..0 flags=0x0c | public void checksLookup()
+ 57 method  withParams                   L160-161 parent=CatalogTests type=- arity=1..1 flags=0x08 | void withParams(int n)
+ 58 method  testFlush                    L163-163 parent=CatalogTests type=- arity=0..0 flags=0x0c | public void testFlush()
+ 59 method  helper                       L165-165 parent=CatalogTests type=- arity=0..0 flags=0x00 | void helper()
+ 60 class   Plain                        L168-170 parent=- type=- arity=0..0 flags=0x00 | class Plain
+ 61 method  testNothing                  L169-169 parent=Plain type=- arity=0..0 flags=0x00 | void testNothing()
+--- refs (70)
+L2    annot   Generated                    in <file>
+L5    import  List                         in <file> qual=java.util
+L7    import  Money                        in <file> qual=com.acme.util
+L8    import  require                      in <file> qual=com.acme.util.Checks
+L9    import  Assert                       in <file> qual=org.junit
+L12   mwrite  name                         in Catalog qual=Entity
+L12   annot   Entity                       in Catalog
+L13   type    Item                         in Catalog
+L13   extends Store                        in Catalog
+L13   impl    Closeable                    in Catalog qual=java.io
+L13   impl    Searchable                   in Catalog
+L15   call    get                          in LOG qual=Logger nargs=1
+L15   type    Catalog                      in LOG
+L15   type    Logger                       in LOG
+L15   type    Logger                       in LOG
+L16   type    List                         in index
+L16   type    Map                          in index
+L16   new     HashMap                      in index nargs=0
+L18   type    Set                          in tags qual=java.util
+L18   annot   Nullable                     in tags
+L19   read    flush                        in onClose qual=Catalog
+L19   bind    flush                        in onClose qual=Catalog.onClose
+L21   type    Money                        in Catalog
+L22   call    Store                        in Catalog qual=Store nargs=1
+L23   mwrite  tags                         in Catalog qual=Catalog
+L27   call    Catalog                      in Catalog qual=Catalog nargs=1
+L30   type    IOException                  in lookup qual=java.io
+L30   type    NotFoundException            in lookup
+L35   type    Function                     in sorted
+L35   type    List                         in sorted
+L40   call    valueOf                      in describe qual=String nargs=1
+L40   mread   length                       in describe
+L46   call    register                     in Catalog qual=Catalog nargs=1
+L46   mread   MAX_ITEMS                    in Catalog qual=Catalog
+L50   call    flush                        in Catalog qual=Catalog nargs=0
+L58   mwrite  key                          in Entry qual=Entry
+L62   mread   key                          in key qual=Entry
+L69   type    Item                         in visit
+L71   type    Item                         in visitAll
+L71   type    List                         in visitAll
+L75   type    Visitor                      in noop
+L82   impl    Labeled                      in Status
+L83   new     Status                       in ACTIVE nargs=1
+L85   new     Status                       in RETIRED nargs=1
+L96   mwrite  code                         in Status qual=Status
+L100  call    Status                       in Status qual=Status nargs=1
+L104  mread   code                         in label qual=Status
+L108  type    List                         in notes
+L108  type    Price                        in Price
+L108  annot   Nullable                     in currency
+L109  type    Price                        in FREE
+L109  new     Price                        in FREE nargs=2
+L112  new     IllegalArgumentException     in Price nargs=1
+L116  call    Price                        in Price qual=Price nargs=2
+L119  type    Price                        in compareTo
+L120  call    compare                      in compareTo qual=Long nargs=2
+L120  mread   cents                        in compareTo qual=Price
+L120  mread   cents                        in compareTo qual=Price
+L129  type    Item                         in type
+L139  mwrite  n                            in run qual=Counter
+L142  extends Visitor                      in listeners
+L142  new     Visitor                      in listeners nargs=0
+L146  type    Item                         in visit
+L147  mcall   name                         in visit qual=Item nargs=0
+L147  mwrite  last                         in visit
+L148  mread   last                         in visit
+L154  type    Circle                       in Shape
+L154  type    Square                       in Shape
+L157  annot   Test                         in checksLookup
+L160  annot   ParameterizedTest            in withParams qual=org.junit.jupiter.api
+--- imports (5)
+L5    target=java.util name=List alias=- flags=1
+L6    target=java.util name=- alias=- flags=3
+L7    target=com.acme.util name=Money alias=- flags=0
+L8    target=com.acme.util.Checks name=require alias=- flags=0
+L9    target=org.junit.Assert name=- alias=- flags=2

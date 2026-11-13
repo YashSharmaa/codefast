@@ -1,0 +1,420 @@
+#!/bin/sh
+# codefast-launcher 1
+#
+# The line above is how launchers recognise each other, and how `codefast doctor` tells this
+# file from the binary: keep it as the second line.
+#
+# Finds the codefast binary for this machine and runs it with the arguments it was given.
+# Harness plugins ship this file instead of a binary, because a plugin is a git checkout and
+# cannot carry one executable per platform.
+#
+# Nothing is written to stdout before the binary takes over: when a harness runs
+# `codefast mcp`, stdout carries the protocol. Every message from this file goes to stderr.
+#
+# Where the binary is looked for, in order:
+#   1. $CODEFAST_BIN                        an explicit path
+#   2. the launcher's cache                 <cache>/<version>/codefast
+#   3. another `codefast` on PATH           never this file or another copy of it
+#   4. a local build                        ../target/release/codefast, in a source checkout
+#   5. the release asset for this platform  downloaded once into the cache, SHA-256 verified
+#
+# Environment:
+#   CODEFAST_BIN           path of the codefast binary to run
+#   CODEFAST_CACHE_DIR     cache directory (default: ${XDG_CACHE_HOME:-$HOME/.cache}/codefast)
+#   CODEFAST_NO_DOWNLOAD   set to 1 to forbid step 5
+#   CODEFAST_RELEASE_BASE  release URL prefix (default: https://github.com/YashSharmaa/codefast/releases)
+#   CODEFAST_HOOKS         set to off (or 0, false, no, disabled) to make `codefast hook ...` return at once
+#
+# `codefast hook EVENT` never fails and never prints an error: a harness hook must not break the
+# session it runs in. When no binary is available yet, `hook session-start` starts the download
+# in the background and returns.
+
+version=0.1.0
+release_base=${CODEFAST_RELEASE_BASE:-https://github.com/YashSharmaa/codefast/releases}
+install_url=https://raw.githubusercontent.com/YashSharmaa/codefast/main/install.sh
+retry_after=600
+
+hook=0
+if [ "${1:-}" = hook ]; then
+    hook=1
+    case ${CODEFAST_HOOKS:-} in
+    [Oo][Ff][Ff] | 0 | [Ff][Aa][Ll][Ss][Ee] | [Nn][Oo] | [Dd][Ii][Ss][Aa][Bb][Ll][Ee][Dd]) exit 0 ;;
+    esac
+fi
+
+say() {
+    printf 'codefast: %s\n' "$*" >&2
+}
+
+# die CODE MESSAGE...: stop with a message, or silently when running as a hook.
+die() {
+    code=$1
+    shift
+    [ "$hook" = 1 ] && exit 0
+    say "$@"
+    exit "$code"
+}
+
+# True when FILE is this launcher or a copy of it (see the second line of this file).
+is_launcher() {
+    LC_ALL=C dd if="$1" bs=64 count=1 2>/dev/null | LC_ALL=C grep -q 'codefast-launcher' 2>/dev/null
+}
+
+# unpublished URL: true while URL still names the stand-in owner that this repository carries
+# until it has a public home. That name is somebody else's account on the forge, so nothing is
+# ever fetched from it and nobody is told to run a script from it. The name is put together
+# here, in two halves, so that replacing the stand-in everywhere leaves this test alone and
+# turns it off.
+unpublished() {
+    standin=OWN
+    standin=${standin}ER
+    case $1 in
+    *"/$standin/"*) return 0 ;;
+    esac
+    return 1
+}
+
+# Sets self_dir (the directory holding this file, symlinks resolved) and root (its parent).
+located=0
+self_dir=
+root=
+locate_self() {
+    [ "$located" = 1 ] && return 0
+    located=1
+    self=$0
+    case $self in
+    */*) ;;
+    *) self=$(command -v "$self" 2>/dev/null) || self=$0 ;;
+    esac
+    hops=0
+    while [ -h "$self" ] && [ "$hops" -lt 20 ]; do
+        link=$(readlink "$self" 2>/dev/null) || break
+        case $link in
+        /*) self=$link ;;
+        *) self=${self%/*}/$link ;;
+        esac
+        hops=$((hops + 1))
+    done
+    case $self in
+    */*) dir=${self%/*} ;;
+    *) dir=. ;;
+    esac
+    [ -n "$dir" ] || dir=/
+    self_dir=$(CDPATH='' cd -- "$dir" 2>/dev/null && pwd -P) || self_dir=
+    [ -n "$self_dir" ] || return 0
+    root=${self_dir%/*}
+    [ -n "$root" ] || root=/
+}
+
+# run BINARY ARGS...: hand over to the binary.
+run() {
+    bin=$1
+    shift
+    case " $* " in
+    *" mcp "*)
+        # Tell the MCP server where its own plugin lives, so that it never mistakes that
+        # directory for the user's project when a harness starts it there.
+        if [ -z "${CODEFAST_PLUGIN_ROOT:-}" ]; then
+            locate_self
+            if [ -n "$root" ] && { [ -f "$root/plugin.json" ] || [ -f "$root/gemini-extension.json" ]; }; then
+                CODEFAST_PLUGIN_ROOT=$root
+                export CODEFAST_PLUGIN_ROOT
+            fi
+        fi
+        ;;
+    esac
+    if [ "$hook" = 1 ]; then
+        "$bin" "$@"
+        exit 0
+    fi
+    exec "$bin" "$@"
+}
+
+# Sets found to the first codefast binary on PATH that is not a launcher. Only absolute PATH
+# entries count: a file named codefast in the working directory is never picked up.
+found=
+find_on_path() {
+    set -f
+    old_ifs=$IFS
+    IFS=:
+    # shellcheck disable=SC2086 # splitting PATH on colons is the point
+    set -- ${PATH:-}
+    IFS=$old_ifs
+    set +f
+    for d in "$@"; do
+        case $d in
+        /*) ;;
+        *) continue ;;
+        esac
+        cand=$d/codefast
+        if [ -f "$cand" ] && [ -x "$cand" ] && [ "$cand" != "$0" ] && ! is_launcher "$cand"; then
+            found=$cand
+            return 0
+        fi
+    done
+    return 1
+}
+
+# 1. explicit override
+if [ -n "${CODEFAST_BIN:-}" ]; then
+    if [ -f "$CODEFAST_BIN" ] && [ -x "$CODEFAST_BIN" ]; then
+        if is_launcher "$CODEFAST_BIN"; then
+            die 126 "CODEFAST_BIN names a launcher script, not the codefast binary: $CODEFAST_BIN"
+        fi
+        run "$CODEFAST_BIN" "$@"
+    fi
+    die 126 "CODEFAST_BIN is not an executable file: $CODEFAST_BIN"
+fi
+
+# 2. cache
+cache=${CODEFAST_CACHE_DIR:-}
+if [ -z "$cache" ]; then
+    if [ -n "${XDG_CACHE_HOME:-}" ]; then
+        cache=$XDG_CACHE_HOME/codefast
+    elif [ -n "${HOME:-}" ]; then
+        cache=$HOME/.cache/codefast
+    fi
+fi
+slot=
+[ -n "$cache" ] && slot=$cache/$version
+if [ -n "$slot" ] && [ -f "$slot/codefast" ] && [ -x "$slot/codefast" ]; then
+    run "$slot/codefast" "$@"
+fi
+
+# 3. PATH
+if find_on_path; then
+    run "$found" "$@"
+fi
+
+# 4. local build in a source checkout
+locate_self
+if [ -n "$root" ] && [ -f "$root/Cargo.toml" ]; then
+    for built in "$root/target/release/codefast" "$root/target/dist/codefast"; do
+        if [ -f "$built" ] && [ -x "$built" ]; then
+            run "$built" "$@"
+        fi
+    done
+fi
+
+# 5. download
+
+# Prints the Rust target triple of the release asset for this machine.
+detect_target() {
+    os=$(uname -s 2>/dev/null) || os=unknown
+    arch=$(uname -m 2>/dev/null) || arch=unknown
+    case $arch in
+    x86_64 | amd64) arch=x86_64 ;;
+    arm64 | aarch64) arch=aarch64 ;;
+    *) return 1 ;;
+    esac
+    case $os in
+    Darwin)
+        # A shell translated by Rosetta reports x86_64 on Apple silicon.
+        if [ "$arch" = x86_64 ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then
+            arch=aarch64
+        fi
+        printf '%s-apple-darwin\n' "$arch"
+        ;;
+    Linux) printf '%s-unknown-linux-musl\n' "$arch" ;;
+    *) return 1 ;;
+    esac
+}
+
+# fetch URL FILE
+fetch() {
+    if command -v curl >/dev/null 2>&1; then
+        case $1 in
+        https://*) curl -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 300 -o "$2" "$1" ;;
+        *) curl -fsSL --connect-timeout 10 --max-time 300 -o "$2" "$1" ;;
+        esac
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -T 20 -O "$2" "$1"
+    else
+        say "neither curl nor wget is installed"
+        return 1
+    fi
+}
+
+# sha256_of FILE: prints the lowercase hex digest.
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        out=$(sha256sum "$1") || return 1
+    elif command -v shasum >/dev/null 2>&1; then
+        out=$(shasum -a 256 "$1") || return 1
+    elif command -v openssl >/dev/null 2>&1; then
+        out=$(openssl dgst -sha256 -r "$1") || return 1
+    else
+        say "no SHA-256 tool found (sha256sum, shasum or openssl)"
+        return 1
+    fi
+    digest=${out%%[!0-9a-f]*}
+    [ "${#digest}" -eq 64 ] || return 1
+    printf '%s\n' "$digest"
+}
+
+# sum_for SUMS_FILE NAME: prints the digest that a `sha256sum`-format file lists for NAME.
+sum_for() {
+    cr=$(printf '\r')
+    while read -r digest name || [ -n "$digest" ]; do
+        name=${name%"$cr"}
+        case $name in
+        "$2" | "*$2" | "./$2")
+            case $digest in
+            *[!0-9a-f]*) return 1 ;;
+            esac
+            [ "${#digest}" -eq 64 ] || return 1
+            printf '%s\n' "$digest"
+            return 0
+            ;;
+        esac
+    done <"$1"
+    return 1
+}
+
+now() {
+    date +%s 2>/dev/null || echo 0
+}
+
+tmp=
+cleanup() {
+    [ -n "$tmp" ] && rm -rf "$tmp"
+    tmp=
+}
+
+# Downloads the release asset into the cache. Returns 0 when <slot>/codefast is in place.
+download() {
+    if [ -z "$slot" ]; then
+        say "no cache directory: set CODEFAST_CACHE_DIR or HOME"
+        return 1
+    fi
+    if unpublished "$release_base"; then
+        say "this copy of codefast has no published release to download yet"
+        return 1
+    fi
+    if ! target=$(detect_target); then
+        say "there is no prebuilt binary for $(uname -s 2>/dev/null) $(uname -m 2>/dev/null)"
+        return 1
+    fi
+    # One failed attempt is remembered for a while, so that every later call fails fast
+    # instead of waiting on the network again.
+    if [ -f "$slot/.failed" ]; then
+        read -r failed_at <"$slot/.failed" || failed_at=0
+        case $failed_at in
+        "" | *[!0-9]*) failed_at=0 ;;
+        esac
+        age=$(($(now) - failed_at))
+        if [ "$age" -ge 0 ] && [ "$age" -lt "$retry_after" ]; then
+            say "the download failed ${age}s ago; not retrying yet (remove $slot/.failed to retry now)"
+            return 1
+        fi
+    fi
+    asset=codefast-$target.tar.gz
+    url=$release_base/download/v$version/$asset
+    if ! mkdir -p "$slot" 2>/dev/null; then
+        say "cannot create $slot"
+        return 1
+    fi
+    find "$slot" -maxdepth 1 -name '.tmp.*' -mtime +1 -exec rm -rf {} + 2>/dev/null || :
+    if ! tmp=$(mktemp -d "$slot/.tmp.XXXXXX" 2>/dev/null); then
+        tmp=
+        say "cannot write to $slot"
+        return 1
+    fi
+    trap cleanup EXIT
+    trap 'exit 130' HUP INT TERM
+    ok=0
+    while :; do
+        say "fetching codefast $version for $target"
+        if ! fetch "$url" "$tmp/$asset"; then
+            say "could not download $url"
+            break
+        fi
+        locate_self
+        if [ -n "$self_dir" ] && [ -f "$self_dir/SHA256SUMS" ]; then
+            # Digests pinned in the plugin itself take precedence over the ones published
+            # next to the asset.
+            if ! want=$(sum_for "$self_dir/SHA256SUMS" "$asset"); then
+                say "$self_dir/SHA256SUMS has no entry for $asset"
+                break
+            fi
+        else
+            if ! fetch "$release_base/download/v$version/SHA256SUMS" "$tmp/SHA256SUMS"; then
+                say "could not download $release_base/download/v$version/SHA256SUMS"
+                break
+            fi
+            if ! want=$(sum_for "$tmp/SHA256SUMS" "$asset"); then
+                say "SHA256SUMS has no entry for $asset"
+                break
+            fi
+        fi
+        if ! got=$(sha256_of "$tmp/$asset"); then
+            say "could not compute the SHA-256 of the download"
+            break
+        fi
+        if [ "$got" != "$want" ]; then
+            say "checksum mismatch for $asset: expected $want, got $got"
+            break
+        fi
+        if ! mkdir "$tmp/x" || ! tar -xzf "$tmp/$asset" -C "$tmp/x"; then
+            say "could not unpack $asset"
+            break
+        fi
+        if [ ! -f "$tmp/x/codefast" ]; then
+            say "$asset does not contain a codefast binary"
+            break
+        fi
+        if ! chmod 755 "$tmp/x/codefast"; then
+            say "could not install into $slot"
+            break
+        fi
+        # Try it before it goes into the cache: the cache is looked at before PATH, so a
+        # binary that cannot run here would hide every working codefast from then on.
+        if ! "$tmp/x/codefast" --version </dev/null >/dev/null 2>&1; then
+            say "the downloaded codefast does not run on this machine"
+            break
+        fi
+        if ! mv -f "$tmp/x/codefast" "$slot/codefast"; then
+            say "could not install into $slot"
+            break
+        fi
+        ok=1
+        break
+    done
+    cleanup
+    trap - EXIT HUP INT TERM
+    if [ "$ok" = 1 ]; then
+        rm -f "$slot/.failed"
+        return 0
+    fi
+    now >"$slot/.failed" 2>/dev/null || :
+    return 1
+}
+
+if [ "$hook" = 1 ]; then
+    if [ "${2:-}" = session-start ] && [ "${CODEFAST_NO_DOWNLOAD:-}" != 1 ]; then
+        (
+            trap '' HUP
+            # The harness waits until the hook's stdout and stderr are closed, so the
+            # download must not hold them. `exec` lets go of them for good; redirections
+            # written on the `download` line itself would leave saved copies open in dash
+            # and BusyBox sh for as long as the function runs.
+            exec </dev/null >/dev/null 2>&1
+            download &
+        )
+    fi
+    exit 0
+fi
+
+if [ "${CODEFAST_NO_DOWNLOAD:-}" = 1 ]; then
+    say "the codefast binary is not installed, and CODEFAST_NO_DOWNLOAD=1 forbids fetching it"
+elif download; then
+    run "$slot/codefast" "$@"
+fi
+
+if unpublished "$install_url"; then
+    say "build it (cargo build --release), then put it on PATH or set CODEFAST_BIN to the binary's path"
+else
+    say "install it with:  curl -fsSL $install_url | sh"
+    say "or build it (cargo build --release) and set CODEFAST_BIN to the binary's path"
+fi
+exit 127

@@ -1,0 +1,23 @@
+{
+  "name": "codefast",
+  "version": "0.1.0",
+  "description": "LLM-free code intelligence: definitions, references, callers, call paths and bug-report localisation from a fast structural index, in one call and few tokens.",
+  "author": {
+    "name": "codefast contributors",
+    "url": "https://github.com/YashSharmaa/codefast"
+  },
+  "homepage": "https://github.com/YashSharmaa/codefast",
+  "repository": "https://github.com/YashSharmaa/codefast",
+  "license": "MIT OR Apache-2.0",
+  "keywords": ["code-intelligence", "code-search", "call-graph", "references", "mcp"],
+  "hooks": "./hooks/claude-code.json",
+  "mcpServers": {
+    "codefast": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/codefast",
+      "args": ["mcp"],
+      "env": {
+        "CODEFAST_ROOT": "${CLAUDE_PROJECT_DIR}"
+      }
+    }
+  }
+}

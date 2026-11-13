@@ -1,0 +1,9 @@
+# Third-party binaries, downloads, sandbox HOME and throwaway indexes are not for committing.
+# Only the documentation and the audit scripts are kept. The audit snapshots list entries of the
+# user's home directory and the smoke outputs carry absolute local paths, so both stay untracked.
+/*
+!/.gitignore
+!/README.md
+!/_audit/
+/_audit/user_config_*.txt
+/_audit/snapshot_user_config.sh

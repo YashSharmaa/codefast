@@ -1,0 +1,100 @@
+lang=python ok=true lines=101 errors=3
+--- defs (21)
+  0 var     json                         L10-10 parent=- type=- arity=0..0 flags=0x00 | json =
+  1 fn      format                       L13-14 parent=- type=- arity=1..1 flags=0x00 | def format(value)
+  2 class   Config                       L17-48 parent=- type=- arity=0..255 flags=0x00 | class Config(dict)
+  3 field   LEVELS                       L18-18 parent=Config type=tuple arity=0..0 flags=0x00 | LEVELS =
+  4 field   DEFAULT                      L19-19 parent=Config type=- arity=0..0 flags=0x00 | DEFAULT =
+  5 field   lock                         L20-20 parent=Config type=threading|Lock arity=0..0 flags=0x00 | lock =
+  6 field   by_level                     L21-21 parent=Config type=dict arity=0..0 flags=0x00 | by_level =
+  7 method  helper                       L23-24 parent=Config type=- arity=1..1 flags=0x00 | def helper(level)
+  8 field   upper_default                L26-26 parent=Config type=- arity=0..0 flags=0x00 | upper_default =
+  9 method  on_saved                     L29-31 parent=Config type=- arity=1..255 flags=0x00 | @saved.connect def on_saved(sender, **kw)
+ 10 method  reload                       L33-40 parent=Config type=- arity=1..2 flags=0x00 | def reload(self, path, _open=open)
+ 11 field   data                         L35-35 parent=Config type=- arity=0..0 flags=0x00 | self.data =
+ 12 field   stamp                        L36-36 parent=Config type=- arity=0..0 flags=0x00 | self.stamp, self.size =
+ 13 field   size                         L36-36 parent=Config type=- arity=0..0 flags=0x00 | self.stamp, self.size =
+ 14 method  clone                        L42-48 parent=Config type=- arity=0..0 flags=0x00 | def clone(self)
+ 15 fn      closure                      L51-63 parent=- type=- arity=1..2 flags=0x00 | def closure(items, key=None)
+ 16 fn      visit                        L52-54 parent=closure type=- arity=1..1 flags=0x00 | def visit(node)
+ 17 fn      shadows                      L66-75 parent=- type=- arity=1..2 flags=0x00 | def shadows(os, str=None)
+ 18 fn      scoped_imports               L78-82 parent=- type=- arity=1..1 flags=0x00 | def scoped_imports(flag)
+ 19 fn      printer                      L81-81 parent=scoped_imports type=- arity=0..255 flags=0x00 | printer = (lambda *parts
+ 20 fn      after_scoped                 L85-86 parent=- type=- arity=0..0 flags=0x00 | def after_scoped()
+--- refs (66)
+L2    import  open                         in <file> qual=gzip
+L3    import  post_save                    in <file> qual=.signals
+L3    import  pre_save                     in <file> qual=.signals
+L14   call    format_spec                  in format nargs=1
+L14   call    open                         in format nargs=1
+L14   mcall   read                         in format qual=open() nargs=0
+L19   mread   LEVELS                       in DEFAULT qual=Config
+L20   call    Lock                         in lock qual=threading nargs=0
+L21   mread   LEVELS                       in by_level qual=Config
+L24   mcall   upper                        in helper nargs=0
+L26   call    helper                       in upper_default qual=Config nargs=1
+L26   mread   DEFAULT                      in upper_default qual=Config
+L27   mread   helper                       in Config qual=Config
+L27   mwrite  helper                       in Config qual=Config
+L29   read    post_save                    in on_saved qual=.signals
+L29   annot   connect                      in on_saved qual=.signals.post_save
+L33   read    open                         in reload
+L34   mread   lock                         in reload qual=Config
+L35   call    loads                        in reload qual=simplejson nargs=1
+L35   mcall   read                         in reload nargs=0
+L36   call    stat                         in reload nargs=1
+L37   mwrite  cursor                       in reload qual=Config
+L40   call    format                       in reload nargs=1
+L40   mcall   keys                         in reload qual=dict nargs=0
+L40   mread   DEFAULT                      in reload qual=Config
+L43   call    Config                       in clone nargs=0
+L44   mcall   update                       in clone qual=Config nargs=1
+L45   mwrite  clones                       in clone qual=Config
+L46   call    F                            in clone nargs=1
+L46   call    Q                            in clone nargs=1
+L47   mcall   resolve                      in clone nargs=0
+L53   mcall   add                          in visit nargs=1
+L54   call    visit                        in visit nargs=1
+L54   mread   children                     in visit
+L54   mread   depth                        in visit
+L57   call    Thread                       in closure qual=threading nargs=2
+L57   read    visit                        in closure
+L58   mcall   start                        in closure qual=threading|Thread nargs=0
+L59   read    visit                        in closure
+L62   mcall   join                         in closure qual=threading|Thread nargs=0
+L63   read    depth                        in closure
+L68   mcall   remove                       in shadows nargs=1
+L69   call    exists                       in shadows qual=os.path nargs=1
+L70   call    send                         in shadows qual=.signals.pre_save nargs=1
+L70   read    pre_save                     in shadows
+L71   call    send                         in shadows qual=.signals.post_save nargs=1
+L71   read    post_save                    in shadows qual=.signals
+L74   mread   attribute                    in shadows
+L74   mread   unknown                      in shadows
+L75   mread   value                        in shadows
+L79   import  Decimal                      in scoped_imports qual=decimal
+L79   import  getcontext                   in scoped_imports qual=decimal
+L80   call    Decimal                      in scoped_imports qual=decimal nargs=1
+L80   call    getcontext                   in scoped_imports nargs=0
+L80   mread   prec                         in scoped_imports qual=getcontext()
+L81   mcall   as_tuple                     in printer nargs=0
+L82   mcall   keys                         in scoped_imports qual=getcontext()::flags nargs=0
+L82   read    printer                      in scoped_imports
+L82   mread   flags                        in scoped_imports qual=getcontext()
+L86   call    D                            in after_scoped nargs=1
+L86   call    getcontext                   in after_scoped nargs=0
+L90   mcall   upper                        in <file> nargs=0
+L91   read    stderr                       in <file> qual=sys
+L94   call    Config                       in <file> nargs=0
+L94   call    closure                      in <file> nargs=1
+L94   mcall   reload                       in <file> qual=Config nargs=1
+--- imports (9)
+L2    target=gzip name=open alias=- flags=0
+L3    target=.signals name=post_save alias=saved flags=0
+L3    target=.signals name=pre_save alias=- flags=0
+L4    target=sys name=- alias=- flags=0
+L5    target=threading name=- alias=- flags=0
+L8    target=simplejson name=- alias=json flags=0
+L67   target=os.path name=- alias=osp flags=0
+L79   target=decimal name=Decimal alias=D flags=0
+L79   target=decimal name=getcontext alias=- flags=0

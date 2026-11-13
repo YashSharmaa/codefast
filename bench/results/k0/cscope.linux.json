@@ -1,0 +1,27 @@
+{
+  "tool": "cscope",
+  "version": "cscope: version 15.9",
+  "repo": "bench/repos/linux",
+  "repo_git_files": 97362,
+  "command": "cscope -b -q -k -i bench/tools/_work/cscope/linux-8515d680/cscope.files -f bench/tools/_work/cscope/linux-8515d680/cscope.out",
+  "extra_env": "",
+  "threads_requested": 1,
+  "wall_seconds": 119.23,
+  "user_seconds": 91.57,
+  "sys_seconds": 19.44,
+  "peak_rss_bytes": 3875307520,
+  "peak_rss_source": "time_l",
+  "peak_rss_bytes_time_l": 3875307520,
+  "peak_rss_bytes_tree_sampled": null,
+  "index_bytes": 2709411516,
+  "index_disk_bytes": 2736259072,
+  "index_paths": [
+    "bench/tools/_work/cscope/linux-8515d680/cscope.out",
+    "bench/tools/_work/cscope/linux-8515d680/cscope.out.in",
+    "bench/tools/_work/cscope/linux-8515d680/cscope.out.po"
+  ],
+  "exit_status": 0,
+  "host": "macOS-27.2-arm64-arm-64bit",
+  "timestamp": "2026-11-13T05:09:20+0530",
+  "files_listed": 68774
+}

@@ -1,0 +1,143 @@
+lang=javascript ok=true lines=82 errors=0
+--- defs (42)
+  0 fn      Server                       L7-13 parent=- type=- arity=1..1 flags=0x04 | function Server(opts)
+  1 field   opts                         L9-9 parent=Server type=- arity=0..0 flags=0x00 | this.opts =
+  2 field   handlers                     L10-10 parent=Server type=Registry arity=0..0 flags=0x00 | this.handlers =
+  3 method  onError                      L12-12 parent=~Server type=- arity=1..1 flags=0x00 | this.onError = function (err)
+  4 method  listen                       L15-19 parent=~Server type=- arity=2..2 flags=0x00 | Server.prototype.listen = function (port, cb)
+  5 method  close                        L20-20 parent=~Server type=- arity=0..0 flags=0x80 | Server.prototype.close = async function close()
+  6 method  create                       L21-21 parent=~Server type=- arity=1..1 flags=0x00 | Server.create = function (opts)
+  7 fn      listenImpl                   L24-31 parent=- type=- arity=2..255 flags=0x02 | function listenImpl(port, cb)
+  8 fn      noop                         L32-32 parent=- type=- arity=0..0 flags=0x04 | function noop()
+  9 fn      once                         L33-33 parent=- type=- arity=1..1 flags=0x02 | const once = (fn) =>
+ 10 fn      walk                         L34-37 parent=- type=- arity=3..255 flags=0x84 | function* walk(tree, { depth = 0, visitor: v = noop } = {}, [first, ...others], cb = done, ...rest)
+ 11 class   Animal                       L39-51 parent=- type=- arity=0..0 flags=0x04 | class Animal extends Base
+ 12 field   count                        L40-40 parent=Animal type=- arity=0..0 flags=0x00 | static count =
+ 13 field   #secret                      L41-41 parent=Animal type=- arity=0..0 flags=0x00 | #secret =
+ 14 field   name                         L42-42 parent=Animal type=- arity=0..0 flags=0x00 | name =
+ 15 method  onClick                      L43-43 parent=Animal type=- arity=0..0 flags=0x00 | onClick = () =>
+ 16 method  constructor                  L44-44 parent=Animal type=- arity=1..2 flags=0x00 | constructor(name, sound = 'hm')
+ 17 field   sound                        L44-44 parent=Animal type=- arity=0..0 flags=0x00 | this.sound =
+ 18 field   den                          L44-44 parent=Animal type=Den arity=0..0 flags=0x00 | this.den =
+ 19 method  speak                        L45-45 parent=Animal type=- arity=0..0 flags=0x00 | speak()
+ 20 method  create                       L46-46 parent=Animal type=- arity=1..1 flags=0x00 | static create(name)
+ 21 prop    age                          L47-47 parent=Animal type=- arity=0..0 flags=0x00 | get age()
+ 22 prop    age                          L48-48 parent=Animal type=- arity=1..1 flags=0x00 | set age(value)
+ 23 method  offspring                    L49-49 parent=Animal type=- arity=0..0 flags=0x80 | async *offspring()
+ 24 var     helpers                      L53-60 parent=- type=- arity=0..0 flags=0x04 | const helpers =
+ 25 method  parse                        L56-56 parent=helpers type=- arity=1..1 flags=0x00 | parse: function (text)
+ 26 method  format                       L57-57 parent=helpers type=- arity=1..1 flags=0x00 | format(value)
+ 27 prop    size                         L58-58 parent=helpers type=- arity=0..0 flags=0x00 | get size()
+ 28 method  deep                         L59-59 parent=helpers type=- arity=0..0 flags=0x00 | deep: () =>
+ 29 method  extra                        L61-61 parent=~helpers type=- arity=0..0 flags=0x00 | helpers.extra = function ()
+ 30 var     view                         L64-64 parent=- type=- arity=0..0 flags=0x02 | const view =
+ 31 fn      internal                     L69-69 parent=- type=- arity=1..1 flags=0x02 | function internal(x)
+ 32 fn      api                          L71-71 parent=- type=- arity=0..0 flags=0x02 | function api()
+ 33 fn      start                        L75-75 parent=- type=- arity=1..1 flags=0x04 | start: function (port)
+ 34 var     promisified                  L77-77 parent=- type=- arity=0..0 flags=0x04 | exports.promisified =
+ 35 const   LIMIT                        L78-78 parent=- type=- arity=0..0 flags=0x04 | exports.LIMIT =
+ 36 fn      stop                         L79-79 parent=- type=- arity=0..0 flags=0x04 | exports.stop = function stop()
+ 37 fn      default                      L80-80 parent=- type=- arity=2..2 flags=0x04 | export default function (req, res)
+ 38 var     head                         L82-82 parent=- type=- arity=0..0 flags=0x04 | [head, tail] =
+ 39 var     tail                         L82-82 parent=- type=- arity=0..0 flags=0x04 | [head, tail] =
+ 40 var     left                         L82-82 parent=- type=- arity=0..0 flags=0x04 | { left, right: east } =
+ 41 var     east                         L82-82 parent=- type=- arity=0..0 flags=0x04 | { left, right: east } =
+--- refs (89)
+L2    import  EventEmitter                 in <file> qual=events
+L3    import  inherits                     in <file> qual=util
+L3    import  promisify                    in <file> qual=util
+L5    import  React                        in <file> qual=react
+L5    import  useState                     in <file> qual=react
+L8    call    EventEmitter                 in Server nargs=0
+L9    mwrite  opts                         in Server qual=Server
+L10   mwrite  handlers                     in Server qual=Server
+L10   new     Registry                     in Server nargs=0
+L12   mcall   emit                         in onError qual=Server nargs=2
+L14   call    inherits                     in <file> qual=util nargs=2
+L14   read    EventEmitter                 in <file>
+L14   read    Server                       in <file>
+L16   mcall   add                          in listen qual=Server::handlers nargs=1
+L16   mread   handlers                     in listen qual=Server
+L17   mread   opts                         in listen qual=Server
+L17   mwrite  port                         in listen qual=Server::opts
+L18   call    listenImpl                   in listen nargs=2
+L20   mcall   stop                         in close qual=Server nargs=0
+L21   new     Server                       in create nargs=1
+L22   read    Server                       in <file>
+L22   mwrite  VERSION                      in <file> qual=$Server
+L26   call    once                         in listenImpl nargs=1
+L26   read    noop                         in listenImpl
+L27   mread   length                       in listenImpl
+L28   call    visit                        in listenImpl nargs=1
+L28   mread   opts                         in listenImpl
+L30   call    join                         in listenImpl qual=path nargs=2
+L34   read    done                         in walk
+L34   read    noop                         in walk
+L35   call    walk                         in walk nargs=3
+L35   mread   children                     in walk
+L36   call    log                          in walk
+L39   extends Base                         in Animal
+L43   mcall   speak                        in onClick qual=Animal nargs=0
+L44   mcall   constructor                  in constructor qual=^Animal nargs=1
+L44   mwrite  den                          in constructor qual=Animal
+L44   mwrite  sound                        in constructor qual=Animal
+L44   new     Den                          in constructor nargs=0
+L45   mcall   echo                         in speak qual=Animal::den nargs=1
+L45   mread   den                          in speak qual=Animal
+L45   mread   sound                        in speak qual=Animal
+L46   new     Animal                       in create nargs=1
+L47   mread   #secret                      in age qual=Animal
+L48   mwrite  #secret                      in age qual=Animal
+L54   mwrite  noop                         in helpers qual=$helpers
+L54   bind    noop                         in helpers qual=$helpers.noop
+L55   mwrite  once                         in helpers qual=$helpers
+L55   bind    once                         in helpers qual=$helpers.once
+L57   mcall   parse                        in format qual=$helpers nargs=1
+L59   mcall   format                       in deep qual=$helpers nargs=1
+L59   read    helpers                      in deep
+L61   mcall   bind                         in extra qual=$helpers::once() nargs=1
+L61   mcall   once                         in extra qual=$helpers nargs=1
+L61   read    helpers                      in extra
+L61   read    noop                         in extra
+L62   mcall   on                           in <file> qual=$emitter nargs=2
+L62   read    emitter                      in <file>
+L62   read    helpers                      in <file>
+L62   mread   parse                        in <file> qual=$helpers
+L63   read    emitter                      in <file>
+L63   mwrite  onclose                      in <file> qual=$emitter
+L63   bind    noop                         in <file> qual=$emitter.onclose
+L64   read    text                         in view
+L64   mwrite  onClose                      in view
+L64   mwrite  title                        in view
+L64   bind    label                        in view qual=.title
+L64   bind    noop                         in view qual=.onClose
+L64   new     Item                         in view
+L64   new     Panel                        in view qual=Layout
+L67   mwrite  Lib                          in <file>
+L71   call    internal                     in api nargs=1
+L72   mwrite  api                          in <file>
+L72   bind    api                          in <file> qual=.api
+L75   call    create                       in start qual=Server nargs=0
+L75   mcall   listen                       in start qual=$Server::create() nargs=1
+L75   read    Animal                       in <file>
+L75   read    Server                       in <file>
+L75   read    Server                       in start
+L75   read    walk                         in <file>
+L76   read    helpers                      in <file>
+L77   call    promisify                    in promisified nargs=1
+L77   read    listenImpl                   in promisified
+L80   mcall   listen                       in default qual=Server nargs=1
+L80   new     Server                       in default nargs=1
+L82   read    list                         in head
+L82   read    sides                        in left
+L82   mread   left                         in left qual=$sides
+L82   mread   right                        in left qual=$sides
+--- imports (8)
+L2    target=util name=- alias=util flags=1
+L2    target=events name=EventEmitter alias=- flags=1
+L3    target=util name=promisify alias=- flags=1
+L3    target=util name=inherits alias=inherit flags=1
+L4    target=path name=- alias=path flags=1
+L5    target=react name=default alias=React flags=1
+L5    target=react name=useState alias=- flags=1
+L81   target= name=noop alias=nothing flags=4

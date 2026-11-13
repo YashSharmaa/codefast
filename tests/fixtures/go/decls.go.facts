@@ -1,0 +1,158 @@
+lang=go ok=true lines=143 errors=0
+--- defs (70)
+  0 mod     shapes                       L2-2 parent=- type=- arity=0..0 flags=0x00 | package shapes
+  1 type    Kind                         L21-21 parent=- type=- arity=0..0 flags=0x04 | type Kind int
+  2 const   KindCircle                   L24-24 parent=- type=Kind arity=0..0 flags=0x04 | KindCircle Kind = iota
+  3 const   KindSquare                   L25-25 parent=- type=Kind arity=0..0 flags=0x04 | KindSquare
+  4 const   kindHidden                   L26-26 parent=- type=Kind arity=0..0 flags=0x00 | kindHidden
+  5 const   MaxSides                     L29-29 parent=- type=- arity=0..0 flags=0x04 | const MaxSides, minSides = 8, 3
+  6 const   minSides                     L29-29 parent=- type=- arity=0..0 flags=0x00 | const MaxSides, minSides = 8, 3
+  7 const   Pi2                          L31-31 parent=- type=- arity=0..0 flags=0x04 | const Pi2 float64 = Pi * 2
+  8 var     Default                      L34-34 parent=- type=Circle arity=0..0 flags=0x04 | Default
+  9 var     registry                     L35-35 parent=- type=Shape arity=0..0 flags=0x00 | registry map[string]Shape
+ 10 var     mu                           L36-36 parent=- type=sync|Mutex arity=0..0 flags=0x00 | mu sync.Mutex
+ 11 var     onChange                     L37-37 parent=- type=- arity=2..2 flags=0x20 | onChange func(old, cur Shape) error
+ 12 var     logf                         L38-38 parent=- type=- arity=1..255 flags=0x20 | logf
+ 13 var     a                            L41-41 parent=- type=- arity=0..0 flags=0x00 | var a, b int
+ 14 var     b                            L41-41 parent=- type=- arity=0..0 flags=0x00 | var a, b int
+ 15 var     options                      L43-46 parent=- type=- arity=0..0 flags=0x00 | var options struct
+ 16 field   Verbose                      L44-44 parent=options type=- arity=0..0 flags=0x04 | Verbose bool
+ 17 field   Out                          L45-45 parent=options type=io|Writer arity=0..0 flags=0x04 | Out io.Writer
+ 18 iface   Shape                        L49-55 parent=- type=- arity=0..0 flags=0x04 | type Shape interface
+ 19 method  Area                         L52-52 parent=Shape type=- arity=0..0 flags=0x45 | Area() float64
+ 20 method  Scale                        L53-53 parent=Shape type=Shape arity=1..255 flags=0x45 | Scale(factor float64, more ...float64) (Shape, error)
+ 21 method  visit                        L54-54 parent=Shape type=- arity=2..2 flags=0x41 | visit(ctx context.Context, fn func(Shape) bool)
+ 22 iface   Namer                        L57-57 parent=- type=- arity=0..0 flags=0x04 | type Namer interface
+ 23 method  Name                         L57-57 parent=Namer type=- arity=0..0 flags=0x45 | Name() string
+ 24 iface   Number                       L59-61 parent=- type=- arity=0..0 flags=0x04 | type Number interface
+ 25 struct  Circle                       L64-78 parent=- type=- arity=0..0 flags=0x04 | type Circle struct
+ 26 field   Base                         L65-65 parent=Circle type=Base arity=0..0 flags=0x04 | Base
+ 27 field   RWMutex                      L66-66 parent=Circle type=sync|RWMutex arity=0..0 flags=0x04 | *sync.RWMutex
+ 28 field   ObjectMeta                   L67-67 parent=Circle type=k8s.io/api/core/v1|ObjectMeta arity=0..0 flags=0x04 | v1.ObjectMeta
+ 29 field   Radius                       L68-68 parent=Circle type=- arity=0..0 flags=0x04 | Radius float64
+ 30 field   X                            L69-69 parent=Circle type=- arity=0..0 flags=0x04 | X, Y float64
+ 31 field   Y                            L69-69 parent=Circle type=- arity=0..0 flags=0x04 | X, Y float64
+ 32 field   Tags                         L70-70 parent=Circle type=Tag arity=0..0 flags=0x04 | Tags map[string]*Tag
+ 33 field   OnResize                     L71-71 parent=Circle type=- arity=2..2 flags=0x24 | OnResize func(c *Circle, by float64) error
+ 34 field   parent                       L72-72 parent=Circle type=Circle arity=0..0 flags=0x00 | parent *Circle
+ 35 field   Style                        L73-76 parent=Circle type=- arity=0..0 flags=0x04 | Style struct
+ 36 field   Color                        L74-74 parent=Style type=- arity=0..0 flags=0x04 | Color string
+ 37 field   Width                        L75-75 parent=Style type=- arity=0..0 flags=0x04 | Width int
+ 38 struct  Base                         L80-80 parent=- type=- arity=0..0 flags=0x04 | type Base struct
+ 39 field   ID                           L80-80 parent=Base type=Kind arity=0..0 flags=0x04 | ID Kind
+ 40 struct  Tag                          L82-82 parent=- type=- arity=0..0 flags=0x04 | type Tag struct
+ 41 field   Key                          L82-82 parent=Tag type=- arity=0..0 flags=0x04 | Key, Value string
+ 42 field   Value                        L82-82 parent=Tag type=- arity=0..0 flags=0x04 | Key, Value string
+ 43 type    Shapes                       L85-85 parent=- type=Shape arity=0..0 flags=0x04 | Shapes []Shape
+ 44 type    ByName                       L86-86 parent=- type=Circle arity=0..0 flags=0x04 | ByName map[string]*Circle
+ 45 type    Visitor                      L87-87 parent=- type=- arity=0..0 flags=0x04 | Visitor func(ctx context.Context, s Shape) (*Tag, error)
+ 46 type    Pod                          L88-88 parent=- type=k8s.io/api/core/v1|Pod arity=0..0 flags=0x04 | Pod = v1.Pod
+ 47 type    Stream                       L89-89 parent=- type=Tag arity=0..0 flags=0x04 | Stream <-chan *Tag
+ 48 type    TagPtr                       L90-90 parent=- type=Tag arity=0..0 flags=0x04 | TagPtr *Tag
+ 49 type    Document                     L91-91 parent=- type=gopkg.in/yaml.v3|Node arity=0..0 flags=0x04 | Document yaml.Node
+ 50 struct  Stack                        L95-98 parent=- type=- arity=0..0 flags=0x04 | type Stack[T any] struct
+ 51 field   items                        L96-96 parent=Stack type=- arity=0..0 flags=0x00 | items []T
+ 52 field   limit                        L97-97 parent=Stack type=- arity=0..0 flags=0x00 | limit int
+ 53 struct  Pair                         L100-103 parent=- type=- arity=0..0 flags=0x04 | type Pair[K comparable, V Number] struct
+ 54 field   Key                          L101-101 parent=Pair type=- arity=0..0 flags=0x04 | Key K
+ 55 field   Val                          L102-102 parent=Pair type=- arity=0..0 flags=0x04 | Val V
+ 56 type    List                         L105-105 parent=- type=- arity=0..0 flags=0x04 | type List[T any] = []T
+ 57 method  String                       L111-111 parent=~Kind type=- arity=0..0 flags=0x04 | func (k Kind) String() string
+ 58 method  Area                         L113-113 parent=~Circle type=- arity=0..0 flags=0x04 | func (c *Circle) Area() float64
+ 59 method  Scale                        L115-117 parent=~Circle type=Shape arity=1..255 flags=0x04 | func (c *Circle) Scale(factor float64, more ...float64) (Shape, error)
+ 60 method  Name                         L119-119 parent=~Circle type=- arity=0..0 flags=0x04 | func (*Circle) Name() string
+ 61 method  visit                        L121-121 parent=~Circle type=- arity=2..2 flags=0x00 | func (c Circle) visit(ctx context.Context, fn func(Shape) bool)
+ 62 method  Push                         L123-126 parent=~Stack type=- arity=1..255 flags=0x04 | func (s *Stack[T]) Push(v T, more ...T) (ok bool)
+ 63 method  Close                        L128-128 parent=~Stack type=- arity=0..0 flags=0x04 | func (s *Stack[T]) Close() error
+ 64 method  Swap                         L130-130 parent=~Pair type=- arity=0..0 flags=0x04 | func (p Pair[K, V]) Swap() (V, K)
+ 65 fn      NewStack                     L133-133 parent=- type=Stack arity=1..1 flags=0x04 | func NewStack[T any, U comparable](limit int) *Stack[T]
+ 66 fn      Describe                     L135-135 parent=- type=- arity=1..255 flags=0x04 | func Describe(ctx context.Context, shapes ...Shape) (names []string, err error)
+ 67 fn      Mount                        L137-139 parent=- type=io|Reader arity=3..3 flags=0x04 | func Mount(m mount.Interface, ws *restful.WebService, p jsonpatch.Patch) (io.Reader, *v1.Pod)
+ 68 fn      helper                       L141-141 parent=- type=Tag arity=3..3 flags=0x01 | func helper(a, b int, _ string) *Tag
+ 69 fn      init                         L143-143 parent=- type=- arity=0..0 flags=0x00 | func init()
+--- refs (72)
+L24   type    Kind                         in KindCircle
+L31   read    Pi                           in Pi2
+L34   mwrite  Radius                       in Default qual=Circle
+L34   new     Circle                       in Default
+L35   type    Shape                        in registry
+L36   type    Mutex                        in mu qual=sync
+L37   type    Shape                        in onChange
+L38   call    Infof                        in logf qual=k8s.io/klog/v2 nargs=2
+L45   type    Writer                       in options qual=io
+L50   extends Stringer                     in Shape qual=fmt
+L51   extends Namer                        in Shape
+L53   type    Shape                        in Scale
+L54   type    Context                      in visit qual=context
+L54   type    Shape                        in visit
+L65   extends Base                         in Circle
+L66   extends RWMutex                      in Circle qual=sync
+L67   extends ObjectMeta                   in Circle qual=k8s.io/api/core/v1
+L70   type    Tag                          in Circle
+L71   type    Circle                       in Circle
+L72   type    Circle                       in Circle
+L80   type    Kind                         in Base
+L85   type    Shape                        in Shapes
+L86   type    Circle                       in ByName
+L87   type    Context                      in Visitor qual=context
+L87   type    Shape                        in Visitor
+L87   type    Tag                          in Visitor
+L88   type    Pod                          in Pod qual=k8s.io/api/core/v1
+L89   type    Tag                          in Stream
+L90   type    Tag                          in TagPtr
+L91   type    Node                         in Document qual=gopkg.in/yaml.v3
+L100  type    Number                       in Pair
+L107  type    Circle                       in <file>
+L107  impl    Shape                        in Circle
+L108  type    Kind                         in <file>
+L108  impl    Stringer                     in Kind qual=fmt
+L109  impl    Closer                       in Stack qual=io
+L109  new     Stack                        in <file>
+L111  call    Sprint                       in String qual=fmt nargs=1
+L111  type    Kind                         in String
+L113  type    Circle                       in Area
+L113  read    Pi                           in Area
+L113  mread   Radius                       in Area qual=Circle
+L113  mread   Radius                       in Area qual=Circle
+L115  type    Circle                       in Scale
+L115  type    Shape                        in Scale
+L116  mread   Radius                       in Scale qual=Circle
+L116  mwrite  Radius                       in Scale qual=Circle
+L116  new     Circle                       in Scale
+L119  type    Circle                       in Name
+L121  type    Circle                       in visit
+L121  type    Context                      in visit qual=context
+L121  type    Shape                        in visit
+L123  type    Stack                        in Push
+L124  mread   items                        in Push qual=Stack
+L124  mwrite  items                        in Push qual=Stack
+L128  type    Stack                        in Close
+L130  type    Pair                         in Swap
+L130  mread   Key                          in Swap qual=Pair
+L130  mread   Val                          in Swap qual=Pair
+L133  type    Stack                        in NewStack
+L133  mwrite  limit                        in NewStack qual=Stack
+L133  new     Stack                        in NewStack
+L135  type    Context                      in Describe qual=context
+L135  type    Shape                        in Describe
+L137  type    Interface                    in Mount qual=k8s.io/mount-utils
+L137  type    Patch                        in Mount qual=gopkg.in/evanphx/json-patch.v4
+L137  type    Pod                          in Mount qual=k8s.io/api/core/v1
+L137  type    Reader                       in Mount qual=io
+L137  type    WebService                   in Mount qual=github.com/emicklei/go-restful/v3
+L141  type    Tag                          in helper
+L143  type    Shape                        in init
+L143  write   registry                     in init
+--- imports (12)
+L5    target=context name=- alias=- flags=1
+L6    target=fmt name=- alias=- flags=1
+L7    target=io name=- alias=- flags=1
+L8    target=math name=- alias=- flags=3
+L9    target=net/http/pprof name=- alias=_ flags=1
+L10   target=sync name=- alias=- flags=1
+L12   target=github.com/emicklei/go-restful/v3 name=- alias=restful flags=0
+L13   target=gopkg.in/evanphx/json-patch.v4 name=- alias=jsonpatch flags=0
+L14   target=gopkg.in/yaml.v3 name=- alias=- flags=0
+L15   target=k8s.io/api/core/v1 name=- alias=v1 flags=0
+L16   target=k8s.io/klog/v2 name=- alias=- flags=0
+L17   target=k8s.io/mount-utils name=- alias=- flags=0

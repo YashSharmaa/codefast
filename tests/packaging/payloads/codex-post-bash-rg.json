@@ -1,0 +1,13 @@
+{
+  "cwd": "{{REPO}}",
+  "hook_event_name": "PostToolUse",
+  "model": "gpt-5.5",
+  "permission_mode": "default",
+  "session_id": "019a7c1e-2f4b-7d10-9c33-6f0e2a1b4c5d",
+  "tool_input": { "command": "bash -lc 'rg -n \"dev_read\\(\" src'" },
+  "tool_name": "Bash",
+  "tool_response": "src/io.c:4:int dev_read(struct dev *d, char *buf, int count)\nsrc/main.c:7:    while ((n = dev_read(in, buf, sizeof buf)) > 0)\n",
+  "tool_use_id": "call_Zk3pQ9x1",
+  "transcript_path": "{{HOME}}/.codex/sessions/2026/11/13/rollout-019a7c1e.jsonl",
+  "turn_id": "turn_7"
+}

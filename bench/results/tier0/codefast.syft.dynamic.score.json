@@ -1,0 +1,120 @@
+{
+ "oracle": {
+  "repo": "syft",
+  "commit": "b15c5dbfe2bb21c9d73002c1056a829c8c411c75",
+  "language": "go",
+  "oracle": "golang.org/x/tools go/ssa static callees + go/callgraph/rta",
+  "tests_included": false
+ },
+ "options": {
+  "variant": "",
+  "scope_prefix": [],
+  "include_variable_endpoints": false,
+  "with_funcptr_candidates": false,
+  "repowise_compat": false
+ },
+ "oracle_edges": {
+  "must": 4920,
+  "candidate": 2060,
+  "dynamic_sites": 551,
+  "excluded": {
+   "closure_callee": 1534
+  }
+ },
+ "tool_edges": {
+  "rows": 15347,
+  "distinct_function_level": 7303,
+  "ambiguous_endpoint_rows": 0,
+  "out_of_scope": 7382,
+  "unmapped_callee": 299
+ },
+ "matched_must": 4909,
+ "matched_candidate": 1269,
+ "contradicted": 816,
+ "unjudged": 309,
+ "unmapped_callee_distinct_with_judged_caller": 248,
+ "precision": {
+  "value": 0.8833,
+  "k": 6178,
+  "n": 6994,
+  "ci95": [
+   0.8756,
+   0.8906
+  ]
+ },
+ "precision_strict": {
+  "value": 0.8531,
+  "k": 6178,
+  "n": 7242,
+  "ci95": [
+   0.8447,
+   0.861
+  ]
+ },
+ "recall_static": {
+  "value": 0.9978,
+  "k": 4909,
+  "n": 4920,
+  "ci95": [
+   0.996,
+   0.9988
+  ]
+ },
+ "recall_candidate_edges": {
+  "value": 0.616,
+  "k": 1269,
+  "n": 2060,
+  "ci95": [
+   0.5948,
+   0.6368
+  ]
+ },
+ "recall_candidate_edges_by_kind": {
+  "funcptr": {
+   "value": 0.0174,
+   "k": 5,
+   "n": 288,
+   "ci95": [
+    0.0074,
+    0.04
+   ]
+  },
+  "generic-instantiation": {
+   "value": 0.0,
+   "k": 0,
+   "n": 2,
+   "ci95": [
+    0.0,
+    0.6576
+   ]
+  },
+  "interface": {
+   "value": 0.7141,
+   "k": 1264,
+   "n": 1770,
+   "ci95": [
+    0.6926,
+    0.7347
+   ]
+  }
+ },
+ "recall_dynamic_sites": {
+  "value": 0.5172,
+  "k": 285,
+  "n": 551,
+  "ci95": [
+   0.4755,
+   0.5587
+  ]
+ },
+ "recall_all_edges": {
+  "value": 0.8851,
+  "k": 6178,
+  "n": 6980,
+  "ci95": [
+   0.8774,
+   0.8924
+  ]
+ },
+ "unjudged_share": 0.0423
+}

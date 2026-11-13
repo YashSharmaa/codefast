@@ -1,0 +1,75 @@
+lang=typescript ok=true lines=61 errors=0
+--- defs (17)
+  0 class   Loader                       L6-33 parent=- type=- arity=0..0 flags=0x04 | export class Loader
+  1 method  constructor                  L7-7 parent=Loader type=- arity=1..1 flags=0x00 | constructor(private readonly svc: Service)
+  2 field   svc                          L7-7 parent=Loader type=Service arity=0..0 flags=0x00 | private readonly svc: Service
+  3 method  load                         L8-8 parent=Loader type=Loaded arity=1..1 flags=0x00 | load<T>(n: number): Promise<Loaded>
+  4 method  check                        L9-9 parent=Loader type=- arity=1..1 flags=0x00 | check<T>(n: number): boolean
+  5 method  count                        L10-10 parent=Loader type=- arity=1..1 flags=0x00 | count<T>(n: number): number
+  6 method  run                          L14-24 parent=Loader type=- arity=0..0 flags=0x80 | async run()
+  7 method  paren                        L27-32 parent=Loader type=- arity=1..1 flags=0x00 | paren(obj: Service)
+  8 fn      closures                     L36-45 parent=- type=- arity=1..1 flags=0x02 | function closures(view: View)
+  9 fn      fn                           L44-44 parent=closures type=- arity=0..0 flags=0x02 | const fn = () =>
+ 10 iface   Shape                        L49-53 parent=- type=- arity=0..0 flags=0x02 | interface Shape
+ 11 method  log                          L50-50 parent=Shape type=- arity=1..1 flags=0x01 | log<E extends Box<T> = never, T extends Kind.Member = never>(e: E): void
+ 12 field   inner                        L51-51 parent=Shape type=Outer|Inner arity=0..0 flags=0x01 | inner: Outer.Inner
+ 13 field   viaNs                        L52-52 parent=Shape type=./ns|Thing arity=0..0 flags=0x01 | viaNs: ns.Thing
+ 14 var     cases                        L56-61 parent=- type=- arity=0..0 flags=0x02 | const cases =
+ 15 method  content-type                 L58-58 parent=cases type=- arity=0..0 flags=0x00 | 'content-type': () =>
+ 16 method  plain                        L60-60 parent=cases type=- arity=0..0 flags=0x00 | plain: () =>
+--- refs (49)
+L2    import  Box                          in <file> qual=./k
+L2    import  Kind                         in <file> qual=./k
+L2    import  tools                        in <file> qual=./k
+L7    type    Service                      in constructor
+L8    type    Loaded                       in load
+L15   mcall   load                         in run qual=Loader nargs=1
+L15   type    Foo                          in run
+L16   mcall   go                           in run qual=Loader::load() nargs=0
+L17   mcall   check                        in run qual=Loader nargs=1
+L17   type    Foo                          in run
+L18   mcall   count                        in run qual=Loader nargs=1
+L18   type    Foo                          in run
+L19   call    free                         in run nargs=1
+L19   type    Foo                          in run
+L20   call    make                         in run qual=./ns nargs=1
+L20   type    Foo                          in run
+L21   mcall   test                         in run qual=./k|$tools nargs=1
+L21   type    Foo                          in run
+L21   read    tools                        in run qual=./k
+L22   mcall   done                         in run qual=Loader::svc::fetch() nargs=0
+L22   mcall   fetch                        in run qual=Loader::svc nargs=1
+L22   type    Bar                          in run
+L22   mread   svc                          in run qual=Loader
+L23   mcall   fetch                        in run qual=Loader::svc nargs=1
+L23   type    Bar                          in run
+L23   mread   svc                          in run qual=Loader
+L27   type    Service                      in paren
+L28   call    free                         in paren nargs=1
+L29   mcall   fetch                        in paren qual=Service nargs=1
+L30   call    legacy                       in paren qual=./legacy nargs=1
+L31   new     legacy                       in paren qual=./legacy nargs=0
+L36   type    View                         in closures
+L37   call    handle                       in closures nargs=3
+L37   mcall   go                           in closures nargs=0
+L37   mcall   onDidChange                  in closures qual=View nargs=1
+L38   call    make                         in closures nargs=0
+L39   call    pick                         in closures nargs=0
+L39   type    Later                        in closures
+L41   call    use                          in closures nargs=1
+L50   type    Box                          in log
+L50   type    Kind                         in log
+L50   type    Member                       in log qual=Kind
+L51   type    Inner                        in inner qual=Outer
+L51   type    Outer                        in inner
+L52   type    Thing                        in viaNs qual=./ns
+L57   mcall   go                           in cases qual=Support nargs=0
+L57   type    Support                      in cases
+L59   call    report                       in cases nargs=1
+L59   type    Node                         in cases
+--- imports (5)
+L2    target=./k name=Kind alias=- flags=0
+L2    target=./k name=Box alias=- flags=0
+L2    target=./k name=tools alias=kit flags=0
+L3    target=./ns name=- alias=ns flags=0
+L4    target=./legacy name=- alias=legacy flags=0

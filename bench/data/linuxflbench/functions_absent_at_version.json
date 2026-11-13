@@ -1,0 +1,27 @@
+{
+  "95061": [
+    "drivers/gpu/drm/i915/i915_drv.c:i915_hibernate_needs_quirk"
+  ],
+  "94411": [
+    "drivers/acpi/ec.c:acpi_ec_query"
+  ],
+  "32592": [
+    "drivers/acpi/video_detect.c:video_detect_dmi_table"
+  ],
+  "13581": [
+    "arch/x86/kernel/e820.c:ram_alignment"
+  ],
+  "12961": [
+    "arch/x86/kernel/hpet.c:hpet_stop_counter"
+  ],
+  "12061": [
+    "sound/pci/hda/patch_sigmatel.c:stac92xx_suspend"
+  ],
+  "8995": [
+    "kernel/power/disk.c:hibernation_platform_enter"
+  ],
+  "5992": [
+    "drivers/net/r8169.c:rtl8169_init_phy",
+    "drivers/net/r8169.c:rtl8169_set_rx_tx_config_registers"
+  ]
+}

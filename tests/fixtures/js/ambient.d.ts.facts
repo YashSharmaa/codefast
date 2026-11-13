@@ -1,0 +1,53 @@
+lang=typescript ok=true lines=31 errors=0
+--- defs (32)
+  0 const   VERSION                      L2-2 parent=- type=- arity=0..0 flags=0x01 | declare const VERSION: string
+  1 var     mutableFlag                  L3-3 parent=- type=- arity=0..0 flags=0x01 | mutableFlag: boolean
+  2 var     lastError                    L3-3 parent=- type=AppError arity=0..0 flags=0x01 | lastError: AppError | undefined
+  3 fn      overloaded                   L4-4 parent=- type=- arity=1..1 flags=0x01 | declare function overloaded(value: string): string;
+  4 fn      overloaded                   L5-5 parent=- type=- arity=1..2 flags=0x01 | declare function overloaded(value: number, radix?: number): string;
+  5 class   AmbientWidget                L6-11 parent=- type=- arity=0..0 flags=0x01 | declare class AmbientWidget extends Base
+  6 method  constructor                  L7-7 parent=AmbientWidget type=- arity=1..1 flags=0x01 | constructor(name: string)
+  7 field   name                         L8-8 parent=AmbientWidget type=- arity=0..0 flags=0x01 | readonly name: string
+  8 method  render                       L9-9 parent=AmbientWidget type=- arity=1..255 flags=0x01 | render(target: Element, ...children: AmbientWidget[]): void
+  9 method  create                       L10-10 parent=AmbientWidget type=AmbientWidget arity=0..0 flags=0x01 | static create(): AmbientWidget
+ 10 ns      Paths                        L12-16 parent=~Platform type=- arity=0..0 flags=0x01 | declare namespace Platform.Paths
+ 11 var     sep                          L13-13 parent=Paths type=- arity=0..0 flags=0x01 | const sep: string
+ 12 fn      join                         L14-14 parent=Paths type=- arity=0..255 flags=0x01 | function join(...parts: string[]): string;
+ 13 iface   Parsed                       L15-15 parent=Paths type=- arity=0..0 flags=0x00 | interface Parsed
+ 14 field   dir                          L15-15 parent=Parsed type=- arity=0..0 flags=0x01 | dir: string
+ 15 field   base                         L15-15 parent=Parsed type=- arity=0..0 flags=0x01 | base: string
+ 16 ns      virtual-module               L17-22 parent=- type=- arity=0..0 flags=0x01 | declare module 'virtual-module'
+ 17 fn      activate                     L19-19 parent=virtual-module type=Disposable arity=1..1 flags=0x05 | export function activate(context: Context): Disposable;
+ 18 var     enabled                      L20-20 parent=virtual-module type=- arity=0..0 flags=0x05 | export const enabled: boolean
+ 19 class   Plugin                       L21-21 parent=virtual-module type=- arity=0..0 flags=0x05 | export default class Plugin
+ 20 method  dispose                      L21-21 parent=Plugin type=- arity=0..0 flags=0x01 | dispose(): void
+ 21 iface   Window                       L24-24 parent=- type=- arity=0..0 flags=0x00 | interface Window
+ 22 field   appState                     L24-24 parent=Window type=AppState arity=0..0 flags=0x01 | appState: AppState
+ 23 var     __DEV__                      L25-25 parent=- type=- arity=0..0 flags=0x01 | var __DEV__: boolean
+ 24 enum    Mode                         L27-27 parent=- type=- arity=0..0 flags=0x01 | declare enum Mode
+ 25 enumval Read                         L27-27 parent=Mode type=- arity=0..0 flags=0x00 | Read
+ 26 enumval Write                        L27-27 parent=Mode type=- arity=0..0 flags=0x00 | Write
+ 27 iface   AppState                     L28-28 parent=- type=- arity=0..0 flags=0x00 | interface AppState
+ 28 field   mode                         L28-28 parent=AppState type=Mode arity=0..0 flags=0x01 | mode: Mode
+ 29 field   widgets                      L28-28 parent=AppState type=Array arity=0..0 flags=0x01 | widgets: AmbientWidget[]
+ 30 method  on                           L28-28 parent=AppState type=- arity=2..2 flags=0x01 | on(event: 'change', cb: (s: AppState) => void): void
+ 31 type    Callback                     L29-29 parent=- type=- arity=0..0 flags=0x00 | type Callback<T = void> =
+--- refs (14)
+L3    type    AppError                     in lastError
+L6    extends Base                         in AmbientWidget
+L9    type    AmbientWidget                in render
+L9    type    Element                      in render
+L10   type    AmbientWidget                in create
+L18   import  Disposable                   in virtual-module qual=lifecycle
+L19   type    Context                      in activate
+L19   type    Disposable                   in activate
+L24   type    AppState                     in appState
+L28   type    AmbientWidget                in widgets
+L28   type    AppState                     in on
+L28   type    Mode                         in mode
+L29   type    AppError                     in Callback
+L31   read    Platform                     in <file>
+--- imports (3)
+L18   target=lifecycle name=Disposable alias=- flags=1
+L21   target= name=Plugin alias=default flags=4
+L31   target= name=Platform alias=default flags=4

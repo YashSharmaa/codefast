@@ -1,0 +1,18 @@
+{
+  "conversation_id": "c1b0a7e2-0d3f-4c55-8a41-1f2e3d4c5b6a",
+  "generation_id": "9f8e7d6c-5b4a-4c3d-9e2f-1a0b9c8d7e6f",
+  "model": "claude-opus-4-7-thinking-max",
+  "model_id": "claude-opus-4-7",
+  "model_params": [{ "id": "thinking", "value": "true" }],
+  "hook_event_name": "postToolUse",
+  "cursor_version": "3.2.1",
+  "workspace_roots": ["{{REPO}}"],
+  "user_email": null,
+  "transcript_path": null,
+  "tool_name": "Shell",
+  "tool_input": { "command": "rg -n dev_read", "working_directory": "{{REPO}}/src" },
+  "tool_output": "{\"exitCode\":0,\"stdout\":\"io.c:4:int dev_read(struct dev *d, char *buf, int count)\"}",
+  "tool_use_id": "abc123",
+  "cwd": "{{REPO}}",
+  "duration": 31
+}

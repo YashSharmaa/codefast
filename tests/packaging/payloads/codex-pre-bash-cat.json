@@ -1,0 +1,12 @@
+{
+  "cwd": "{{REPO}}",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-5.5",
+  "permission_mode": "default",
+  "session_id": "019a7c1e-2f4b-7d10-9c33-6f0e2a1b4c5d",
+  "tool_input": { "command": "nl -ba src/big.c" },
+  "tool_name": "Bash",
+  "tool_use_id": "call_Rd81mLq0",
+  "transcript_path": null,
+  "turn_id": "turn_8"
+}

@@ -1,0 +1,25 @@
+{
+  "session_id": "0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11",
+  "prompt_id": "550e8400-e29b-41d4-a716-446655440000",
+  "transcript_path": "{{HOME}}/.claude/projects/-work-project/0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11.jsonl",
+  "cwd": "{{REPO}}",
+  "scratchpad_dir": "/tmp/claude-1000/-work-project/0a9f3c1e/scratchpad",
+  "permission_mode": "default",
+  "effort": { "level": "high" },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "grep -rn \"dev_read\" src/ --include=\"*.c\" | head -20",
+    "description": "Find uses of dev_read",
+    "timeout": 120000,
+    "run_in_background": false
+  },
+  "tool_response": {
+    "stdout": "src/io.c:4:int dev_read(struct dev *d, char *buf, int count)\nsrc/main.c:7:    while ((n = dev_read(in, buf, sizeof buf)) > 0)",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false
+  },
+  "tool_use_id": "toolu_01ABC123DEF456",
+  "duration_ms": 12
+}

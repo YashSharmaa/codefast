@@ -1,0 +1,67 @@
+lang=rust ok=true lines=75 errors=3
+--- defs (27)
+  0 trait   Compare                      L5-10 parent=- type=- arity=0..0 flags=0x04 | pub const trait Compare<Rhs = Self>: [const] PartialEq<Rhs>
+  1 method  compare                      L6-6 parent=Compare type=Ordering arity=1..1 flags=0x45 | fn compare(&self, other: &Rhs) -> Ordering
+  2 method  is_less                      L7-9 parent=Compare type=- arity=1..1 flags=0x04 | fn is_less(&self, other: &Rhs) -> bool
+  3 impl    Wrapper                      L12-16 parent=- type=- arity=0..0 flags=0x00 | const impl<T: [const] Compare + [const] Destruct> Compare for Wrapper<T>
+  4 method  compare                      L13-15 parent=Wrapper type=Ordering arity=1..1 flags=0x00 | fn compare(&self, other: &Self) -> Ordering
+  5 impl    Wrapper                      L18-18 parent=- type=- arity=0..0 flags=0x00 | unsafe const impl Send for Wrapper<u8>
+  6 fn      pick                         L20-23 parent=- type=- arity=3..3 flags=0x04 | pub const fn pick<T: [const] Compare, F: const Fn(&T) -> bool>(a: T, b: T, keep: F) -> T
+  7 fn      strlen_checked               L26-26 parent=- type=- arity=1..1 flags=0x05 | pub safe fn strlen_checked(s: *const u8) -> usize
+  8 fn      raw_copy                     L27-27 parent=- type=- arity=2..2 flags=0x05 | pub unsafe fn raw_copy(dst: *mut u8, src: *const u8)
+  9 type    Opaque                       L28-28 parent=- type=- arity=0..0 flags=0x05 | pub(crate) type Opaque
+ 10 var     VERSION                      L29-29 parent=- type=- arity=0..0 flags=0x01 | safe static VERSION: u32
+ 11 trait   Sealed                       L32-32 parent=- type=- arity=0..0 flags=0x04 | pub impl(crate) trait Sealed
+ 12 trait   Marker                       L33-33 parent=- type=- arity=0..0 flags=0x04 | pub unsafe auto trait Marker
+ 13 type    Shared                       L34-34 parent=- type=Send arity=0..0 flags=0x04 | pub trait Shared = Send + Sync + 'static
+ 14 macro   point                        L37-39 parent=- type=- arity=0..255 flags=0x04 | pub macro point
+ 15 macro   select_impl                  L41-44 parent=- type=- arity=0..255 flags=0x00 | macro select_impl
+ 16 struct  Options                      L46-52 parent=- type=- arity=0..0 flags=0x04 | pub struct Options
+ 17 field   retries                      L47-47 parent=Options type=- arity=0..0 flags=0x04 | pub retries: u32 = 3
+ 18 field   label                        L48-48 parent=Options type=- arity=0..0 flags=0x00 | label: &'static str = "none"
+ 19 field   name                         L49-50 parent=Options type=String arity=0..0 flags=0x00 | name: String = String::new()
+ 20 field   limits                       L51-51 parent=Options type=Limits arity=0..0 flags=0x00 | limits: Limits
+ 21 fn      floats                       L54-59 parent=- type=- arity=0..0 flags=0x00 | fn floats() -> f64
+ 22 fn      before_error                 L61-63 parent=- type=- arity=1..1 flags=0x00 | fn before_error(x: u32) -> u32
+ 23 fn      broken                       L65-67 parent=- type=- arity=0..0 flags=0x00 | fn broken(
+ 24 struct  AfterError                   L69-71 parent=- type=- arity=0..0 flags=0x00 | struct AfterError
+ 25 field   field                        L70-70 parent=AfterError type=Recovered arity=0..0 flags=0x00 | field: Recovered
+ 26 fn      after_error                  L73-75 parent=- type=Recovered arity=1..1 flags=0x00 | fn after_error(v: AfterError) -> Recovered
+--- refs (35)
+L3    import  Destruct                     in <file> qual=core::marker
+L5    extends PartialEq                    in Compare
+L6    type    Ordering                     in compare
+L8    mcall   compare                      in is_less qual=Compare nargs=1
+L8    mcall   is_lt                        in is_less qual=Compare::compare() nargs=0
+L12   type    Compare                      in Wrapper
+L12   type    Destruct                     in Wrapper
+L12   type    Wrapper                      in Wrapper
+L12   impl    Compare                      in Wrapper
+L13   type    Ordering                     in compare
+L14   mcall   compare                      in compare nargs=1
+L18   type    Wrapper                      in Wrapper
+L18   impl    Send                         in Wrapper
+L20   type    Compare                      in pick
+L20   type    Fn                           in pick
+L34   type    Send                         in Shared
+L34   type    Sync                         in Shared
+L38   call    new                          in point qual=crate::geometry|Point nargs=2
+L38   type    Point                        in point qual=crate::geometry
+L42   type    Sealed                       in select_impl
+L49   type    String                       in Options
+L50   call    new                          in Options qual=String nargs=0
+L51   type    Limits                       in Options
+L57   call    default                      in floats qual=Limits nargs=0
+L57   type    Limits                       in floats
+L57   mwrite  limits                       in floats qual=Options
+L57   new     Options                      in floats
+L58   call    scale                        in floats nargs=3
+L58   mread   retries                      in floats qual=Options
+L62   call    helper                       in before_error nargs=1
+L70   type    Recovered                    in AfterError
+L73   type    AfterError                   in after_error
+L73   type    Recovered                    in after_error
+L74   mcall   clone                        in after_error qual=AfterError::field nargs=0
+L74   mread   field                        in after_error qual=AfterError
+--- imports (1)
+L3    target=core::marker name=Destruct alias=- flags=1

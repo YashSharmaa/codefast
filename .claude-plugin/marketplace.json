@@ -1,0 +1,16 @@
+{
+  "name": "codefast",
+  "description": "codefast: LLM-free code intelligence for coding agents",
+  "owner": {
+    "name": "codefast contributors",
+    "url": "https://github.com/YashSharmaa/codefast"
+  },
+  "plugins": [
+    {
+      "name": "codefast",
+      "source": "./",
+      "description": "Definitions, references, callers, call paths and bug-report localisation from a fast structural index, in one call and few tokens.",
+      "category": "development"
+    }
+  ]
+}

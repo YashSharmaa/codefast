@@ -1,0 +1,90 @@
+lang=cpp ok=true lines=74 errors=0
+--- defs (27)
+  0 class   Selector                     L7-14 parent=- type=- arity=0..0 flags=0x00 | class Selector
+  1 method  Selector                     L9-9 parent=Selector type=Selector arity=2..2 flags=0x01 | Selector(const Target &TM, const Subtarget &STI);
+  2 field   TM                           L12-12 parent=Selector type=Target arity=0..0 flags=0x00 | const Target &TM;
+  3 field   STI                          L13-13 parent=Selector type=Subtarget arity=0..0 flags=0x00 | const Subtarget &STI;
+  4 method  Selector                     L16-22 parent=~Selector type=Selector arity=2..2 flags=0x00 | Selector::Selector(const Target &TM, const Subtarget &STI)
+  5 struct  StoreInfo                    L24-26 parent=- type=- arity=0..0 flags=0x00 | struct StoreInfo
+  6 field   Offset                       L25-25 parent=StoreInfo type=- arity=0..0 flags=0x00 | int Offset =
+  7 fn      afterSelector                L28-28 parent=- type=- arity=1..1 flags=0x02 | static bool afterSelector(StoreInfo &S)
+  8 enum    Access                       L31-35 parent=- type=- arity=0..0 flags=0x00 | enum class Access : unsigned
+  9 enumval Read                         L32-32 parent=Access type=- arity=0..0 flags=0x00 | Read = 1
+ 10 enumval Write                        L33-33 parent=Access type=- arity=0..0 flags=0x00 | Write = 2
+ 11 fn      afterEnum                    L37-37 parent=- type=Access arity=1..1 flags=0x02 | static Access afterEnum(unsigned Bits)
+ 12 class   Pointer                      L40-51 parent=- type=- arity=0..0 flags=0x00 | class Pointer
+ 13 enum    Storage                      L41-41 parent=Pointer type=- arity=0..0 flags=0x00 | enum class Storage
+ 14 enumval Int                          L41-41 parent=Storage type=- arity=0..0 flags=0x00 | Int
+ 15 enumval Fn                           L41-41 parent=Storage type=- arity=0..0 flags=0x00 | Fn
+ 16 struct  FnPtr                        L42-44 parent=Pointer type=- arity=0..0 flags=0x00 | struct FnPtr
+ 17 field   Func                         L43-43 parent=FnPtr type=Decl arity=0..0 flags=0x00 | const Decl *Func;
+ 18 method  isWeak                       L45-45 parent=Pointer type=- arity=0..0 flags=0x00 | bool isWeak() const
+ 19 field   Kind                         L46-46 parent=Pointer type=Storage arity=0..0 flags=0x00 | Storage Kind;
+ 20 field   Int                          L48-48 parent=Pointer type=- arity=0..0 flags=0x00 | long Int;
+ 21 field   Fn                           L49-49 parent=Pointer type=FnPtr arity=0..0 flags=0x00 | FnPtr Fn;
+ 22 fn      useWrappers                  L55-66 parent=- type=Error arity=0..0 flags=0x00 | Error useWrappers()
+ 23 fn      takeHolder                   L70-70 parent=~detail type=Holder arity=1..1 flags=0x00 | detail::Holder llvm::detail::takeHolder(Error Err)
+ 24 fn      getTargetCPU                 L71-71 parent=~arm type=string arity=1..1 flags=0x00 | std::string arm::getTargetCPU(StringRef Arch)
+ 25 method  line_iterator                L73-73 parent=~line_iterator type=line_iterator arity=1..1 flags=0x00 | line_iterator::line_iterator(const MemoryBuffer &B)
+ 26 method  advance                      L74-74 parent=~line_iterator type=- arity=0..0 flags=0x00 | void line_iterator::advance()
+--- refs (56)
+L9    type    Subtarget                    in Selector
+L9    type    Target                       in Selector
+L12   type    Target                       in Selector
+L13   type    Subtarget                    in Selector
+L16   type    Selector                     in Selector
+L16   type    Subtarget                    in Selector
+L16   type    Target                       in Selector
+L17   mwrite  STI                          in Selector qual=Selector
+L17   mwrite  TM                           in Selector qual=Selector
+L28   type    StoreInfo                    in afterSelector
+L28   mread   Offset                       in afterSelector qual=StoreInfo
+L34   call    MARK_AS_BITMASK_ENUM         in Access
+L34   read    Write                        in Access
+L37   type    Access                       in afterEnum
+L37   type    Access                       in afterEnum
+L43   type    Decl                         in FnPtr
+L45   mcall   isWeak                       in isWeak qual=Pointer::Fn::Func nargs=0
+L45   type    Storage                      in isWeak
+L45   read    Fn                           in isWeak qual=Storage
+L45   mread   Fn                           in isWeak qual=Pointer
+L45   mread   Func                         in isWeak qual=Pointer::Fn
+L45   mread   Kind                         in isWeak qual=Pointer
+L46   type    Storage                      in Pointer
+L49   type    FnPtr                        in Pointer
+L55   type    Error                        in useWrappers
+L56   call    loadInfo                     in useWrappers nargs=0
+L56   type    Expected                     in useWrappers
+L56   type    StoreInfo                    in useWrappers
+L58   mcall   takeError                    in useWrappers qual=Expected nargs=0
+L59   mwrite  Offset                       in useWrappers qual=StoreInfo
+L60   call    openSelector                 in useWrappers nargs=0
+L60   type    ErrorOr                      in useWrappers
+L60   type    Selector                     in useWrappers
+L61   mcall   getError                     in useWrappers qual=ErrorOr nargs=0
+L61   type    error_code                   in useWrappers qual=std
+L62   call    errorCodeToError             in useWrappers nargs=1
+L63   type    StoreInfo                    in useWrappers
+L63   type    optional                     in useWrappers qual=std
+L64   mcall   reset                        in useWrappers qual=optional nargs=0
+L65   call    success                      in useWrappers qual=Error nargs=0
+L65   type    Error                        in useWrappers
+L70   call    wrap                         in takeHolder nargs=1
+L70   type    Error                        in takeHolder
+L70   type    Holder                       in takeHolder qual=detail
+L70   type    detail                       in takeHolder
+L70   type    detail                       in takeHolder
+L70   type    llvm                         in takeHolder
+L71   call    lookup                       in getTargetCPU nargs=1
+L71   type    StringRef                    in getTargetCPU
+L71   type    arm                          in getTargetCPU
+L71   type    string                       in getTargetCPU qual=std
+L73   type    MemoryBuffer                 in line_iterator
+L73   type    line_iterator                in line_iterator
+L73   mwrite  Buffer                       in line_iterator qual=line_iterator
+L74   call    skip                         in advance qual=line_iterator nargs=0
+L74   type    line_iterator                in advance
+--- imports (3)
+L2    target=llvm/Support/Error.h name=- alias=- flags=0
+L3    target=llvm name=- alias=- flags=2
+L19   target=GenSelector.inc name=- alias=- flags=0

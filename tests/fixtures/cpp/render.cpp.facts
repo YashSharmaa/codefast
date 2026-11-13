@@ -1,0 +1,237 @@
+lang=cpp ok=true lines=135 errors=0
+--- defs (27)
+  0 var     instances                    L8-8 parent=~shapes type=- arity=0..0 flags=0x00 | int geo::shapes::instances =
+  1 field   live                         L9-9 parent=~Shape type=- arity=0..0 flags=0x00 | int Shape::live =
+  2 var     draw_calls                   L10-10 parent=- type=- arity=0..0 flags=0x02 | static int draw_calls;
+  3 fn      by_area                      L11-11 parent=- type=- arity=2..2 flags=0x03 | static bool by_area(const Shape *a, const Shape *b);
+  4 struct  Session                      L13-13 parent=- type=- arity=0..0 flags=0x02 | struct Session
+  5 field   canvas                       L13-13 parent=Session type=Canvas arity=0..0 flags=0x02 | Canvas *canvas;
+  6 field   depth                        L13-13 parent=Session type=- arity=0..0 flags=0x02 | int depth;
+  7 method  reset                        L13-13 parent=Session type=- arity=0..0 flags=0x03 | void reset();
+  8 var     budget                       L14-14 parent=- type=- arity=0..0 flags=0x02 | int budget =
+  9 fn      spend                        L15-15 parent=- type=- arity=1..1 flags=0x02 | void spend(int n)
+ 10 method  reset                        L17-17 parent=~Session type=- arity=0..0 flags=0x02 | void Session::reset()
+ 11 method  ~Shape                       L19-19 parent=~Shape type=- arity=0..0 flags=0x00 | Shape::~Shape()
+ 12 method  validate                     L21-29 parent=~Shape type=- arity=0..0 flags=0x00 | bool Shape::validate() const
+ 13 method  draw                         L31-96 parent=~Shape type=- arity=2..2 flags=0x00 | void Shape::draw(Canvas &canvas, int layer) const
+ 14 method  area                         L98-108 parent=~Poly type=- arity=0..0 flags=0x00 | template <typename T, int N, typename... Rest> double Poly<T, N, Rest...>::area() const
+ 15 fn      length                       L110-127 parent=~shapes type=- arity=2..2 flags=0x00 | double geo::shapes::length(const Path &path, bool closed)
+ 16 fn      dist                         L111-111 parent=length type=- arity=2..2 flags=0x02 | auto dist = [&](const Point &a, const Point &b) -> double
+ 17 struct  Local                        L124-124 parent=length type=- arity=0..0 flags=0x02 | struct Local
+ 18 field   n                            L124-124 parent=Local type=- arity=0..0 flags=0x02 | int n;
+ 19 method  twice                        L124-124 parent=Local type=- arity=0..0 flags=0x02 | int twice() const
+ 20 fn      on_exit                      L129-129 parent=- type=- arity=1..1 flags=0x02 | static auto on_exit = [](int code)
+ 21 var     hook                         L130-130 parent=- type=- arity=1..1 flags=0x22 | static void (*hook)(Shape *) =
+ 22 fn      operator<<                   L131-131 parent=~shapes type=Shape arity=2..2 flags=0x00 | Shape &geo::shapes::operator<<(Shape &s, const Point &p)
+ 23 method  operator bool                L132-132 parent=~Poly type=- arity=0..0 flags=0x00 | Poly<int>::operator bool() const
+ 24 fn      pick                         L133-133 parent=- type=- arity=1..1 flags=0x00 | int (*pick(int which))(int)
+ 25 method  Shape                        L134-134 parent=~Shape type=Shape arity=2..2 flags=0x00 | Shape::Shape(Id id, Fill fill)
+ 26 method  operator bool                L135-135 parent=~Shape type=- arity=0..0 flags=0x00 | inline Shape::operator bool() const
+--- refs (201)
+L5    import  unique_ptr                   in <file> qual=std
+L8    type    geo                          in instances
+L8    type    shapes                       in instances
+L9    type    Shape                        in live
+L11   type    Shape                        in by_area
+L11   type    Shape                        in by_area
+L13   type    Canvas                       in Session
+L15   write   budget                       in spend
+L17   type    Session                      in reset
+L17   mwrite  depth                        in reset qual=Session
+L19   type    Shape                        in ~Shape
+L19   write   live                         in ~Shape qual=Shape
+L21   type    Shape                        in validate
+L22   read    cache_                       in validate qual=Shape
+L22   read    id_                          in validate qual=Shape
+L24   mcall   flush                        in validate qual=Shape::cache_ nargs=0
+L24   read    cache_                       in validate qual=Shape
+L25   mcall   clear                        in validate qual=Shape::outline_ nargs=0
+L25   read    outline_                     in validate qual=Shape
+L26   read    stats_                       in validate qual=Shape
+L26   mwrite  draws                        in validate qual=Shape::stats_
+L27   write   on_change_                   in validate qual=Shape
+L28   call    check                        in validate qual=Shape nargs=1
+L28   mcall   filled                       in validate qual=Shape nargs=0
+L28   type    Shape                        in validate
+L28   read    id_                          in validate qual=Shape
+L28   read    live                         in validate qual=Shape
+L31   type    Canvas                       in draw
+L31   type    Shape                        in draw
+L32   type    Point                        in draw
+L33   new     Point                        in draw nargs=2
+L34   type    Point                        in draw
+L35   call    current                      in draw qual=Shape nargs=0
+L35   type    Session                      in draw
+L36   new     Canvas                       in draw nargs=1
+L37   call    make_unique                  in draw qual=std nargs=0
+L37   new     Session                      in draw nargs=0
+L38   call    make_shared                  in draw qual=std nargs=2
+L38   type    geo                          in draw
+L38   type    shapes                       in draw
+L38   new     Point                        in draw qual=geo::shapes nargs=2
+L39   type    Shape                        in draw
+L39   type    unique_ptr                   in draw
+L40   type    Point                        in draw
+L40   type    vector                       in draw qual=std
+L41   mcall   begin                        in draw qual=Canvas nargs=1
+L42   mread   y                            in draw qual=Point
+L42   mwrite  x                            in draw qual=Point
+L43   mwrite  y                            in draw qual=Point
+L43   bind    kMaxSides                    in draw qual=Point.y
+L44   mcall   line                         in draw qual=Session::canvas nargs=2
+L44   mread   canvas                       in draw qual=Session
+L45   mcall   clear                        in draw qual=Canvas nargs=0
+L46   mcall   reset                        in draw qual=Session nargs=0
+L47   mcall   release                      in draw nargs=0
+L48   mwrite  x                            in draw qual=Point
+L49   mcall   draw                         in draw qual=Shape nargs=1
+L50   mcall   push_back                    in draw qual=vector nargs=1
+L51   mwrite  x                            in draw
+L52   write   draw_calls                   in draw
+L53   call    spend                        in draw nargs=1
+L54   call    length                       in draw qual=geo::shapes nargs=2
+L54   type    geo                          in draw
+L54   type    shapes                       in draw
+L54   read    outline_                     in draw qual=Shape
+L55   call    path                         in draw qual=Shape nargs=0
+L55   call    remove                       in draw qual=std::filesystem nargs=1
+L56   call    abort                        in draw nargs=0
+L57   type    Poly                         in draw
+L58   mcall   at                           in draw qual=Poly nargs=1
+L59   type    Shape                        in draw
+L59   read    ptr2                         in draw qual=Shape
+L60   mcall   area                         in draw qual=Shape nargs=0
+L61   type    Fill                         in draw
+L61   read    Solid                        in draw qual=Fill
+L61   new     Canvas                       in draw nargs=2
+L62   mcall   end                          in draw qual=Canvas nargs=0
+L63   mcall   end                          in draw qual=Canvas nargs=0
+L63   new     Canvas                       in draw nargs=1
+L64   mcall   bounds                       in draw qual=Canvas nargs=0
+L65   mcall   grow                         in draw qual=Canvas::bounds() nargs=2
+L66   call    isa                          in draw nargs=1
+L66   type    Poly                         in draw
+L67   call    cast                         in draw nargs=1
+L67   mcall   area                         in draw qual=Shape nargs=0
+L67   type    Shape                        in draw
+L68   call    make                         in draw qual=Shape nargs=2
+L68   type    Ref                          in draw
+L68   type    Shape                        in draw
+L68   type    Shape                        in draw
+L69   type    Fill                         in draw
+L69   type    Fill                         in draw
+L69   read    Solid                        in draw qual=Fill
+L72   call    bounds                       in draw qual=Shape nargs=0
+L72   mcall   grow                         in draw qual=Shape::bounds() nargs=1
+L73   call    make                         in draw qual=Shape nargs=2
+L73   mcall   area                         in draw qual=Shape::make() nargs=0
+L73   type    Shape                        in draw
+L74   call    make                         in draw qual=Shape nargs=2
+L74   mcall   area                         in draw qual=Shape::make() nargs=0
+L74   type    Shape                        in draw
+L74   type    geo                          in draw
+L74   type    shapes                       in draw
+L75   call    current                      in draw qual=geo::shapes nargs=0
+L75   mcall   reset                        in draw qual=current() nargs=0
+L75   type    geo                          in draw
+L75   type    shapes                       in draw
+L76   call    Timer                        in draw qual=util nargs=1
+L76   mcall   stop                         in draw qual=Timer() nargs=0
+L76   type    util                         in draw
+L77   call    clock                        in draw qual=util nargs=0
+L77   mcall   now                          in draw qual=util::clock() nargs=0
+L77   type    util                         in draw
+L78   mcall   clear                        in draw qual=Canvas::layer() nargs=0
+L78   mcall   layer                        in draw qual=Canvas nargs=0
+L79   mcall   size                         in draw qual=Shape::outline_ nargs=0
+L79   mread   outline_                     in draw qual=Shape
+L80   call    outline                      in draw qual=Shape nargs=0
+L80   mcall   front                        in draw qual=Shape::outline() nargs=0
+L81   mcall   norm                         in draw qual=Shape::outline()::front() nargs=0
+L82   type    Point                        in draw
+L82   type    optional                     in draw qual=std
+L83   mcall   norm                         in draw qual=Point nargs=0
+L84   mcall   reset                        in draw qual=optional nargs=0
+L85   type    Point                        in draw
+L85   type    vector                       in draw qual=std
+L86   type    Canvas                       in draw
+L88   mcall   push_back                    in draw qual=vector nargs=1
+L90   mcall   clear                        in draw qual=Canvas nargs=0
+L91   call    bounds                       in draw qual=Shape nargs=0
+L91   new     Canvas                       in draw nargs=1
+L92   call    make_layer                   in draw qual=Shape nargs=1
+L92   new     Canvas                       in draw nargs=2
+L93   call    cast                         in draw nargs=1
+L93   type    Canvas                       in draw
+L93   new     Canvas                       in draw nargs=1
+L94   type    Fill                         in draw
+L94   type    geo                          in draw
+L94   type    shapes                       in draw
+L94   read    None                         in draw qual=Fill
+L95   mcall   each                         in draw qual=Canvas nargs=2
+L95   read    visit_point                  in draw qual=Shape
+L99   type    Poly                         in area
+L101  read    sides                        in area qual=Poly
+L103  read    lookup_                      in area qual=Poly
+L104  call    use                          in area qual=Poly nargs=2
+L105  call    count                        in area qual=Poly nargs=0
+L106  call    at                           in area qual=Poly nargs=1
+L107  read    tau                          in area qual=Poly
+L110  type    Path                         in length
+L110  type    geo                          in length
+L110  type    shapes                       in length
+L111  call    hypot                        in dist nargs=2
+L111  type    Point                        in dist
+L111  type    Point                        in dist
+L111  mread   x                            in dist qual=Point
+L111  mread   x                            in dist qual=Point
+L111  mread   y                            in dist qual=Point
+L111  mread   y                            in dist qual=Point
+L113  mcall   begin                        in length qual=Path nargs=0
+L113  mcall   end                          in length qual=Path nargs=0
+L114  call    dist                         in length nargs=2
+L114  mcall   front                        in length qual=Path nargs=0
+L115  call    sort                         in length qual=std nargs=3
+L115  mcall   begin                        in length qual=Path nargs=0
+L115  mcall   end                          in length qual=Path nargs=0
+L115  arg     by_area                      in length qual=sort
+L116  call    apply                        in length nargs=1
+L116  arg     dist                         in length qual=apply
+L118  call    risky                        in length nargs=1
+L119  type    exception                    in length qual=std
+L120  call    report                       in length nargs=1
+L120  mcall   what                         in length qual=exception nargs=0
+L122  call    bonus                        in length nargs=0
+L124  mread   n                            in twice qual=Local
+L125  new     Local                        in length nargs=1
+L126  mcall   twice                        in length qual=Local nargs=0
+L129  call    cleanup                      in on_exit nargs=1
+L130  type    Shape                        in hook
+L130  read    notify                       in hook
+L131  mcall   push_back                    in operator<< qual=Shape::outline_ nargs=1
+L131  type    Point                        in operator<<
+L131  type    Shape                        in operator<<
+L131  type    Shape                        in operator<<
+L131  type    geo                          in operator<<
+L131  type    shapes                       in operator<<
+L131  mread   outline_                     in operator<< qual=Shape
+L132  type    Poly                         in operator bool
+L132  read    sides                        in operator bool qual=Poly
+L133  read    twice                        in pick
+L134  call    Tracked                      in Shape nargs=2
+L134  call    touch                        in Shape qual=Tracked nargs=0
+L134  type    Fill                         in Shape
+L134  type    Id                           in Shape
+L134  type    Shape                        in Shape
+L134  type    Tracked                      in Shape
+L134  mwrite  id_                          in Shape qual=Shape
+L134  mwrite  on_change_                   in Shape qual=Shape
+L134  bind    notify                       in Shape qual=Shape.on_change_
+L135  type    Shape                        in operator bool
+L135  read    id_                          in operator bool qual=Shape
+--- imports (5)
+L2    target=geo/shapes.hpp name=- alias=- flags=0
+L3    target=algorithm name=- alias=- flags=1
+L4    target=geo::shapes name=- alias=- flags=2
+L5    target=std name=unique_ptr alias=- flags=1
+L6    target=std::filesystem name=- alias=fs flags=1

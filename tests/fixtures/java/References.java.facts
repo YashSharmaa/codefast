@@ -1,0 +1,232 @@
+lang=java ok=true lines=132 errors=0
+--- defs (16)
+  0 ns      com.acme.shop                L1-1 parent=- type=- arity=0..0 flags=0x00 | package com.acme.shop
+  1 class   Orders                       L9-132 parent=- type=- arity=0..0 flags=0x04 | public class Orders extends Base<Order> implements Handler<Order>, Runnable
+  2 field   repo                         L11-11 parent=Orders type=Repo arity=0..0 flags=0x02 | private final Repo repo
+  3 field   channels                     L12-12 parent=Orders type=Channel arity=0..0 flags=0x02 | private Channel[] channels
+  4 field   count                        L13-13 parent=Orders type=- arity=0..0 flags=0x02 | private int count
+  5 field   EMPTY                        L14-14 parent=Orders type=Orders arity=0..0 flags=0x00 | static final Orders EMPTY =
+  6 field   sink                         L15-15 parent=Orders type=Consumer arity=0..0 flags=0x00 | Consumer<Order> sink
+  7 method  Orders                       L17-22 parent=Orders type=- arity=1..1 flags=0x00 | Orders(Repo repo)
+  8 method  calls                        L24-47 parent=Orders type=- arity=2..2 flags=0x00 | void calls(Order order, List<Order> all) throws IOException
+  9 method  generics                     L49-58 parent=Orders type=- arity=2..2 flags=0x00 | <T extends Shippable> void generics(T item, Map<String, ? super Order> byId)
+ 10 method  creation                     L60-75 parent=Orders type=Object arity=1..1 flags=0x00 | Object creation(Order order)
+ 11 method  accept                       L67-72 parent=creation type=- arity=1..1 flags=0x04 | public void accept(Order o)
+ 12 method  methodRefs                   L77-83 parent=Orders type=- arity=1..1 flags=0x00 | void methodRefs(List<Order> all)
+ 13 method  fields                       L85-93 parent=Orders type=- arity=2..2 flags=0x00 | void fields(Order order, Orders other)
+ 14 method  locals                       L95-128 parent=Orders type=- arity=2..2 flags=0x00 | void locals(Object value, List<Order> all)
+ 15 method  run                          L130-131 parent=Orders type=- arity=0..0 flags=0x04 | public void run()
+--- refs (208)
+L3    import  Channel                      in <file> qual=com.acme.io
+L4    import  URL                          in <file> qual=com.acme.io
+L5    import  IOException                  in <file> qual=java.io
+L6    import  require                      in <file> qual=com.acme.util.Checks
+L9    annot   Service                      in Orders
+L10   type    Order                        in Orders
+L10   type    Order                        in Orders
+L10   extends Base                         in Orders
+L10   impl    Handler                      in Orders
+L11   type    Repo                         in repo
+L12   type    Channel                      in channels
+L14   type    Orders                       in EMPTY
+L14   new     Orders                       in EMPTY nargs=1
+L15   type    Consumer                     in sink
+L15   type    Order                        in sink
+L17   type    Repo                         in Orders
+L18   call    Base                         in Orders qual=Base nargs=2
+L19   mwrite  repo                         in Orders qual=Orders
+L20   read    accept                       in Orders qual=Orders
+L20   mwrite  sink                         in Orders qual=Orders
+L20   bind    accept                       in Orders qual=Orders.sink
+L21   type    Orders                       in Orders
+L21   read    log                          in Orders qual=Orders
+L21   mwrite  sink                         in Orders qual=Orders
+L21   bind    log                          in Orders qual=Orders.sink
+L24   type    IOException                  in calls
+L24   type    List                         in calls
+L24   type    Order                        in calls
+L24   type    Order                        in calls
+L25   call    validate                     in calls qual=Orders nargs=1
+L26   mcall   validate                     in calls qual=Orders nargs=1
+L27   mcall   close                        in calls qual=^Orders nargs=0
+L28   mcall   ship                         in calls qual=Order nargs=2
+L29   type    Repo                         in calls
+L29   mread   repo                         in calls qual=Orders
+L30   mcall   save                         in calls qual=Repo nargs=1
+L31   mcall   save                         in calls qual=Orders::repo nargs=1
+L31   mread   repo                         in calls qual=Orders
+L32   mcall   cancel                       in calls qual=Orders::repo::find() nargs=0
+L32   mcall   find                         in calls qual=Orders::repo nargs=1
+L32   mread   repo                         in calls qual=Orders
+L33   call    log                          in calls qual=Orders nargs=1
+L33   type    Orders                       in calls
+L34   call    of                           in calls qual=Money nargs=1
+L34   mcall   cents                        in calls qual=Money::of()::plus() nargs=0
+L34   mcall   plus                         in calls qual=Money::of() nargs=1
+L34   type    Money                        in calls
+L34   type    Money                        in calls
+L34   mread   ZERO                         in calls qual=Money
+L35   call    require                      in calls qual=com.acme.util|Checks nargs=1
+L35   type    Checks                       in calls qual=com.acme.util
+L36   call    require                      in calls qual=com.acme.util|Checks nargs=1
+L36   mcall   isEmpty                      in calls qual=List nargs=0
+L37   mcall   run                          in calls qual=Orders::EMPTY nargs=0
+L37   mread   EMPTY                        in calls qual=Orders
+L38   mcall   check                        in calls qual=Orders::LIMITS nargs=1
+L38   mread   LIMITS                       in calls qual=Orders
+L38   mread   count                        in calls qual=Orders
+L39   call    parse                        in calls qual=URL nargs=1
+L39   mcall   open                         in calls qual=URL::parse() nargs=0
+L39   type    URL                          in calls
+L40   call    valueOf                      in calls qual=String nargs=1
+L40   mcall   println                      in calls qual=System::out nargs=1
+L40   mread   count                        in calls qual=Orders
+L40   mread   out                          in calls qual=System
+L41   mcall   send                         in calls qual=Orders::channels nargs=2
+L41   mread   channels                     in calls qual=Orders
+L42   mcall   cancel                       in calls qual=Order nargs=0
+L42   mcall   get                          in calls qual=List nargs=1
+L42   type    Order                        in calls
+L43   mcall   concat                       in calls qual=String nargs=1
+L43   mread   id                           in calls qual=Order
+L44   mcall   ship                         in calls qual=Order nargs=2
+L44   new     Order                        in calls nargs=1
+L45   call    emptyList                    in calls qual=Collections nargs=0
+L45   mcall   size                         in calls qual=Collections::emptyList() nargs=0
+L45   type    Collections                  in calls
+L45   type    Order                        in calls
+L46   call    register                     in calls qual=Orders nargs=2
+L46   type    Property                     in calls qual=Setting
+L46   type    Setting                      in calls
+L46   mread   NaN                          in calls qual=Double
+L46   mread   NodeScope                    in calls qual=Setting::Property
+L49   type    Map                          in generics
+L49   type    Order                        in generics
+L49   type    Shippable                    in generics
+L50   mcall   ship                         in generics qual=Shippable nargs=0
+L52   type    List                         in generics
+L52   new     ArrayList                    in generics nargs=0
+L53   type    Entry                        in generics qual=Map
+L53   type    Map                          in generics
+L53   type    Order                        in generics
+L54   call    empty                        in generics qual=java.util|Optional nargs=0
+L54   type    Optional                     in generics qual=java.util
+L54   type    Optional                     in generics qual=java.util
+L54   type    Order                        in generics
+L55   type    Order                        in generics
+L56   type    Shippable                    in generics
+L57   call    root                         in generics qual=FST nargs=1
+L57   type    Arc                          in generics qual=FST
+L57   type    FST                          in generics
+L57   type    FST                          in generics
+L57   type    Lookup                       in generics
+L57   new     T                            in generics qual=Lookup nargs=1
+L60   type    Order                        in creation
+L61   type    Order                        in creation
+L61   new     Order                        in creation nargs=2
+L62   type    Line                         in creation qual=Order
+L62   type    Order                        in creation
+L62   type    Order                        in creation
+L62   new     Line                         in creation qual=Order nargs=0
+L63   type    Line                         in creation qual=Order
+L63   type    Order                        in creation
+L63   new     Line                         in creation qual=Order nargs=0
+L65   type    Order                        in creation
+L65   type    Order                        in creation
+L66   type    Handler                      in creation
+L66   type    Order                        in creation
+L66   type    Order                        in creation
+L66   extends Handler                      in creation
+L66   new     Handler                      in creation nargs=0
+L68   type    Order                        in accept
+L69   mwrite  count                        in accept qual=Orders
+L70   call    validate                     in accept qual=Orders nargs=1
+L71   mcall   accept                       in accept qual=Handler nargs=1
+L77   type    List                         in methodRefs
+L77   type    Order                        in methodRefs
+L78   mcall   forEach                      in methodRefs qual=List nargs=1
+L78   read    accept                       in methodRefs qual=Orders
+L78   arg     accept                       in methodRefs qual=forEach
+L79   mcall   forEach                      in methodRefs qual=List nargs=1
+L79   type    Orders                       in methodRefs
+L79   read    log                          in methodRefs qual=Orders
+L79   arg     log                          in methodRefs qual=forEach
+L80   mcall   forEach                      in methodRefs qual=List nargs=1
+L80   read    save                         in methodRefs qual=Orders::repo
+L80   mread   repo                         in methodRefs qual=Orders
+L80   arg     save                         in methodRefs qual=forEach
+L81   mcall   map                          in methodRefs qual=List::stream() nargs=1
+L81   mcall   map                          in methodRefs qual=List::stream()::map() nargs=1
+L81   mcall   stream                       in methodRefs qual=List nargs=0
+L81   mcall   toArray                      in methodRefs qual=List::stream()::map()::map() nargs=1
+L81   type    Line                         in methodRefs qual=Order
+L81   type    Order                        in methodRefs
+L81   type    Order                        in methodRefs
+L81   read    of                           in methodRefs qual=Order::Line
+L81   new     Order                        in methodRefs
+L81   arg     of                           in methodRefs qual=map
+L82   type    Supplier                     in methodRefs
+L82   read    toString                     in methodRefs qual=^Orders
+L85   type    Order                        in fields
+L85   type    Orders                       in fields
+L86   mread   cents                        in fields qual=Order::total
+L86   mread   count                        in fields qual=Orders
+L86   mread   count                        in fields qual=Orders
+L86   mread   count                        in fields qual=Orders
+L86   mread   total                        in fields qual=Order
+L87   mwrite  count                        in fields qual=Orders
+L88   mwrite  count                        in fields qual=Orders
+L89   mwrite  count                        in fields qual=Orders
+L90   mread   MAX                          in fields qual=Orders
+L90   mread   total                        in fields qual=Order
+L90   mwrite  cents                        in fields qual=Order::total
+L91   mwrite  channels                     in fields qual=Orders
+L92   type    Limits                       in fields
+L92   mread   DEFAULT                      in fields qual=Limits
+L92   mread   channels                     in fields qual=Orders
+L92   mread   length                       in fields
+L92   mread   max                          in fields qual=Limits::DEFAULT
+L95   type    List                         in locals
+L95   type    Order                        in locals
+L96   mcall   size                         in locals qual=List nargs=0
+L97   mcall   get                          in locals qual=List nargs=1
+L97   type    Order                        in locals
+L98   mcall   ship                         in locals qual=Order nargs=2
+L100  type    Order                        in locals
+L101  mcall   cancel                       in locals qual=Order nargs=0
+L103  call    open                         in locals qual=Channel nargs=0
+L103  type    Channel                      in locals
+L103  type    Channel                      in locals
+L103  new     Sink                         in locals nargs=1
+L104  mcall   send                         in locals qual=Channel nargs=2
+L105  mcall   flush                        in locals qual=Sink nargs=0
+L106  type    IOException                  in locals
+L106  type    IllegalStateException        in locals
+L107  mcall   printStackTrace              in locals nargs=0
+L108  type    Failure                      in locals
+L109  mcall   report                       in locals qual=Failure nargs=0
+L111  call    reset                        in locals qual=Orders nargs=0
+L113  mcall   isOpen                       in locals qual=Order nargs=0
+L113  type    Order                        in locals
+L114  mcall   cancel                       in locals qual=Order nargs=0
+L116  mcall   cancel                       in locals nargs=0
+L116  mcall   forEach                      in locals qual=List nargs=1
+L117  mcall   forEach                      in locals qual=List nargs=1
+L117  mcall   ship                         in locals qual=Order nargs=2
+L117  type    Order                        in locals
+L118  type    BiFunction                   in locals
+L118  type    Order                        in locals
+L118  type    Order                        in locals
+L119  new     Order                        in locals nargs=2
+L120  mcall   cancel                       in locals qual=Order nargs=0
+L121  mcall   get                          in locals qual=List nargs=1
+L122  mcall   cancel                       in locals qual=List::get() nargs=0
+L123  mwrite  count                        in locals qual=Orders
+L125  mcall   get                          in locals qual=List nargs=1
+L125  type    Order                        in locals
+L126  mcall   cancel                       in locals qual=Order nargs=0
+--- imports (4)
+L3    target=com.acme.io name=Channel alias=- flags=0
+L4    target=com.acme.io name=URL alias=- flags=0
+L5    target=java.io name=IOException alias=- flags=1
+L6    target=com.acme.util.Checks name=require alias=- flags=0

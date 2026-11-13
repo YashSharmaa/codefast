@@ -1,0 +1,32 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "codefast",
+  "version": "0.1.0",
+  "description": "LLM-free code intelligence for coding agents: definitions, references, callers, call paths and bug-report localisation from a fast structural index, in one call and few tokens.",
+  "author": {
+    "name": "codefast contributors",
+    "url": "https://github.com/YashSharmaa/codefast"
+  },
+  "homepage": "https://github.com/YashSharmaa/codefast",
+  "repository": "https://github.com/YashSharmaa/codefast",
+  "license": "MIT OR Apache-2.0",
+  "keywords": ["code-intelligence", "code-search", "call-graph", "references", "mcp", "agent-skills"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "codefast",
+        "shortDescription": "Code search and call graphs",
+        "longDescription": "codefast answers structural questions about a repository from a prebuilt index: where a symbol is defined, who calls or uses it (including through callback tables), what a function calls, how execution gets from one function to another, which function prints a message, and which files to open for a bug report or stack trace. It runs locally, calls no language model, and indexes very large repositories in seconds. The plugin adds a skill that runs the codefast command and an MCP server with five read-only tools.",
+        "developerName": "codefast contributors",
+        "category": "Developer Tools",
+        "capabilities": ["Read"],
+        "websiteURL": "https://github.com/YashSharmaa/codefast",
+        "defaultPrompt": [
+          "Use codefast to find who calls this function.",
+          "Use codefast to show how execution gets from main to this function.",
+          "Use codefast to find where to look for this bug report."
+        ]
+      }
+    }
+  }
+}

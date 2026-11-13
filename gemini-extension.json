@@ -1,0 +1,12 @@
+{
+  "name": "codefast",
+  "version": "0.1.0",
+  "description": "LLM-free code intelligence: definitions, references, callers, call paths and bug-report localisation from a fast structural index, in one call and few tokens.",
+  "contextFileName": "GEMINI.md",
+  "mcpServers": {
+    "codefast": {
+      "command": "${extensionPath}${/}bin${/}codefast",
+      "args": ["mcp", "--root", "${workspacePath}"]
+    }
+  }
+}

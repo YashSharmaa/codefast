@@ -1,0 +1,1 @@
+{"session_id": "0a9f3c1e", "cwd": "{{REPO}}", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": {"command": "grep -rn dev_read src/", "descr

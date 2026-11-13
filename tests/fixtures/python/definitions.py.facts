@@ -1,0 +1,152 @@
+lang=python ok=true lines=158 errors=0
+--- defs (71)
+  0 var     __all__                      L8-8 parent=- type=list arity=0..0 flags=0x00 | __all__ =
+  1 const   MAX_SIDES                    L10-10 parent=- type=int arity=0..0 flags=0x04 | MAX_SIDES =
+  2 const   DEFAULT_NAME                 L11-11 parent=- type=str arity=0..0 flags=0x00 | DEFAULT_NAME: str =
+  3 var     registry                     L12-12 parent=- type=dict arity=0..0 flags=0x00 | registry =
+  4 var     counter                      L13-13 parent=- type=int arity=0..0 flags=0x00 | counter: int
+  5 var     origin                       L14-14 parent=- type=- arity=0..0 flags=0x00 | origin, unit =
+  6 var     unit                         L14-14 parent=- type=- arity=0..0 flags=0x00 | origin, unit =
+  7 var     first                        L15-15 parent=- type=- arity=0..0 flags=0x00 | first =
+  8 var     second                       L15-15 parent=- type=- arity=0..0 flags=0x00 | second =
+  9 type    Vector                       L17-17 parent=- type=tuple arity=0..0 flags=0x00 | Vector: TypeAlias =
+ 10 type    Number                       L18-18 parent=- type=Decimal arity=0..0 flags=0x00 | Number =
+ 11 type    Pair                         L19-19 parent=- type=tuple arity=0..0 flags=0x00 | type Pair[T] =
+ 12 fn      square                       L21-21 parent=- type=- arity=1..2 flags=0x00 | square = lambda side, scale=1
+ 13 fn      area_of                      L24-32 parent=- type=float arity=1..2 flags=0x04 | def area_of(shape: "Shape", *, precise: bool = False) -> float
+ 14 fn      clamp                        L25-26 parent=area_of type=- arity=1..3 flags=0x00 | def clamp(value, low=0.0, high=1.0)
+ 15 class   Result                       L28-29 parent=area_of type=- arity=0..255 flags=0x00 | class Result
+ 16 field   ok                           L29-29 parent=Result type=bool arity=0..0 flags=0x00 | ok =
+ 17 fn      halve                        L31-31 parent=area_of type=- arity=1..1 flags=0x00 | halve = lambda x
+ 18 fn      fetch                        L35-36 parent=- type=Shape arity=1..255 flags=0x80 | async def fetch(url, *args, timeout=10, **options) -> Optional["Shape"]
+ 19 fn      variadic                     L39-39 parent=- type=- arity=1..255 flags=0x00 | def variadic(self, a, b=1, /, c=2, *rest)
+ 20 class   Meta                         L42-43 parent=- type=- arity=0..255 flags=0x00 | class Meta(type)
+ 21 class   Shape                        L46-101 parent=- type=- arity=1..255 flags=0x04 | class Shape(ABC, metaclass=Meta)
+ 22 field   sides                        L49-49 parent=Shape type=int arity=0..0 flags=0x00 | sides: ClassVar[int] =
+ 23 field   name                         L50-50 parent=Shape type=str arity=0..0 flags=0x00 | name =
+ 24 field   on_change                    L51-51 parent=Shape type=Callable arity=0..0 flags=0x20 | on_change: Optional[Callable[[int], None]] =
+ 25 field   tags                         L52-52 parent=Shape type=- arity=0..0 flags=0x00 | tags, labels =
+ 26 field   labels                       L52-52 parent=Shape type=- arity=0..0 flags=0x00 | tags, labels =
+ 27 prop    ident                        L53-53 parent=Shape type=- arity=0..0 flags=0x00 | ident =
+ 28 method  __init__                     L55-63 parent=Shape type=- arity=1..255 flags=0x00 | def __init__(self, name: str, parent: "Shape" = None, *children, origin=origin)
+ 29 field   parent                       L57-57 parent=Shape type=Shape arity=0..0 flags=0x00 | self.parent =
+ 30 field   bounds                       L58-58 parent=Shape type=Rect arity=0..0 flags=0x00 | self.bounds: Rect =
+ 31 field   cache                        L59-59 parent=Shape type=Cache arity=0..0 flags=0x00 | self.cache =
+ 32 field   dirty                        L60-60 parent=Shape type=Flag arity=0..0 flags=0x00 | self.dirty =
+ 33 field   listener                     L61-61 parent=Shape type=- arity=0..0 flags=0x20 | self.listener =
+ 34 field   origin                       L62-62 parent=Shape type=- arity=0..0 flags=0x00 | self.origin, self.extent =
+ 35 field   extent                       L62-62 parent=Shape type=- arity=0..0 flags=0x00 | self.origin, self.extent =
+ 36 method  area                         L65-66 parent=Shape type=float arity=0..0 flags=0x41 | @abstractmethod def area(self) -> float
+ 37 prop    label                        L68-70 parent=Shape type=str arity=0..0 flags=0x00 | @property def label(self) -> str
+ 38 prop    label                        L72-75 parent=Shape type=- arity=1..1 flags=0x00 | @label.setter def label(self, value)
+ 39 field   renamed                      L75-75 parent=Shape type=bool arity=0..0 flags=0x00 | self.renamed =
+ 40 prop    perimeter                    L77-79 parent=Shape type=- arity=0..0 flags=0x00 | @cached_property def perimeter(self)
+ 41 method  unit                         L81-83 parent=Shape type=Shape arity=1..2 flags=0x00 | @staticmethod def unit(scale, offset=0) -> "Shape"
+ 42 method  named                        L85-89 parent=Shape type=Shape arity=1..1 flags=0x00 | @classmethod def named(cls, name) -> "Shape"
+ 43 field   last_named                   L88-88 parent=Shape type=Shape arity=0..0 flags=0x00 | cls.last_named =
+ 44 method  render                       L91-92 parent=Shape type=- arity=1..1 flags=0x80 | async def render(self, canvas: Canvas) -> None
+ 45 method  describe                     L94-95 parent=Shape type=- arity=0..0 flags=0x40 | def describe(self)
+ 46 class   Style                        L97-101 parent=Shape type=- arity=0..255 flags=0x00 | class Style
+ 47 field   width                        L98-98 parent=Style type=int arity=0..0 flags=0x00 | width =
+ 48 method  scaled                       L100-101 parent=Style type=- arity=1..1 flags=0x00 | def scaled(self, factor)
+ 49 class   Drawable                     L104-113 parent=- type=- arity=0..255 flags=0x00 | class Drawable(Protocol)
+ 50 field   visible                      L105-105 parent=Drawable type=bool arity=0..0 flags=0x00 | visible: bool
+ 51 method  draw                         L107-107 parent=Drawable type=- arity=1..1 flags=0x01 | def draw(self, canvas: "Canvas") -> None
+ 52 method  hide                         L109-110 parent=Drawable type=- arity=0..0 flags=0x01 | def hide(self) -> None
+ 53 method  bounds                       L112-113 parent=Drawable type=- arity=0..0 flags=0x01 | def bounds(self)
+ 54 class   Rect                         L116-120 parent=- type=- arity=0..255 flags=0x00 | @dataclass(frozen=True) class Rect
+ 55 field   left                         L118-118 parent=Rect type=float arity=0..0 flags=0x00 | left: float
+ 56 field   top                          L119-119 parent=Rect type=float arity=0..0 flags=0x00 | top: float =
+ 57 field   corners                      L120-120 parent=Rect type=list arity=0..0 flags=0x00 | corners: list["Point"] =
+ 58 fn      scale                        L123-124 parent=- type=int arity=1..1 flags=0x01 | @overload def scale(x: int) -> int
+ 59 fn      scale                        L125-126 parent=- type=float arity=1..1 flags=0x01 | @overload def scale(x: float) -> float
+ 60 fn      scale                        L127-128 parent=- type=- arity=1..1 flags=0x00 | def scale(x)
+ 61 class   Square                       L131-134 parent=- type=- arity=0..255 flags=0x00 | class Square(Shape)
+ 62 method  area                         L133-134 parent=Square type=- arity=0..0 flags=0x00 | def area(self)
+ 63 class   TestShape                    L137-142 parent=- type=- arity=0..255 flags=0x08 | class TestShape
+ 64 method  setup_method                 L138-139 parent=TestShape type=- arity=0..0 flags=0x08 | def setup_method(self)
+ 65 field   shape                        L139-139 parent=TestShape type=Square arity=0..0 flags=0x00 | self.shape =
+ 66 method  test_area                    L141-142 parent=TestShape type=- arity=0..0 flags=0x08 | def test_area(self)
+ 67 fn      test_scale                   L145-146 parent=- type=- arity=0..0 flags=0x08 | def test_scale()
+ 68 class   GeometryTests                L149-151 parent=- type=- arity=0..255 flags=0x08 | class GeometryTests(unittest.TestCase)
+ 69 method  helper                       L150-151 parent=GeometryTests type=- arity=0..0 flags=0x08 | def helper(self)
+ 70 fn      debug_only                   L155-156 parent=- type=- arity=0..0 flags=0x00 | def debug_only()
+--- refs (66)
+L3    import  ABC                          in <file> qual=abc
+L3    import  abstractmethod               in <file> qual=abc
+L4    import  dataclass                    in <file> qual=dataclasses
+L5    import  cached_property              in <file> qual=functools
+L6    import  Callable                     in <file> qual=typing
+L6    import  ClassVar                     in <file> qual=typing
+L6    import  Optional                     in <file> qual=typing
+L6    import  Protocol                     in <file> qual=typing
+L6    import  TypeAlias                    in <file> qual=typing
+L6    import  overload                     in <file> qual=typing
+L16   write   MAX_SIDES                    in <file>
+L17   type    TypeAlias                    in Vector
+L18   read    Decimal                      in Number
+L24   type    Shape                        in area_of
+L32   call    clamp                        in area_of nargs=1
+L32   call    halve                        in area_of nargs=1
+L32   mcall   area                         in area_of qual=Shape nargs=0
+L35   type    Optional                     in fetch
+L35   type    Shape                        in fetch
+L36   call    load                         in fetch
+L46   type    Meta                         in Shape
+L46   extends ABC                          in Shape
+L49   type    ClassVar                     in sides
+L50   bind    DEFAULT_NAME                 in name qual=Shape.name
+L51   type    Callable                     in on_change
+L51   type    Optional                     in on_change
+L55   type    Shape                        in __init__
+L55   read    origin                       in __init__
+L56   mwrite  name                         in __init__ qual=Shape
+L58   type    Rect                         in __init__
+L59   call    Cache                        in __init__ nargs=1
+L63   call    Flag                         in __init__ nargs=0
+L63   mwrite  dirty                        in __init__ qual=Shape
+L65   annot   abstractmethod               in area
+L70   mcall   title                        in label qual=Shape::name nargs=0
+L70   mread   name                         in label qual=Shape
+L72   mread   label                        in label qual=Shape
+L74   mwrite  name                         in label qual=Shape
+L77   annot   cached_property              in perimeter
+L79   call    compute                      in perimeter nargs=1
+L82   type    Shape                        in unit
+L83   call    Square                       in unit nargs=1
+L86   type    Shape                        in named
+L87   call    Shape                        in named nargs=1
+L91   type    Canvas                       in render
+L92   mcall   draw                         in render qual=Canvas nargs=1
+L101  mread   width                        in scaled qual=Style
+L104  extends Protocol                     in Drawable
+L107  type    Canvas                       in draw
+L116  annot   dataclass                    in Rect
+L120  type    Point                        in corners
+L123  annot   overload                     in scale
+L125  annot   overload                     in scale
+L131  read    registry                     in Square
+L131  read    very_long_priority_constant_name in Square
+L131  annot   register                     in Square qual=$registry
+L132  extends Shape                        in Square
+L134  mread   side                         in area qual=Square
+L139  call    Square                       in setup_method nargs=1
+L142  mcall   area                         in test_area qual=TestShape::shape nargs=0
+L142  mread   shape                        in test_area qual=TestShape
+L146  call    scale                        in test_scale nargs=1
+L149  extends TestCase                     in GeometryTests qual=unittest
+L154  read    DEBUG                        in <file>
+L156  read    registry                     in debug_only
+L158  write   debug_only                   in <file>
+--- imports (11)
+L2    target=unittest name=- alias=- flags=0
+L3    target=abc name=ABC alias=- flags=0
+L3    target=abc name=abstractmethod alias=- flags=0
+L4    target=dataclasses name=dataclass alias=- flags=0
+L5    target=functools name=cached_property alias=- flags=0
+L6    target=typing name=Callable alias=- flags=0
+L6    target=typing name=ClassVar alias=- flags=0
+L6    target=typing name=Optional alias=- flags=0
+L6    target=typing name=Protocol alias=- flags=0
+L6    target=typing name=TypeAlias alias=- flags=0
+L6    target=typing name=overload alias=- flags=0

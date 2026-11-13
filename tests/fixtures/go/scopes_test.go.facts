@@ -1,0 +1,107 @@
+lang=go ok=true lines=135 errors=0
+--- defs (20)
+  0 mod     server                       L1-1 parent=- type=- arity=0..0 flags=0x00 | package server
+  1 var     cfg                          L10-10 parent=- type=example.com/app/config|Config arity=0..0 flags=0x00 | var cfg *config.Config
+  2 var     timeout                      L12-12 parent=- type=- arity=0..0 flags=0x00 | var timeout
+  3 struct  fakeClock                    L14-14 parent=- type=- arity=0..0 flags=0x00 | type fakeClock struct
+  4 field   now                          L14-14 parent=fakeClock type=- arity=0..0 flags=0x00 | now int64
+  5 method  Now                          L16-16 parent=~fakeClock type=- arity=0..0 flags=0x04 | func (f *fakeClock) Now() int64
+  6 method  TestHelperMethod             L18-18 parent=~fakeClock type=- arity=0..0 flags=0x04 | func (f *fakeClock) TestHelperMethod()
+  7 fn      TestMain                     L20-20 parent=- type=- arity=1..1 flags=0x0c | func TestMain(m *testing.M)
+  8 fn      TestRun                      L22-49 parent=- type=- arity=1..1 flags=0x0c | func TestRun(t *testing.T)
+  9 struct  args                         L23-26 parent=TestRun type=- arity=0..0 flags=0x02 | type args struct
+ 10 field   name                         L24-24 parent=args type=- arity=0..0 flags=0x02 | name string
+ 11 field   opts                         L25-25 parent=args type=example.com/app/config|Options arity=0..0 flags=0x02 | opts *config.Options
+ 12 fn      TestShadow                   L51-81 parent=- type=- arity=1..1 flags=0x0c | func TestShadow(t *testing.T)
+ 13 fn      BenchmarkRun                 L83-96 parent=- type=- arity=1..1 flags=0x0c | func BenchmarkRun(b *testing.B)
+ 14 fn      FuzzRun                      L98-104 parent=- type=- arity=1..1 flags=0x0c | func FuzzRun(f *testing.F)
+ 15 fn      ExampleServer                L106-106 parent=- type=- arity=0..0 flags=0x0c | func ExampleServer()
+ 16 fn      Example_withOptions          L108-108 parent=- type=- arity=0..0 flags=0x0c | func Example_withOptions()
+ 17 fn      Testify                      L110-110 parent=- type=- arity=1..1 flags=0x04 | func Testify(x int) int
+ 18 fn      testHelper                   L112-125 parent=- type=fakeClock arity=1..1 flags=0x00 | func testHelper(t *testing.T) (c *fakeClock, cleanup func())
+ 19 fn      run                          L127-135 parent=- type=- arity=2..2 flags=0x00 | func run(name string, opts *config.Options) (n int, err error)
+--- refs (80)
+L10   type    Config                       in cfg qual=example.com/app/config
+L16   type    fakeClock                    in Now
+L16   mread   now                          in Now qual=fakeClock
+L18   type    fakeClock                    in TestHelperMethod
+L20   mcall   Run                          in TestMain qual=testing|M nargs=0
+L20   type    M                            in TestMain qual=testing
+L22   type    T                            in TestRun qual=testing
+L25   type    Options                      in args qual=example.com/app/config
+L28   type    fakeClock                    in TestRun
+L31   type    args                         in TestRun
+L35   mwrite  name                         in TestRun qual=args
+L35   new     args                         in TestRun
+L36   mwrite  Debug                        in TestRun qual=example.com/app/config|Options
+L36   mwrite  opts                         in TestRun qual=args
+L36   new     Options                      in TestRun qual=example.com/app/config
+L36   new     args                         in TestRun
+L39   mcall   Run                          in TestRun qual=testing|T nargs=2
+L39   type    T                            in TestRun qual=testing
+L39   mread   name                         in TestRun
+L40   call    run                          in TestRun nargs=2
+L40   mread   args                         in TestRun
+L40   mread   args                         in TestRun
+L40   mread   name                         in TestRun
+L40   mread   opts                         in TestRun
+L41   mread   wantErr                      in TestRun
+L42   mcall   Fatalf                       in TestRun qual=testing|T nargs=2
+L44   mread   want                         in TestRun
+L45   mcall   Errorf                       in TestRun qual=testing|T nargs=3
+L45   mcall   Now                          in TestRun qual=fakeClock nargs=0
+L51   type    T                            in TestShadow qual=testing
+L52   mcall   Load                         in TestShadow qual=$cfg nargs=1
+L52   read    cfg                          in TestShadow
+L53   read    timeout                      in TestShadow
+L54   call    Join                         in TestShadow qual=path nargs=2
+L56   call    New                          in TestShadow qual=example.com/app/config nargs=0
+L57   mcall   Load                         in TestShadow qual=example.com/app/config|New() nargs=1
+L58   read    Default                      in TestShadow qual=example.com/app/config
+L58   mread   Debug                        in TestShadow qual=example.com/app/config|$Default
+L59   mcall   Reset                        in TestShadow qual=example.com/app/config|$Default nargs=0
+L61   mcall   Validate                     in TestShadow qual=$cfg nargs=0
+L61   read    cfg                          in TestShadow
+L62   new     fakeClock                    in TestShadow
+L64   new     Options                      in TestShadow qual=example.com/app/config
+L65   mcall   Apply                        in TestShadow qual=example.com/app/config|Options nargs=1
+L67   mcall   Now                          in TestShadow qual=fakeClock nargs=0
+L69   mcall   Helper                       in TestShadow qual=testing|T nargs=0
+L70   read    cfg                          in TestShadow
+L71   mcall   Step                         in TestShadow qual=$cfg nargs=1
+L73   mcall   Clone                        in TestShadow qual=$cfg nargs=0
+L73   read    cfg                          in TestShadow
+L74   mread   Debug                        in TestShadow qual=$cfg::Clone()
+L75   mcall   Load                         in TestShadow qual=$cfg::Clone() nargs=1
+L77   mread   Trace                        in TestShadow qual=$cfg::Clone()
+L78   mcall   Stop                         in TestShadow qual=$cfg::Clone()::Trace nargs=0
+L80   mcall   Log                          in TestShadow qual=testing|T nargs=1
+L80   read    cfg                          in TestShadow
+L80   mread   Name                         in TestShadow qual=$cfg
+L83   type    B                            in BenchmarkRun qual=testing
+L84   mread   N                            in BenchmarkRun qual=testing|B
+L85   call    run                          in BenchmarkRun nargs=2
+L87   mread   N                            in BenchmarkRun qual=testing|B
+L88   call    run                          in BenchmarkRun nargs=2
+L91   type    fakeClock                    in BenchmarkRun
+L92   read    timeout                      in BenchmarkRun
+L93   mcall   Now                          in BenchmarkRun qual=fakeClock nargs=0
+L95   mwrite  now                          in BenchmarkRun qual=fakeClock
+L98   type    F                            in FuzzRun qual=testing
+L99   mcall   Fuzz                         in FuzzRun qual=testing|F nargs=1
+L99   type    T                            in FuzzRun qual=testing
+L100  call    run                          in FuzzRun nargs=2
+L101  mcall   Skip                         in FuzzRun qual=testing|T nargs=0
+L106  call    run                          in ExampleServer nargs=2
+L112  type    T                            in testHelper qual=testing
+L112  type    fakeClock                    in testHelper
+L113  mwrite  now                          in testHelper qual=fakeClock
+L113  new     fakeClock                    in testHelper
+L114  mwrite  now                          in testHelper qual=fakeClock
+L118  read    done                         in testHelper
+L127  type    Options                      in run qual=example.com/app/config
+L131  mread   Limit                        in run qual=example.com/app/config|Options
+--- imports (3)
+L4    target=path name=- alias=- flags=1
+L5    target=testing name=- alias=- flags=1
+L7    target=example.com/app/config name=- alias=- flags=0

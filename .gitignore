@@ -1,0 +1,27 @@
+/target
+/bench/repos/
+/bench/results/raw/
+/bench/.venv/
+.codefast/
+*.cfidx
+.DS_Store
+node_modules/
+__pycache__/
+
+# benchmark scratch and third-party payloads
+/bench/oracles/.work/
+# the oracle tables are tracked gzip-compressed (*.jsonl.gz)
+/bench/oracles/*/*.jsonl
+!/bench/oracles/verification/*.jsonl
+/bench/results/tier0/*.jsonl
+/bench/results/tier0/*-dump/
+/bench/tools/*
+!/bench/tools/README.md
+/bench/results/k0/*.stderr
+/bench/results/k0/*.log
+/bench/results/k0/*.rss
+/bench/results/k0/*.time
+
+# local research notes
+/docs/research/
+/bench/results/*.outputs

@@ -1,0 +1,67 @@
+lang=python ok=true lines=38 errors=0
+--- defs (21)
+  0 const   _T                           L7-7 parent=- type=TypeVar arity=0..0 flags=0x01 | _T =
+  1 const   VERSION                      L8-8 parent=- type=str arity=0..0 flags=0x01 | VERSION: str
+  2 const   DEBUG                        L9-9 parent=- type=bool arity=0..0 flags=0x01 | DEBUG: bool =
+  3 fn      connect                      L11-11 parent=- type=Connection arity=1..3 flags=0x01 | def connect(path: StrPath, timeout: float = ..., *, uri: bool = ...) -> Connection
+  4 fn      aconnect                     L12-12 parent=- type=Connection arity=1..1 flags=0x81 | async def aconnect(path: StrPath) -> Connection
+  5 class   Connection                   L14-29 parent=- type=- arity=1..1 flags=0x00 | class Connection
+  6 field   isolation_level              L15-15 parent=Connection type=str arity=0..0 flags=0x01 | isolation_level: str | None
+  7 field   row_factory                  L16-16 parent=Connection type=- arity=0..0 flags=0x01 | row_factory: Any
+  8 method  __init__                     L17-17 parent=Connection type=- arity=1..1 flags=0x01 | def __init__(self, path: StrPath) -> None
+  9 method  cursor                       L18-18 parent=Connection type=Cursor arity=0..0 flags=0x01 | def cursor(self) -> Cursor
+ 10 method  __enter__                    L19-19 parent=Connection type=Connection arity=0..0 flags=0x01 | def __enter__(self) -> Self
+ 11 prop    in_transaction               L20-21 parent=Connection type=bool arity=0..0 flags=0x01 | @property def in_transaction(self) -> bool
+ 12 method  execute                      L22-23 parent=Connection type=Cursor arity=1..1 flags=0x01 | @overload def execute(self, sql: str) -> Cursor
+ 13 method  execute                      L24-25 parent=Connection type=Cursor arity=2..2 flags=0x01 | @overload def execute(self, sql: str, parameters: tuple[Any, ...]) -> Cursor
+ 14 method  from_core                    L26-27 parent=Connection type=Connection arity=1..1 flags=0x01 | @classmethod def from_core(cls, handle: _core.Handle) -> Self
+ 15 method  escape                       L28-29 parent=Connection type=str arity=1..1 flags=0x01 | @staticmethod def escape(value: str) -> str
+ 16 class   Cursor                       L31-35 parent=- type=- arity=0..255 flags=0x00 | class Cursor(Iterator[_T], Generic[_T])
+ 17 field   connection                   L32-32 parent=Cursor type=Connection arity=0..0 flags=0x01 | connection: Connection
+ 18 method  fetchone                     L33-33 parent=Cursor type=- arity=0..0 flags=0x01 | def fetchone(self) -> _T | None
+ 19 method  close                        L34-35 parent=Cursor type=- arity=0..0 flags=0x01 | def close(self) -> None
+ 20 fn      backup                       L38-38 parent=- type=- arity=1..2 flags=0x01 | def backup(target: Connection, *, pages: int = ...) -> None
+--- refs (33)
+L2    import  Any                          in <file> qual=typing
+L2    import  Generic                      in <file> qual=typing
+L2    import  Iterator                     in <file> qual=typing
+L2    import  Self                         in <file> qual=typing
+L2    import  TypeVar                      in <file> qual=typing
+L2    import  overload                     in <file> qual=typing
+L4    import  StrPath                      in <file> qual=_typeshed
+L5    import  _core                        in <file> qual=.
+L7    call    TypeVar                      in _T nargs=1
+L11   type    Connection                   in connect
+L11   type    StrPath                      in connect
+L12   type    Connection                   in aconnect
+L12   type    StrPath                      in aconnect
+L16   type    Any                          in row_factory
+L17   type    StrPath                      in __init__
+L18   type    Cursor                       in cursor
+L19   type    Self                         in __enter__
+L22   annot   overload                     in execute
+L23   type    Cursor                       in execute
+L24   annot   overload                     in execute
+L25   type    Any                          in execute
+L25   type    Cursor                       in execute
+L27   type    Handle                       in from_core qual=._core
+L27   type    Self                         in from_core
+L27   read    _core                        in from_core
+L31   type    _T                           in Cursor
+L31   type    _T                           in Cursor
+L31   extends Generic                      in Cursor
+L31   extends Iterator                     in Cursor
+L32   type    Connection                   in connection
+L33   type    _T                           in fetchone
+L37   read    version_info                 in <file> qual=sys
+L38   type    Connection                   in backup
+--- imports (9)
+L1    target=sys name=- alias=- flags=0
+L2    target=typing name=Any alias=- flags=0
+L2    target=typing name=Generic alias=- flags=0
+L2    target=typing name=Iterator alias=- flags=0
+L2    target=typing name=Self alias=- flags=0
+L2    target=typing name=TypeVar alias=- flags=0
+L2    target=typing name=overload alias=- flags=0
+L4    target=_typeshed name=StrPath alias=- flags=0
+L5    target=. name=_core alias=- flags=0

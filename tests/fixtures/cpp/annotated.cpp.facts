@@ -1,0 +1,180 @@
+lang=cpp ok=true lines=92 errors=0
+--- defs (50)
+  0 macro   MAX_OPS                      L4-4 parent=- type=- arity=0..0 flags=0x00 | #define MAX_OPS 16
+  1 macro   CHECKED                      L5-5 parent=- type=- arity=2..2 flags=0x00 | #define CHECKED(x, y) do_check(x, (y) + MAX_OPS)
+  2 macro   LOG_AT                       L6-6 parent=- type=- arity=1..1 flags=0x00 | #define LOG_AT(level) ::logging::Stream(level, __FILE__).out()
+  3 class   Engine                       L8-27 parent=- type=- arity=0..0 flags=0x00 | class API_EXPORT Engine : public Base<Engine>, private detail::Tracker
+  4 method  Engine                       L10-10 parent=Engine type=Engine arity=1..1 flags=0x01 | explicit Engine(int threads);
+  5 method  ~Engine                      L11-11 parent=Engine type=- arity=0..0 flags=0x01 | ~Engine();
+  6 method  name                         L12-12 parent=Engine type=string arity=0..0 flags=0x01 | [[nodiscard]] API_EXPORT std::string name() const NO_DISCARD_REASON;
+  7 method  ready                        L13-13 parent=Engine type=- arity=0..0 flags=0x00 | bool ready() const ATTR_PURE
+  8 method  create                       L14-14 parent=Engine type=Engine arity=1..1 flags=0x01 | static Engine *create(const Config &config);
+  9 field   jobs_                        L15-15 parent=Engine type=- arity=0..0 flags=0x00 | int jobs_ GUARDED_BY(mu_);
+ 10 method  lock                         L16-16 parent=Engine type=- arity=0..0 flags=0x01 | void lock() ACQUIRE(mu_);
+ 11 field   running_                     L18-18 parent=Engine type=- arity=0..0 flags=0x00 | unsigned running_ : 1;
+ 12 field   queue_                       L22-22 parent=Engine type=- arity=0..0 flags=0x00 | int queue_[4] GUARDED_BY(mu_) =
+ 13 enum    State                        L25-25 parent=Engine type=- arity=0..0 flags=0x00 | enum State
+ 14 enumval Idle                         L25-25 parent=State type=- arity=0..0 flags=0x00 | Idle
+ 15 enumval Ready                        L25-25 parent=State type=- arity=0..0 flags=0x00 | Ready
+ 16 field   state_                       L26-26 parent=Engine type=State arity=0..0 flags=0x00 | State state_;
+ 17 struct  Config                       L29-33 parent=- type=- arity=0..0 flags=0x00 | struct API_EXPORT Config
+ 18 method  Config                       L30-30 parent=Config type=Config arity=1..1 flags=0x00 | Config(int n)
+ 19 type    Handle                       L31-31 parent=Config type=Engine arity=0..0 flags=0x00 | using Handle NODEBUG_ATTR = Engine *;
+ 20 field   threads                      L32-32 parent=Config type=- arity=0..0 flags=0x00 | int threads;
+ 21 fn      open                         L35-35 parent=- type=Engine arity=1..1 flags=0x01 | llvm::Expected<Engine> open(const char *path NONNULL_ARG);
+ 22 fn      current                      L36-36 parent=- type=Engine arity=0..0 flags=0x01 | Engine *current();
+ 23 fn      fast_path                    L37-37 parent=- type=- arity=1..1 flags=0x02 | static INLINE_HINT int fast_path(int v)
+ 24 fn      entry                        L38-38 parent=- type=- arity=1..1 flags=0x00 | void WINAPI_CALL entry(int code)
+ 25 fn      quick                        L39-39 parent=- type=- arity=1..1 flags=0x00 | bool quick(int v)
+ 26 fn      shutdown                     L40-40 parent=- type=- arity=0..0 flags=0x01 | void shutdown() NOEXCEPT_ATTR;
+ 27 struct  ops                          L42-46 parent=- type=- arity=0..0 flags=0x00 | struct ops
+ 28 field   open                         L43-43 parent=ops type=- arity=2..2 flags=0x20 | int (*open)(struct ops *self, int flags);
+ 29 field   close                        L44-44 parent=ops type=- arity=1..1 flags=0x20 | void (*close)(struct ops *self);
+ 30 field   nested                       L45-45 parent=ops type=- arity=0..0 flags=0x00 | struct { int (*cb)(void); } nested;
+ 31 field   cb                           L45-45 parent=ops type=- arity=0..0 flags=0x20 | int (*cb)(void);
+ 32 fn      my_open                      L47-47 parent=- type=- arity=2..2 flags=0x02 | static int my_open(struct ops *self, int flags)
+ 33 const   table                        L48-52 parent=- type=ops arity=0..0 flags=0x02 | static const struct ops table =
+ 34 var     table_lock                   L53-53 parent=- type=- arity=0..0 flags=0x12 | static DEFINE_MUTEX(table_lock);
+ 35 var     engines                      L54-54 parent=- type=- arity=0..0 flags=0x10 | DEFINE_REGISTRY(engines);
+ 36 fn      run_all                      L56-62 parent=- type=- arity=2..2 flags=0x00 | int run_all(struct ops *o, int n)
+ 37 method  Engine                       L64-67 parent=~Engine type=Engine arity=1..1 flags=0x00 | Engine::Engine(int threads)
+ 38 fn      StartsIdle                   L69-72 parent=~EngineTest type=- arity=0..0 flags=0x18 | TEST(EngineTest, StartsIdle)
+ 39 fn      RunsJobs                     L74-77 parent=~EngineFixture type=- arity=0..0 flags=0x18 | TEST_F(EngineFixture, RunsJobs)
+ 40 fn      Scales                       L79-79 parent=~EngineParam type=- arity=0..0 flags=0x18 | TEST_P(EngineParam, Scales)
+ 41 fn      Builds                       L80-80 parent=~EngineTyped type=- arity=0..0 flags=0x18 | TYPED_TEST(EngineTyped, Builds)
+ 42 fn      HasJobs                      L81-81 parent=- type=- arity=0..255 flags=0x10 | MATCHER_P(HasJobs, count, "")
+ 43 fn      BENCH_CASE                   L82-82 parent=- type=- arity=0..255 flags=0x10 | BENCH_CASE("startup")
+ 44 var     NumEngines                   L83-83 parent=- type=- arity=0..0 flags=0x12 | STATISTIC(NumEngines, "Number of engines created");
+ 45 fn      entry_point                  L84-84 parent=- type=- arity=0..255 flags=0x10 | DEFINE_ENTRY(int, entry_point, (int argc, char **argv))
+ 46 fn      checked_entry                L85-85 parent=- type=- arity=0..255 flags=0x10 | DEFINE_ENTRY(status_t, checked_entry, (int argc))
+ 47 ns      wrapped                      L86-88 parent=- type=- arity=0..0 flags=0x00 | namespace wrapped
+ 48 fn      inner_entry                  L87-87 parent=wrapped type=- arity=0..255 flags=0x10 | DEFINE_ENTRY(status_t, inner_entry, (const char *name, int flags))
+ 49 fn      hot_path                     L92-92 parent=- type=- arity=1..1 flags=0x00 | int hot_path(int v)
+--- refs (124)
+L5    call    do_check                     in CHECKED
+L5    read    MAX_OPS                      in CHECKED
+L6    call    Stream                       in LOG_AT qual=logging
+L6    mcall   out                          in LOG_AT
+L6    type    logging                      in LOG_AT
+L8    type    Engine                       in Engine
+L8    type    detail                       in Engine
+L8    read    API_EXPORT                   in Engine
+L8    extends Base                         in Engine
+L8    extends Tracker                      in Engine qual=detail
+L10   read    API_EXPORT                   in Engine
+L11   read    API_EXPORT                   in ~Engine
+L12   type    string                       in name qual=std
+L12   read    API_EXPORT                   in name
+L12   read    NO_DISCARD_REASON            in name
+L13   read    ATTR_PURE                    in ready
+L13   read    Ready                        in ready qual=Engine
+L13   mread   state_                       in ready qual=Engine
+L14   type    Config                       in create
+L14   type    Engine                       in create
+L14   read    API_EXPORT                   in create
+L15   call    GUARDED_BY                   in jobs_
+L15   read    mu_                          in jobs_
+L16   call    ACQUIRE                      in lock
+L16   read    mu_                          in lock
+L17   call    PREFERRED_TYPE               in Engine
+L20   call    DECLARE_GETTER               in Engine nargs=2
+L20   arg     Jobs                         in Engine qual=DECLARE_GETTER
+L20   arg     jobs_                        in Engine qual=DECLARE_GETTER
+L21   call    DEFINE_TYPE_ID               in Engine nargs=1
+L21   arg     Engine                       in Engine qual=DEFINE_TYPE_ID
+L22   call    GUARDED_BY                   in queue_
+L22   read    mu_                          in queue_
+L26   type    State                        in Engine
+L29   read    API_EXPORT                   in Config
+L30   read    API_EXPORT                   in Config
+L30   mwrite  threads                      in Config qual=Config
+L31   type    Engine                       in Handle
+L31   read    NODEBUG_ATTR                 in Handle
+L34   type    Hidden                       in <file>
+L34   read    API_EXPORT                   in <file>
+L35   type    Engine                       in open
+L35   type    Expected                     in open qual=llvm
+L35   type    llvm                         in open
+L35   read    API_EXPORT                   in open
+L35   read    NONNULL_ARG                  in open
+L36   type    Engine                       in current
+L36   read    ALWAYS_INLINE_ATTR           in current
+L36   read    API_EXPORT                   in current
+L37   read    INLINE_HINT                  in fast_path
+L38   call    fast_path                    in entry nargs=1
+L38   read    WINAPI_CALL                  in entry
+L39   read    engine_inline                in quick
+L40   read    NOEXCEPT_ATTR                in shutdown
+L43   type    ops                          in ops
+L44   type    ops                          in ops
+L47   call    CHECKED                      in my_open nargs=2
+L47   mcall   cb                           in my_open qual=ops::nested nargs=0
+L47   type    ops                          in my_open
+L47   mread   nested                       in my_open qual=ops
+L48   type    ops                          in table
+L49   mwrite  open                         in table qual=ops
+L49   bind    my_open                      in table qual=ops.open
+L50   mwrite  close                        in table qual=ops
+L50   bind    my_close                     in table qual=ops.close
+L51   mwrite  cb                           in table qual=ops::nested
+L51   mwrite  nested                       in table qual=ops
+L51   bind    my_cb                        in table qual=ops::nested.cb
+L53   call    DEFINE_MUTEX                 in table_lock nargs=1
+L54   call    DEFINE_REGISTRY              in engines nargs=1
+L56   type    ops                          in run_all
+L57   mwrite  close                        in run_all qual=ops
+L57   bind    my_close                     in run_all qual=ops.close
+L58   mcall   open                         in run_all qual=ops nargs=2
+L59   mcall   close                        in run_all qual=ops nargs=1
+L60   mcall   open                         in run_all qual=$table nargs=2
+L60   read    table                        in run_all
+L64   call    Base                         in Engine nargs=1
+L64   call    Tracker                      in Engine qual=detail nargs=0
+L64   type    Engine                       in Engine
+L64   type    Engine                       in Engine
+L64   type    detail                       in Engine
+L64   mwrite  jobs_                        in Engine qual=Engine
+L64   mwrite  state_                       in Engine qual=Engine
+L64   bind    Idle                         in Engine qual=Engine.state_
+L65   mwrite  threads                      in Engine qual=Config
+L65   new     Config                       in Engine nargs=1
+L66   call    configure                    in Engine qual=Engine nargs=1
+L69   call    TEST                         in StartsIdle
+L70   new     Engine                       in StartsIdle nargs=1
+L71   call    EXPECT_FALSE                 in StartsIdle nargs=1
+L71   mcall   ready                        in StartsIdle qual=Engine nargs=0
+L74   call    TEST_F                       in RunsJobs
+L74   type    EngineFixture                in RunsJobs
+L75   call    prepare                      in RunsJobs qual=EngineFixture nargs=0
+L76   call    ASSERT_EQ                    in RunsJobs nargs=2
+L76   call    run_all                      in RunsJobs nargs=2
+L76   read    ops_                         in RunsJobs qual=EngineFixture
+L79   call    EXPECT_GT                    in Scales nargs=2
+L79   call    GetParam                     in Scales qual=EngineParam nargs=0
+L79   call    TEST_P                       in Scales
+L79   type    EngineParam                  in Scales
+L80   call    TYPED_TEST                   in Builds
+L80   call    use                          in Builds qual=EngineTyped nargs=1
+L80   type    EngineTyped                  in Builds
+L80   type    TypeParam                    in Builds
+L81   call    MATCHER_P                    in HasJobs
+L81   mcall   jobs                         in HasJobs qual=$arg nargs=0
+L81   read    arg                          in HasJobs
+L82   call    BENCH_CASE                   in BENCH_CASE
+L82   call    create                       in BENCH_CASE qual=Engine nargs=1
+L82   type    Engine                       in BENCH_CASE
+L82   new     Config                       in BENCH_CASE nargs=0
+L83   call    STATISTIC                    in NumEngines nargs=2
+L84   call    DEFINE_ENTRY                 in entry_point
+L84   call    run_all                      in entry_point nargs=2
+L85   call    DEFINE_ENTRY                 in checked_entry
+L85   type    status_t                     in checked_entry
+L87   call    DEFINE_ENTRY                 in inner_entry
+L87   type    status_t                     in inner_entry
+L89   read    HOT                          in <file>
+L90   read    HOT_ATTR                     in <file>
+L90   read    USED_ATTR                    in <file>
+L92   write   NumEngines                   in hot_path
+--- imports (2)
+L2    target=gtest/gtest.h name=- alias=- flags=1
+L3    target=ops.h name=- alias=- flags=0

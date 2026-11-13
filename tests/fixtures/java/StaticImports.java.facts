@@ -1,0 +1,69 @@
+lang=java ok=true lines=62 errors=1
+--- defs (23)
+  0 ns      com.acme.shop                L1-1 parent=- type=- arity=0..0 flags=0x00 | package com.acme.shop
+  1 class   StaticImports                L14-62 parent=- type=- arity=0..0 flags=0x00 | class StaticImports extends Base
+  2 field   limit                        L15-15 parent=StaticImports type=- arity=0..0 flags=0x00 | int limit =
+  3 field   held                         L16-16 parent=StaticImports type=Object arity=0..0 flags=0x00 | Object held =
+  4 method  plain                        L18-26 parent=StaticImports type=Object arity=1..1 flags=0x00 | Object plain(Object o)
+  5 method  locals                       L29-32 parent=StaticImports type=Object arity=2..2 flags=0x00 | Object locals(int MAX, Object INSTANCE)
+  6 class   Hiding                       L35-39 parent=StaticImports type=- arity=0..0 flags=0x00 | static class Hiding
+  7 method  require                      L36-36 parent=Hiding type=Object arity=1..1 flags=0x00 | Object require(Object o)
+  8 method  use                          L37-37 parent=Hiding type=Object arity=1..1 flags=0x00 | Object use(Object o)
+  9 class   Deeper                       L38-38 parent=Hiding type=- arity=0..0 flags=0x00 | class Deeper
+ 10 method  use                          L38-38 parent=Deeper type=Object arity=1..1 flags=0x00 | Object use(Object o)
+ 11 class   HidingField                  L42-45 parent=StaticImports type=- arity=0..0 flags=0x00 | static class HidingField
+ 12 field   MAX                          L43-43 parent=HidingField type=- arity=0..0 flags=0x00 | int MAX =
+ 13 method  use                          L44-44 parent=HidingField type=- arity=0..0 flags=0x00 | int use()
+ 14 method  anonymous                    L47-52 parent=StaticImports type=Runnable arity=0..0 flags=0x00 | Runnable anonymous()
+ 15 method  require                      L49-49 parent=anonymous type=Object arity=1..1 flags=0x00 | Object require(Object o)
+ 16 method  run                          L50-50 parent=anonymous type=- arity=0..0 flags=0x04 | public void run()
+ 17 iface   Api                          L54-56 parent=StaticImports type=- arity=0..0 flags=0x00 | interface Api
+ 18 method  checked                      L55-55 parent=Api type=Object arity=1..1 flags=0x04 | default Object checked(Object o)
+ 19 enum    Level                        L58-61 parent=StaticImports type=- arity=0..0 flags=0x00 | enum Level
+ 20 enumval LOW                          L59-59 parent=Level type=Level arity=0..0 flags=0x04 | LOW
+ 21 method  pick                         L59-59 parent=LOW type=Object arity=0..0 flags=0x00 | Object pick()
+ 22 method  pick                         L60-60 parent=Level type=Object arity=0..0 flags=0x00 | Object pick()
+--- refs (35)
+L4    import  require                      in <file> qual=com.acme.util.Checks
+L5    import  MAX                          in <file> qual=com.acme.util.Limits
+L6    import  INSTANCE                     in <file> qual=com.acme.util.Registry
+L7    import  deep                         in <file> qual=com.acme.model.Outer.Inner
+L8    import  Wild                         in <file> qual=com.acme.util
+L9    import  format                       in <file> qual=com.acme.a.Fmt
+L10   import  format                       in <file> qual=com.acme.b.Fmt
+L14   extends Base                         in StaticImports
+L15   mread   MAX                          in limit qual=com.acme.util|Limits
+L16   call    require                      in held qual=com.acme.util|Checks nargs=1
+L16   mread   MAX                          in held qual=com.acme.util|Limits
+L19   call    require                      in plain qual=com.acme.util|Checks nargs=1
+L20   mcall   register                     in plain qual=com.acme.util|Registry::INSTANCE nargs=1
+L20   mread   INSTANCE                     in plain qual=com.acme.util|Registry
+L21   call    require                      in plain qual=com.acme.util|Checks nargs=1
+L21   mcall   toString                     in plain qual=com.acme.util|Checks::require() nargs=0
+L22   call    deep                         in plain qual=com.acme.model|Outer::Inner nargs=0
+L23   call    format                       in plain qual=StaticImports nargs=1
+L24   call    wild                         in plain qual=StaticImports nargs=1
+L24   mread   WILD                         in plain qual=StaticImports
+L25   mread   MAX                          in plain qual=com.acme.util|Limits
+L30   mcall   hashCode                     in locals qual=Object nargs=0
+L31   call    require                      in locals qual=com.acme.util|Checks nargs=1
+L37   call    require                      in use qual=Hiding nargs=1
+L38   call    require                      in use qual=Deeper nargs=1
+L38   mread   MAX                          in use qual=com.acme.util|Limits
+L44   call    require                      in use qual=com.acme.util|Checks nargs=1
+L44   mcall   hashCode                     in use qual=com.acme.util|Checks::require() nargs=0
+L44   mread   MAX                          in use qual=HidingField
+L50   call    deep                         in run qual=com.acme.model|Outer::Inner nargs=0
+L50   call    require                      in run nargs=1
+L50   mread   MAX                          in run qual=com.acme.util|Limits
+L55   call    require                      in checked qual=com.acme.util|Checks nargs=1
+L59   call    require                      in pick qual=com.acme.util|Checks nargs=1
+L59   mread   MAX                          in pick qual=com.acme.util|Limits
+--- imports (7)
+L4    target=com.acme.util.Checks name=require alias=- flags=0
+L5    target=com.acme.util.Limits name=MAX alias=- flags=0
+L6    target=com.acme.util.Registry name=INSTANCE alias=- flags=0
+L7    target=com.acme.model.Outer.Inner name=deep alias=- flags=0
+L8    target=com.acme.util.Wild name=- alias=- flags=2
+L9    target=com.acme.a.Fmt name=format alias=- flags=0
+L10   target=com.acme.b.Fmt name=format alias=- flags=0

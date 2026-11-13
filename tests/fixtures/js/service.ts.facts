@@ -1,0 +1,242 @@
+lang=typescript ok=true lines=128 errors=0
+--- defs (67)
+  0 type    Token                        L6-6 parent=- type=../common/util.tokens|Token arity=0..0 flags=0x02 | import Token = util.tokens.Token;
+  1 const   MAX_RETRIES                  L11-11 parent=- type=- arity=0..0 flags=0x04 | export const MAX_RETRIES =
+  2 var     defaultOptions               L12-12 parent=- type=Options arity=0..0 flags=0x04 | export const defaultOptions: Options =
+  3 var     registry                     L13-13 parent=- type=Registry arity=0..0 flags=0x04 | const registry =
+  4 var     counter                      L14-14 parent=- type=- arity=0..0 flags=0x02 | counter =
+  5 var     lastWidget                   L14-14 parent=- type=Widget arity=0..0 flags=0x02 | lastWidget: Widget | undefined
+  6 var     IWidgetService               L15-15 parent=- type=- arity=0..0 flags=0x04 | export const IWidgetService =
+  7 iface   IWidgetService               L17-24 parent=- type=- arity=0..0 flags=0x04 | export interface IWidgetService extends Disposable, util.Service<Widget>
+  8 field   _brand                       L18-18 parent=IWidgetService type=- arity=0..0 flags=0x01 | readonly _brand: undefined
+  9 field   current                      L19-19 parent=IWidgetService type=Widget arity=0..0 flags=0x01 | current?: Widget
+ 10 field   onDidChange                  L20-20 parent=IWidgetService type=- arity=1..1 flags=0x21 | onDidChange: (e: WidgetEvent) => void
+ 11 method  create                       L21-21 parent=IWidgetService type=Widget arity=1..2 flags=0x01 | create(name: string, options?: Options): Widget
+ 12 prop    count                        L22-22 parent=IWidgetService type=- arity=0..0 flags=0x01 | get count(): number
+ 13 type    WidgetMap                    L26-26 parent=- type=Map arity=0..0 flags=0x04 | export type WidgetMap<T extends Widget = Widget> =
+ 14 type    Handler                      L27-27 parent=- type=- arity=0..0 flags=0x02 | type Handler =
+ 15 type    Shape                        L28-28 parent=- type=- arity=0..0 flags=0x02 | type Shape =
+ 16 field   kind                         L28-28 parent=Shape type=Kind arity=0..0 flags=0x01 | kind: Kind
+ 17 method  area                         L28-28 parent=Shape type=- arity=0..0 flags=0x01 | area(): number
+ 18 enum    Kind                         L30-30 parent=- type=- arity=0..0 flags=0x04 | export const enum Kind
+ 19 enumval Small                        L30-30 parent=Kind type=- arity=0..0 flags=0x00 | Small = 1
+ 20 enumval Large                        L30-30 parent=Kind type=- arity=0..0 flags=0x00 | Large
+ 21 enumval Extra                        L30-30 parent=Kind type=- arity=0..0 flags=0x00 | 'Extra' = 4
+ 22 enum    Color                        L31-31 parent=- type=- arity=0..0 flags=0x02 | enum Color
+ 23 enumval Red                          L31-31 parent=Color type=- arity=0..0 flags=0x00 | Red
+ 24 enumval Green                        L31-31 parent=Color type=- arity=0..0 flags=0x00 | Green = Red + 1
+ 25 class   BaseService                  L33-38 parent=- type=- arity=0..0 flags=0x44 | export abstract class BaseService<T> implements Disposable
+ 26 field   id                           L34-34 parent=BaseService type=- arity=0..0 flags=0x41 | protected abstract readonly id: string
+ 27 field   instances                    L35-35 parent=BaseService type=- arity=0..0 flags=0x00 | static instances =
+ 28 method  start                        L36-36 parent=BaseService type=- arity=1..1 flags=0x41 | abstract start(delay: number): Promise<void>
+ 29 method  dispose                      L37-37 parent=BaseService type=- arity=0..0 flags=0x00 | dispose(): void
+ 30 class   WidgetService                L40-98 parent=- type=- arity=0..0 flags=0x04 | export class WidgetService extends BaseService<Widget> implements IWidgetService, util.Service<Widge
+ 31 field   _brand                       L42-42 parent=WidgetService type=- arity=0..0 flags=0x01 | declare readonly _brand: undefined
+ 32 field   id                           L43-43 parent=WidgetService type=- arity=0..0 flags=0x00 | protected readonly id =
+ 33 field   widgets                      L44-44 parent=WidgetService type=WidgetMap arity=0..0 flags=0x00 | private widgets: WidgetMap =
+ 34 field   current                      L45-45 parent=WidgetService type=Widget arity=0..0 flags=0x00 | current?: Widget
+ 35 field   #secret                      L46-46 parent=WidgetService type=- arity=0..0 flags=0x00 | #secret =
+ 36 method  onDidChange                  L47-47 parent=WidgetService type=- arity=1..1 flags=0x00 | onDidChange = (e: WidgetEvent): void =>
+ 37 field   fallback                     L48-48 parent=WidgetService type=Handler arity=0..0 flags=0x20 | private fallback: Handler =
+ 38 method  constructor                  L50-58 parent=WidgetService type=- arity=2..4 flags=0x00 | constructor( @ILogService private readonly logger: ILogService, private readonly emitter: Emitter<Wi
+ 39 field   logger                       L51-51 parent=WidgetService type=ILogService arity=0..0 flags=0x00 | private readonly logger: ILogService
+ 40 field   emitter                      L52-52 parent=WidgetService type=Emitter arity=0..0 flags=0x00 | private readonly emitter: Emitter<WidgetEvent>
+ 41 field   storage                      L53-53 parent=WidgetService type=../common/util|Storage arity=0..0 flags=0x00 | protected storage?: util.Storage
+ 42 prop    count                        L60-60 parent=WidgetService type=- arity=0..0 flags=0x00 | get count(): number
+ 43 prop    count                        L61-61 parent=WidgetService type=- arity=1..1 flags=0x00 | set count(value: number)
+ 44 method  create                       L63-63 parent=WidgetService type=Widget arity=1..1 flags=0x01 | create(name: string): Widget
+ 45 method  create                       L64-64 parent=WidgetService type=Widget arity=2..2 flags=0x01 | create(name: string, options: Options): Widget
+ 46 method  create                       L65-76 parent=WidgetService type=Widget arity=1..2 flags=0x00 | create(name: string, options?: Options): Widget
+ 47 method  start                        L78-89 parent=WidgetService type=- arity=1..255 flags=0x80 | async start(delay: number, ...extra: string[]): Promise<void>
+ 48 method  restore                      L91-95 parent=WidgetService type=- arity=1..2 flags=0x00 | private restore<K extends keyof Shape>(item: Shape, key?: K): item is Shape
+ 49 fn      visit                        L92-92 parent=restore type=- arity=1..1 flags=0x02 | function visit(shape: Shape): number
+ 50 fn      measure                      L93-93 parent=restore type=- arity=1..1 flags=0x02 | const measure = (s: Shape) =>
+ 51 method  ids                          L97-97 parent=WidgetService type=Iterable arity=0..0 flags=0x80 | static *ids(): Iterable<string>
+ 52 fn      logMessage                   L100-102 parent=- type=- arity=1..255 flags=0x04 | export function logMessage(message: string, level = 0, ...args: unknown[]): void
+ 53 fn      defaultHandler               L103-103 parent=- type=- arity=1..1 flags=0x02 | function defaultHandler(widget: Widget): boolean
+ 54 fn      handleEvent                  L104-104 parent=- type=- arity=1..1 flags=0x02 | function handleEvent(this: WidgetService, e: WidgetEvent)
+ 55 fn      makeHandler                  L105-105 parent=- type=Handler arity=1..2 flags=0x84 | export const makeHandler = async <T extends Widget>(w: T, strict?: boolean): Promise<Handler> =>
+ 56 fn      legacyHandler                L106-106 parent=- type=- arity=2..2 flags=0x02 | const legacyHandler = function named(a, b)
+ 57 ns      Internal                     L108-112 parent=~Widgets type=- arity=0..0 flags=0x04 | export namespace Widgets.Internal
+ 58 var     cache                        L109-109 parent=Internal type=Map arity=0..0 flags=0x04 | export const cache =
+ 59 fn      lookup                       L110-110 parent=Internal type=Widget arity=1..1 flags=0x04 | export function lookup(id: string): Widget | undefined
+ 60 fn      prune                        L111-111 parent=Internal type=- arity=0..0 flags=0x02 | function prune()
+ 61 ns      tools                        L113-113 parent=- type=- arity=0..0 flags=0x04 | namespace tools
+ 62 fn      format                       L113-113 parent=tools type=- arity=1..1 flags=0x04 | export function format(w: Widget)
+ 63 var     api                          L117-124 parent=- type=- arity=0..0 flags=0x04 | export const api =
+ 64 method  open                         L119-119 parent=api type=- arity=1..1 flags=0x00 | open(path: string)
+ 65 method  close                        L120-120 parent=api type=- arity=1..1 flags=0x00 | close: (path: string) =>
+ 66 method  deep                         L122-122 parent=api type=- arity=0..0 flags=0x00 | deep()
+--- refs (157)
+L1    import  DefaultExport                in <file> qual=./base
+L1    import  Emitter                      in <file> qual=./base
+L1    import  Options                      in <file> qual=./base
+L1    import  helper                       in <file> qual=./base
+L5    import  Disposable                   in <file> qual=./lifecycle
+L6    type    Token                        in Token qual=../common/util.tokens
+L7    import  first                        in <file> qual=./reexport
+L7    import  second                       in <file> qual=./reexport
+L12   type    Options                      in defaultOptions
+L12   mwrite  log                          in defaultOptions qual=Options
+L12   mwrite  retries                      in defaultOptions qual=Options
+L12   bind    MAX_RETRIES                  in defaultOptions qual=Options.retries
+L12   bind    logMessage                   in defaultOptions qual=Options.log
+L13   type    Widget                       in registry
+L13   new     Registry                     in registry nargs=0
+L14   type    Widget                       in lastWidget
+L15   call    createDecorator              in IWidgetService nargs=1
+L15   type    IWidgetService               in IWidgetService
+L17   type    Widget                       in IWidgetService
+L17   extends Disposable                   in IWidgetService
+L17   extends Service                      in IWidgetService qual=../common/util
+L19   type    Widget                       in current
+L20   type    WidgetEvent                  in onDidChange
+L21   type    Options                      in create
+L21   type    Widget                       in create
+L26   type    Widget                       in WidgetMap
+L26   type    Widget                       in WidgetMap
+L27   type    Widget                       in Handler
+L28   type    Kind                         in kind
+L31   read    Red                          in Color
+L33   impl    Disposable                   in BaseService
+L37   read    BaseService                  in dispose
+L37   mwrite  instances                    in dispose qual=$BaseService
+L40   read    IWidgetService               in WidgetService
+L40   annot   registerSingleton            in WidgetService
+L41   type    Widget                       in WidgetService
+L41   type    Widget                       in WidgetService
+L41   extends BaseService                  in WidgetService
+L41   impl    IWidgetService               in WidgetService
+L41   impl    Service                      in WidgetService qual=../common/util
+L44   type    WidgetMap                    in widgets
+L45   type    Widget                       in current
+L47   mcall   trace                        in onDidChange qual=WidgetService::logger nargs=1
+L47   type    WidgetEvent                  in onDidChange
+L47   mread   kind                         in onDidChange qual=WidgetEvent
+L47   mread   logger                       in onDidChange qual=WidgetService
+L48   type    Handler                      in fallback
+L48   bind    defaultHandler               in fallback qual=WidgetService.fallback
+L51   type    ILogService                  in constructor
+L51   annot   ILogService                  in constructor
+L52   type    Emitter                      in constructor
+L52   type    WidgetEvent                  in constructor
+L53   type    Storage                      in constructor qual=../common/util
+L53   read    IStorage                     in constructor
+L53   annot   optional                     in constructor
+L54   read    MAX_RETRIES                  in constructor
+L56   mcall   constructor                  in constructor qual=^WidgetService nargs=0
+L57   mcall   register                     in constructor qual=$registry nargs=1
+L57   read    registry                     in constructor
+L60   mread   size                         in count qual=WidgetService::widgets
+L60   mread   widgets                      in count qual=WidgetService
+L61   write   counter                      in count
+L63   type    Widget                       in create
+L64   type    Options                      in create
+L64   type    Widget                       in create
+L65   type    Options                      in create
+L65   type    Widget                       in create
+L66   read    defaultOptions               in create
+L66   new     Widget                       in create nargs=2
+L67   call    validate                     in create qual=Widget nargs=2
+L67   read    Emitter                      in create
+L67   read    Widget                       in create
+L67   mread   None                         in create qual=$Emitter
+L68   mcall   clone                        in create qual=Widget nargs=0
+L68   type    Widget                       in create
+L69   mcall   render                       in create qual=Widget nargs=1
+L69   read    Kind                         in create
+L69   mread   Large                        in create qual=$Kind
+L70   mcall   set                          in create qual=WidgetService::widgets nargs=2
+L70   mread   widgets                      in create qual=WidgetService
+L71   mcall   fire                         in create qual=WidgetService::emitter nargs=1
+L71   read    Kind                         in create
+L71   mread   Small                        in create qual=$Kind
+L71   mread   emitter                      in create qual=WidgetService
+L72   mwrite  current                      in create qual=WidgetService
+L73   write   lastWidget                   in create
+L74   write   counter                      in create
+L75   call    helper                       in create qual=./base nargs=1
+L75   type    Widget                       in create
+L78   annot   memoize                      in start
+L80   call    timeout                      in start qual=../common/util nargs=1
+L81   mcall   dispose                      in start qual=^WidgetService nargs=0
+L83   mread   current                      in start qual=WidgetService
+L83   mread   widgets                      in start qual=WidgetService
+L84   mcall   forEach                      in start qual=WidgetService::storage::items nargs=1
+L84   mcall   restore                      in start qual=WidgetService nargs=1
+L84   mread   items                        in start qual=WidgetService::storage
+L84   mread   storage                      in start qual=WidgetService
+L85   mcall   render                       in start nargs=1
+L85   read    Kind                         in start
+L85   mread   Small                        in start qual=$Kind
+L85   mread   widgets                      in start qual=WidgetService
+L86   call    readFileSync                 in start qual=fs nargs=1
+L86   mcall   error                        in start qual=WidgetService::logger nargs=1
+L86   read    path                         in start qual=./base
+L86   mread   logger                       in start qual=WidgetService
+L87   read    WidgetService                in start
+L87   mwrite  instances                    in start qual=$WidgetService
+L88   mread   emitter                      in start qual=WidgetService
+L88   mwrite  listener                     in start qual=WidgetService::emitter
+L88   bind    handleEvent                  in start qual=WidgetService::emitter.listener
+L91   type    Shape                        in restore
+L91   type    Shape                        in restore
+L91   type    Shape                        in restore
+L92   call    visit                        in visit nargs=1
+L92   mcall   area                         in visit qual=Shape nargs=0
+L92   type    Shape                        in visit
+L93   call    visit                        in measure nargs=1
+L93   type    Shape                        in measure
+L94   call    isShape                      in restore nargs=1
+L94   call    measure                      in restore nargs=1
+L94   type    Shape                        in restore
+L97   mcall   keys                         in ids qual=$registry nargs=0
+L97   type    Iterable                     in ids
+L97   read    registry                     in ids
+L103  type    Widget                       in defaultHandler
+L103  read    Widget                       in defaultHandler
+L104  type    WidgetEvent                  in handleEvent
+L104  type    WidgetService                in handleEvent
+L105  type    Handler                      in makeHandler
+L105  type    Widget                       in makeHandler
+L105  read    defaultHandler               in makeHandler
+L109  type    Widget                       in cache
+L110  mcall   get                          in lookup qual=$cache nargs=1
+L110  type    Widget                       in lookup
+L110  read    cache                        in lookup
+L111  mcall   clear                        in prune qual=$cache nargs=0
+L111  read    cache                        in prune
+L113  type    Widget                       in format
+L113  mread   name                         in format qual=Widget
+L114  mcall   format                       in <file> qual=$tools nargs=1
+L114  read    lastWidget                   in <file>
+L114  read    tools                        in <file>
+L115  mcall   lookup                       in <file> qual=$Widgets::Internal nargs=1
+L115  read    Widgets                      in <file>
+L115  mread   Internal                     in <file> qual=$Widgets
+L119  mcall   close                        in open qual=$api nargs=1
+L120  mcall   unlink                       in close qual=../common/util|$fs nargs=1
+L120  read    fs                           in close qual=../common/util
+L121  mwrite  onError                      in api qual=$api
+L121  bind    handleEvent                  in api qual=$api.onError
+L122  read    counter                      in deep
+L123  mwrite  logMessage                   in api qual=$api
+L123  bind    logMessage                   in api qual=$api.logMessage
+L125  mcall   open                         in <file> qual=$api nargs=1
+L125  read    api                          in <file>
+L127  read    WidgetService                in <file>
+--- imports (14)
+L1    target=./base name=default alias=DefaultExport flags=0
+L1    target=./base name=helper alias=renamedHelper flags=0
+L1    target=./base name=Options alias=- flags=0
+L1    target=./base name=Emitter alias=- flags=0
+L2    target=../common/util name=- alias=util flags=0
+L3    target=fs name=- alias=fs flags=1
+L4    target=./polyfill name=- alias=- flags=0
+L5    target=./lifecycle name=Disposable alias=- flags=0
+L7    target=./reexport name=first alias=- flags=4
+L7    target=./reexport name=second alias=other flags=4
+L8    target=./everything name=- alias=- flags=6
+L9    target=./nested name=- alias=nested flags=4
+L127  target= name=WidgetService alias=default flags=4
+L128  target= name=registry alias=widgetRegistry flags=4

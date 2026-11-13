@@ -1,0 +1,12 @@
+{
+  "session_id": "0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11",
+  "transcript_path": "{{HOME}}/.claude/projects/-work-project/0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11.jsonl",
+  "cwd": "{{REPO}}",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Glob",
+  "tool_input": { "pattern": "**/*copy_all*", "path": "{{REPO}}" },
+  "tool_response": { "filenames": [], "durationMs": 3, "numFiles": 0, "truncated": false },
+  "tool_use_id": "toolu_01GLOB0000001",
+  "duration_ms": 3
+}

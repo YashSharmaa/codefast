@@ -1,0 +1,85 @@
+{
+ "oracle": {
+  "repo": "syft",
+  "commit": "b15c5dbfe2bb21c9d73002c1056a829c8c411c75",
+  "language": "go",
+  "oracle": "golang.org/x/tools go/ssa static callees + go/callgraph/rta",
+  "tests_included": false
+ },
+ "options": {
+  "variant": "",
+  "scope_prefix": [],
+  "include_variable_endpoints": false,
+  "with_funcptr_candidates": false,
+  "repowise_compat": true
+ },
+ "oracle_edges": {
+  "must": 7969,
+  "candidate": 0,
+  "dynamic_sites": 0,
+  "excluded": {
+   "not_rta_reachable": 325
+  }
+ },
+ "tool_edges": {
+  "rows": 8839,
+  "distinct_function_level": 4909,
+  "ambiguous_endpoint_rows": 0,
+  "out_of_scope": 3871
+ },
+ "matched_must": 4628,
+ "matched_candidate": 0,
+ "contradicted": 0,
+ "unjudged": 281,
+ "unmapped_callee_distinct_with_judged_caller": 0,
+ "precision": {
+  "value": 1.0,
+  "k": 4628,
+  "n": 4628,
+  "ci95": [
+   0.9992,
+   1.0
+  ]
+ },
+ "precision_strict": {
+  "value": 1.0,
+  "k": 4628,
+  "n": 4628,
+  "ci95": [
+   0.9992,
+   1.0
+  ]
+ },
+ "recall_static": {
+  "value": 0.5808,
+  "k": 4628,
+  "n": 7969,
+  "ci95": [
+   0.5699,
+   0.5915
+  ]
+ },
+ "recall_candidate_edges": {
+  "value": null,
+  "k": 0,
+  "n": 0,
+  "ci95": null
+ },
+ "recall_candidate_edges_by_kind": {},
+ "recall_dynamic_sites": {
+  "value": null,
+  "k": 0,
+  "n": 0,
+  "ci95": null
+ },
+ "recall_all_edges": {
+  "value": 0.5808,
+  "k": 4628,
+  "n": 7969,
+  "ci95": [
+   0.5699,
+   0.5915
+  ]
+ },
+ "unjudged_share": 0.0572
+}

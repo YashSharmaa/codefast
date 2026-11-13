@@ -1,0 +1,846 @@
+{
+ "repo": "zod",
+ "commit": "bbc68f990c7e6a5e3f506c56fb04bd0279b9c9b5",
+ "language": "typescript",
+ "oracle": "TypeScript 5.9.3 type checker (getResolvedSignature per call site)",
+ "typescript_version": "5.9.3",
+ "node_version": "v26.13.0",
+ "tests_included": false,
+ "subdirs": [
+  "packages/zod/src"
+ ],
+ "tsconfig": "packages/zod/tsconfig.json",
+ "config_errors": [],
+ "caller_key": "outermost enclosing named function",
+ "dependencies_installed": false,
+ "analysed_files": [
+  "packages/zod/src/index.ts",
+  "packages/zod/src/locales/index.ts",
+  "packages/zod/src/mini/index.ts",
+  "packages/zod/src/v3/ZodError.ts",
+  "packages/zod/src/v3/benchmarks/datetime.ts",
+  "packages/zod/src/v3/benchmarks/discriminatedUnion.ts",
+  "packages/zod/src/v3/benchmarks/index.ts",
+  "packages/zod/src/v3/benchmarks/ipv4.ts",
+  "packages/zod/src/v3/benchmarks/object.ts",
+  "packages/zod/src/v3/benchmarks/primitives.ts",
+  "packages/zod/src/v3/benchmarks/realworld.ts",
+  "packages/zod/src/v3/benchmarks/string.ts",
+  "packages/zod/src/v3/benchmarks/union.ts",
+  "packages/zod/src/v3/errors.ts",
+  "packages/zod/src/v3/external.ts",
+  "packages/zod/src/v3/helpers/enumUtil.ts",
+  "packages/zod/src/v3/helpers/errorUtil.ts",
+  "packages/zod/src/v3/helpers/parseUtil.ts",
+  "packages/zod/src/v3/helpers/partialUtil.ts",
+  "packages/zod/src/v3/helpers/typeAliases.ts",
+  "packages/zod/src/v3/helpers/util.ts",
+  "packages/zod/src/v3/index.ts",
+  "packages/zod/src/v3/locales/en.ts",
+  "packages/zod/src/v3/standard-schema.ts",
+  "packages/zod/src/v3/types.ts",
+  "packages/zod/src/v4-mini/index.ts",
+  "packages/zod/src/v4/classic/checks.ts",
+  "packages/zod/src/v4/classic/coerce.ts",
+  "packages/zod/src/v4/classic/compat.ts",
+  "packages/zod/src/v4/classic/errors.ts",
+  "packages/zod/src/v4/classic/external.ts",
+  "packages/zod/src/v4/classic/from-json-schema.ts",
+  "packages/zod/src/v4/classic/index.ts",
+  "packages/zod/src/v4/classic/iso.ts",
+  "packages/zod/src/v4/classic/parse.ts",
+  "packages/zod/src/v4/classic/schemas.ts",
+  "packages/zod/src/v4/core/api.ts",
+  "packages/zod/src/v4/core/checks.ts",
+  "packages/zod/src/v4/core/config.ts",
+  "packages/zod/src/v4/core/core.ts",
+  "packages/zod/src/v4/core/doc.ts",
+  "packages/zod/src/v4/core/errors.ts",
+  "packages/zod/src/v4/core/index.ts",
+  "packages/zod/src/v4/core/json-schema-generator.ts",
+  "packages/zod/src/v4/core/json-schema-processors.ts",
+  "packages/zod/src/v4/core/json-schema.ts",
+  "packages/zod/src/v4/core/parse.ts",
+  "packages/zod/src/v4/core/regexes.ts",
+  "packages/zod/src/v4/core/registries.ts",
+  "packages/zod/src/v4/core/schemas.ts",
+  "packages/zod/src/v4/core/standard-schema.ts",
+  "packages/zod/src/v4/core/to-json-schema.ts",
+  "packages/zod/src/v4/core/util.ts",
+  "packages/zod/src/v4/core/versions.ts",
+  "packages/zod/src/v4/core/zsf.ts",
+  "packages/zod/src/v4/index.ts",
+  "packages/zod/src/v4/locales/ar.ts",
+  "packages/zod/src/v4/locales/az.ts",
+  "packages/zod/src/v4/locales/be.ts",
+  "packages/zod/src/v4/locales/bg.ts",
+  "packages/zod/src/v4/locales/ca.ts",
+  "packages/zod/src/v4/locales/cs.ts",
+  "packages/zod/src/v4/locales/da.ts",
+  "packages/zod/src/v4/locales/de.ts",
+  "packages/zod/src/v4/locales/el.ts",
+  "packages/zod/src/v4/locales/en.ts",
+  "packages/zod/src/v4/locales/eo.ts",
+  "packages/zod/src/v4/locales/es.ts",
+  "packages/zod/src/v4/locales/fa.ts",
+  "packages/zod/src/v4/locales/fi.ts",
+  "packages/zod/src/v4/locales/fr-CA.ts",
+  "packages/zod/src/v4/locales/fr.ts",
+  "packages/zod/src/v4/locales/he.ts",
+  "packages/zod/src/v4/locales/hr.ts",
+  "packages/zod/src/v4/locales/hu.ts",
+  "packages/zod/src/v4/locales/hy.ts",
+  "packages/zod/src/v4/locales/id.ts",
+  "packages/zod/src/v4/locales/index.ts",
+  "packages/zod/src/v4/locales/is.ts",
+  "packages/zod/src/v4/locales/it.ts",
+  "packages/zod/src/v4/locales/ja.ts",
+  "packages/zod/src/v4/locales/ka.ts",
+  "packages/zod/src/v4/locales/kh.ts",
+  "packages/zod/src/v4/locales/km.ts",
+  "packages/zod/src/v4/locales/ko.ts",
+  "packages/zod/src/v4/locales/lt.ts",
+  "packages/zod/src/v4/locales/mk.ts",
+  "packages/zod/src/v4/locales/ms.ts",
+  "packages/zod/src/v4/locales/nl.ts",
+  "packages/zod/src/v4/locales/no.ts",
+  "packages/zod/src/v4/locales/ota.ts",
+  "packages/zod/src/v4/locales/pl.ts",
+  "packages/zod/src/v4/locales/ps.ts",
+  "packages/zod/src/v4/locales/pt.ts",
+  "packages/zod/src/v4/locales/ro.ts",
+  "packages/zod/src/v4/locales/ru.ts",
+  "packages/zod/src/v4/locales/sl.ts",
+  "packages/zod/src/v4/locales/sv.ts",
+  "packages/zod/src/v4/locales/ta.ts",
+  "packages/zod/src/v4/locales/th.ts",
+  "packages/zod/src/v4/locales/tr.ts",
+  "packages/zod/src/v4/locales/ua.ts",
+  "packages/zod/src/v4/locales/uk.ts",
+  "packages/zod/src/v4/locales/ur.ts",
+  "packages/zod/src/v4/locales/uz.ts",
+  "packages/zod/src/v4/locales/vi.ts",
+  "packages/zod/src/v4/locales/yo.ts",
+  "packages/zod/src/v4/locales/zh-CN.ts",
+  "packages/zod/src/v4/locales/zh-TW.ts",
+  "packages/zod/src/v4/mini/checks.ts",
+  "packages/zod/src/v4/mini/coerce.ts",
+  "packages/zod/src/v4/mini/external.ts",
+  "packages/zod/src/v4/mini/index.ts",
+  "packages/zod/src/v4/mini/iso.ts",
+  "packages/zod/src/v4/mini/parse.ts",
+  "packages/zod/src/v4/mini/schemas.ts"
+ ],
+ "excluded_files": [
+  {
+   "file": "packages/zod/src/v3/tests/Mocker.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/all-errors.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/anyunknown.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/array.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/async-parsing.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/async-refinements.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/base.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/bigint.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/branded.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/catch.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/coerce.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/complex.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/custom.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/date.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/deepmasking.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/default.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/description.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/discriminated-unions.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/enum.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/error.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/firstparty.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/firstpartyschematypes.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/function.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/generics.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/instanceof.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/intersection.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/language-server.source.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/language-server.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/literal.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/map.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/masking.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/mocker.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/nan.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/nativeEnum.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/nullable.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/number.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/object-augmentation.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/object-in-es5-env.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/object.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/optional.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/parseUtil.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/parser.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/partials.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/pickomit.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/pipeline.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/preprocess.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/primitive.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/promise.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/readonly.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/record.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/recursive.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/refine.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/safeparse.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/set.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/standard-schema.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/string.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/transformer.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/tuple.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/unions.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/validations.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v3/tests/void.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/anyunknown.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/apply.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/array.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/assignability.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/async-parsing.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/async-refinements.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/base.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/bigint.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/brand.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/catch.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/coalesce.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/codec-examples.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/codec.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/coerce.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/continuability.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/custom.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/date.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/datetime.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/default.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/describe-meta-checks.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/description.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/detached-methods.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/discriminated-unions.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/enum.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/error-utils.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/error.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/file.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/firstparty.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/fix-json-issue.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/from-json-schema.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/function.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/generics.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/global-config.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/hash.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/index.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/instanceof.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/intersection.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/jitless-allows-eval.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/json.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/lazy.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/literal.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/locales_ka.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/locales_ro.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/map.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/nan.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/nested-refine.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/nonoptional.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/nullable.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/number.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/object.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/optional.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/partial.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/pickomit.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/pipe.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/prefault.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/preprocess-types.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/preprocess.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/primitive.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/promise.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/prototypes.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/readonly.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/record.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/recursive-types.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/refine.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/registries.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/set.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/standard-schema.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/string-formats.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/string.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/stringbool.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/template-literal.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/to-json-schema-methods.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/to-json-schema.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/transform.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/tuple.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/union.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/url.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/validations.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/classic/tests/void.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/extend.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/index.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/locales/be.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/locales/el.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/locales/en.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/locales/es.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/locales/fr.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/locales/he.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/locales/hr.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/locales/nl.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/locales/ru.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/locales/tr.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/locales/uz.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/record-constructor.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/core/tests/recursive-tuples.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/apply.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/assignability.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/brand.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/checks.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/codec.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/computed.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/error.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/functions.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/index.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/number.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/object.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/prototypes.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/recursive-types.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/standard-schema.test.ts",
+   "reason": "test"
+  },
+  {
+   "file": "packages/zod/src/v4/mini/tests/string.test.ts",
+   "reason": "test"
+  }
+ ],
+ "counts": {
+  "analysed_files": 116,
+  "functions": 1157,
+  "classes": 49,
+  "variables_as_endpoints": 352,
+  "functions_top_level": 1029,
+  "functions_judged": 716,
+  "edges": 3120,
+  "edges_by_kind": {
+   "static": 2472,
+   "interface": 648
+  },
+  "edges_from_module_variables": 625,
+  "edges_to_module_variables": 123,
+  "edges_with_closure_callee": 0,
+  "unresolved_sites": 1103,
+  "call_sites": 4889,
+  "resolved": 4609,
+  "unresolved": 157,
+  "external_target": 1406,
+  "abstract_target": 915,
+  "module_level_sites": 1711,
+  "module_level_in_variable": 1500,
+  "closure_target": 0,
+  "variable_callee": 123,
+  "resolved_via_const_initializer": 123,
+  "jsx_skipped": 0,
+  "rebindable_callee": 7,
+  "accessor_sites": 24
+ }
+}

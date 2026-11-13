@@ -1,0 +1,208 @@
+lang=typescript ok=true lines=92 errors=0
+--- defs (37)
+  0 var     z                            L16-16 parent=- type=- arity=0..0 flags=0x02 | const z =
+  1 method  string                       L16-16 parent=z type=- arity=0..0 flags=0x00 | string()
+  2 var     made                         L19-19 parent=- type=- arity=0..0 flags=0x02 | const made =
+  3 var     stringType                   L20-20 parent=- type=- arity=0..0 flags=0x02 | const stringType =
+  4 var     viaNs                        L21-21 parent=- type=- arity=0..0 flags=0x02 | const viaNs =
+  5 var     plain                        L22-22 parent=- type=- arity=0..0 flags=0x22 | const plain =
+  6 var     joined                       L23-23 parent=- type=- arity=0..0 flags=0x22 | const joined =
+  7 var     coerce                       L24-24 parent=- type=- arity=0..0 flags=0x04 | export const coerce =
+  8 method  text                         L24-24 parent=coerce type=- arity=1..1 flags=0x00 | text: ((arg) =>
+  9 method  raw                          L24-24 parent=coerce type=- arity=1..1 flags=0x00 | raw: <Maker>function (arg)
+ 10 type    Shape                        L25-25 parent=- type=- arity=0..0 flags=0x02 | type Shape =
+ 11 field   kind                         L25-25 parent=Shape type=- arity=0..0 flags=0x01 | kind: 'a'
+ 12 field   a                            L25-25 parent=Shape type=- arity=0..0 flags=0x01 | a: number
+ 13 field   kind                         L25-25 parent=Shape type=- arity=0..0 flags=0x01 | kind: 'b'
+ 14 method  b                            L25-25 parent=Shape type=- arity=0..0 flags=0x01 | b(): void
+ 15 field   kind                         L25-25 parent=Shape type=- arity=0..0 flags=0x01 | kind: 'c'
+ 16 ns      local                        L26-26 parent=- type=- arity=0..0 flags=0x02 | namespace local
+ 17 var     table                        L26-26 parent=local type=Map arity=0..0 flags=0x04 | export const table =
+ 18 fn      helper                       L26-26 parent=local type=- arity=0..0 flags=0x04 | export function helper(): void
+ 19 var     current                      L27-27 parent=- type=../core/index.js|$ZodType arity=0..0 flags=0x02 | let current: core.$ZodType | undefined
+ 20 var     registry                     L28-28 parent=- type=../core/index.js|$ZodRegistry arity=0..0 flags=0x04 | export const registry: core.$ZodRegistry<Meta> =
+ 21 class   ZodType                      L30-85 parent=- type=- arity=0..0 flags=0x04 | export class ZodType extends core.$ZodType implements types.Schema, ns.inner.Shape
+ 22 field   create                       L31-31 parent=ZodType type=- arity=0..0 flags=0x20 | static create =
+ 23 field   alt                          L32-32 parent=ZodType type=- arity=0..0 flags=0x00 | static alt =
+ 24 field   def                          L33-33 parent=ZodType type=../core/index.js|$ZodTypeDef arity=0..0 flags=0x00 | def: core.$ZodTypeDef
+ 25 field   evt                          L34-34 parent=ZodType type=./events|Emitter arity=0..0 flags=0x00 | private readonly evt: Evt<Opts> =
+ 26 method  constructor                  L35-35 parent=ZodType type=- arity=2..2 flags=0x00 | constructor(private readonly checks: core.$ZodCheck[], readonly inner: types.deep.Inner)
+ 27 field   checks                       L35-35 parent=ZodType type=Array arity=0..0 flags=0x00 | private readonly checks: core.$ZodCheck[]
+ 28 field   inner                        L35-35 parent=ZodType type=./types.deep|Inner arity=0..0 flags=0x00 | readonly inner: types.deep.Inner
+ 29 method  nullable                     L36-36 parent=ZodType type=ZodNullable arity=0..0 flags=0x00 | nullable(): ZodNullable
+ 30 method  optional                     L37-37 parent=ZodType type=../core/index.js|$ZodOptional arity=0..0 flags=0x00 | optional(): core.$ZodOptional
+ 31 method  nullish                      L38-38 parent=ZodType type=- arity=0..0 flags=0x00 | nullish()
+ 32 method  load                         L39-39 parent=ZodType type=ZodType arity=0..0 flags=0x80 | async load(): Promise<ZodType>
+ 33 method  run                          L40-84 parent=ZodType type=./types|Result arity=1..1 flags=0x80 | async run(x: core.$ZodType): Promise<types.Result>
+ 34 fn      makeType                     L86-86 parent=- type=- arity=0..0 flags=0x02 | function makeType()
+ 35 fn      handleThing                  L87-87 parent=- type=- arity=0..0 flags=0x02 | function handleThing()
+ 36 fn      lazyLoad                     L88-92 parent=- type=- arity=0..0 flags=0x82 | async function lazyLoad()
+--- refs (141)
+L5    import  Default                      in <file> qual=./things
+L5    import  Registry                     in <file> qual=./things
+L5    import  thing                        in <file> qual=./things
+L7    import  Emitter                      in <file> qual=./events
+L7    import  Options                      in <file> qual=./events
+L7    import  tools                        in <file> qual=./events
+L9    import  a                            in <file> qual=./abc
+L9    import  default                      in <file> qual=./abc
+L10   import  default                      in <file> qual=./d
+L13   import  omit                         in <file> qual=./cjs-named
+L13   import  pick                         in <file> qual=./cjs-named
+L14   import  member                       in <file> qual=./cjs-member
+L16   mcall   parse                        in string qual=$z nargs=0
+L16   read    parse                        in z qual=../core/index.js
+L16   mwrite  check                        in z qual=$z
+L16   mwrite  parse                        in z qual=$z
+L16   bind    handleThing                  in z qual=$z.check
+L16   bind    parse                        in z qual=$z.parse
+L18   import  helper                       in <file> qual=./helpers
+L18   import  other                        in <file> qual=./helpers
+L19   call    make                         in made nargs=0
+L20   read    ZodString                    in stringType
+L20   mread   create                       in stringType qual=$ZodString
+L20   bind    create                       in stringType qual=.stringType
+L21   read    build                        in viaNs qual=./factory
+L21   bind    build                        in viaNs qual=.viaNs
+L22   bind    handleThing                  in plain qual=.plain
+L23   mcall   bind                         in joined qual=../core/index.js|$paths::join nargs=1
+L23   read    paths                        in joined qual=../core/index.js
+L23   read    paths                        in joined qual=../core/index.js
+L23   mread   join                         in joined qual=../core/index.js|$paths
+L23   bind    join                         in joined qual=.joined
+L24   call    create                       in text qual=ZodString nargs=1
+L24   type    Maker                        in coerce
+L24   type    Maker                        in coerce
+L24   read    ZodString                    in text
+L25   type    Extra                        in Shape
+L27   type    $ZodType                     in current qual=../core/index.js
+L28   call    registry                     in registry qual=../core/index.js nargs=0
+L28   type    $ZodRegistry                 in registry qual=../core/index.js
+L28   type    Meta                         in registry
+L30   extends $ZodType                     in ZodType qual=../core/index.js
+L30   impl    Schema                       in ZodType qual=./types
+L30   impl    Shape                        in ZodType qual=./factory.inner
+L31   bind    makeType                     in create qual=ZodType.create
+L32   read    ZodString                    in alt
+L32   mread   create                       in alt qual=$ZodString
+L32   bind    create                       in alt qual=ZodType.alt
+L33   type    $ZodTypeDef                  in def qual=../core/index.js
+L34   type    Emitter                      in evt qual=./events
+L34   type    Options                      in evt qual=./events
+L34   new     Emitter                      in evt qual=./events nargs=0
+L35   mcall   constructor                  in constructor qual=^ZodType nargs=0
+L35   type    $ZodCheck                    in constructor qual=../core/index.js
+L35   type    Inner                        in constructor qual=./types.deep
+L36   type    ZodNullable                  in nullable
+L36   new     ZodNullable                  in nullable nargs=1
+L37   type    $ZodOptional                 in optional qual=../core/index.js
+L37   new     $ZodOptional                 in optional qual=../core/index.js nargs=1
+L38   mcall   nullable                     in nullish qual=ZodType nargs=0
+L38   mcall   optional                     in nullish qual=ZodType::nullable() nargs=0
+L39   type    ZodType                      in load
+L40   type    $ZodType                     in run qual=../core/index.js
+L40   type    Result                       in run qual=./types
+L41   call    foo                          in run nargs=0
+L41   mcall   bar                          in run qual=foo() nargs=0
+L42   call    make                         in run qual=./factory nargs=0
+L42   mcall   run                          in run qual=./factory|make() nargs=0
+L43   mcall   get                          in run qual=../core/index.js|$globalRegistry nargs=1
+L43   read    globalRegistry               in run qual=../core/index.js
+L44   mcall   defineLazy                   in run qual=../core/index.js|$util nargs=1
+L44   read    util                         in run qual=../core/index.js
+L45   call    create                       in run qual=../core/index.js|Registry nargs=0
+L45   mcall   add                          in run qual=../core/index.js|$Registry::create() nargs=1
+L45   read    Registry                     in run qual=../core/index.js
+L46   mcall   string                       in run qual=$z nargs=0
+L46   read    z                            in run
+L47   mcall   use                          in run qual=make() nargs=0
+L47   read    made                         in run
+L48   mcall   touch                        in run qual=$current nargs=0
+L48   read    current                      in run
+L49   call    stringType                   in run nargs=0
+L49   mcall   optional                     in run qual=$ZodString::create() nargs=0
+L50   call    viaNs                        in run nargs=0
+L50   mcall   done                         in run qual=./factory|build() nargs=0
+L51   call    plain                        in run nargs=0
+L52   mcall   load                         in run qual=ZodType nargs=0
+L53   mcall   nullish                      in run qual=ZodType::load() nargs=0
+L54   mcall   nullable                     in run qual=ZodType nargs=0
+L55   mcall   unwrap                       in run qual=ZodType::nullable() nargs=0
+L56   mcall   process                      in run qual=ZodType nargs=1
+L56   mread   status                       in run qual=ZodType::process()
+L57   mcall   dirty                        in run qual=ZodType::process()::status nargs=0
+L58   call    fetch                        in run qual=./factory nargs=0
+L58   mcall   json                         in run qual=./factory|fetch() nargs=0
+L59   call    start                        in run qual=./lazy nargs=0
+L60   call    helper                       in run nargs=0
+L61   call    other                        in run qual=./helpers nargs=0
+L62   call    old                          in run qual=./legacy nargs=0
+L63   call    run                          in run qual=./cjs nargs=0
+L64   call    member                       in run qual=./cjs-member nargs=0
+L64   call    omit                         in run qual=./cjs-named nargs=1
+L64   call    pick                         in run nargs=1
+L65   call    thing                        in run qual=./things nargs=0
+L66   new     $ZodError                    in run qual=../core/index.js nargs=1
+L67   read    inner                        in run qual=./factory
+L67   new     Thing                        in run qual=./factory.inner nargs=0
+L68   mcall   go                           in run qual=./factory.inner|Thing nargs=0
+L69   mcall   check                        in run qual=../core/index.js|$ZodType nargs=0
+L70   mcall   touch                        in run qual=ZodType::inner::value nargs=0
+L70   mread   inner                        in run qual=ZodType
+L70   mread   value                        in run qual=ZodType::inner
+L71   mcall   finish                       in run qual=ZodType::run() nargs=0
+L71   mcall   run                          in run qual=^ZodType nargs=1
+L72   call    configure                    in run qual=./things nargs=0
+L73   mcall   get                          in run qual=$Registry::global nargs=1
+L73   read    Registry                     in run
+L73   mread   global                       in run qual=$Registry
+L74   mcall   fire                         in run qual=ZodType::evt nargs=2
+L74   mcall   wrap                         in run qual=./events|$tools nargs=1
+L74   read    Emitter                      in run qual=./events
+L74   read    tools                        in run qual=./events
+L74   mread   None                         in run qual=./events|$Emitter
+L74   mread   evt                          in run qual=ZodType
+L75   mcall   ~validate                    in run qual=ZodType nargs=1
+L76   mcall   get                          in run qual=$local::table nargs=1
+L76   read    local                        in run
+L76   mread   table                        in run qual=$local
+L77   mcall   helper                       in run qual=$local nargs=0
+L77   read    local                        in run
+L78   call    joined                       in run nargs=2
+L79   call    make                         in run nargs=0
+L80   mcall   run                          in run qual=make() nargs=0
+L81   mread   nullish                      in run qual=ZodType
+L82   mcall   nullish                      in run qual=ZodType nargs=0
+L83   type    Result                       in run qual=./types
+L90   import  omit                         in lazyLoad qual=./cjs-named
+L90   import  pick                         in lazyLoad qual=./cjs-named
+L91   call    omit                         in lazyLoad qual=./cjs-named nargs=0
+L91   call    pick                         in lazyLoad qual=./cjs-named nargs=1
+L91   call    start                        in lazyLoad qual=./lazy nargs=1
+--- imports (26)
+L2    target=../core/index.js name=- alias=core flags=0
+L3    target=./factory name=- alias=ns flags=0
+L4    target=./types name=- alias=types flags=0
+L5    target=./things name=default alias=Default flags=0
+L5    target=./things name=thing alias=renamed flags=0
+L5    target=./things name=Registry alias=- flags=0
+L6    target=./legacy name=- alias=legacy flags=0
+L7    target=./events name=Emitter alias=Evt flags=0
+L7    target=./events name=Options alias=Opts flags=0
+L7    target=./events name=tools alias=kit flags=0
+L8    target=./schemas name=- alias=schemas flags=4
+L9    target=./abc name=a alias=b flags=4
+L9    target=./abc name=default alias=c flags=4
+L10   target=./d name=default alias=- flags=4
+L11   target=./all name=- alias=- flags=6
+L12   target=./cjs name=- alias=cjs flags=0
+L13   target=./cjs-named name=pick alias=- flags=0
+L13   target=./cjs-named name=omit alias=without flags=0
+L14   target=./cjs-member name=member alias=viaMember flags=0
+L16   target=../core/index.js name=- alias=z flags=0
+L17   target=./lazy name=- alias=lazy flags=0
+L18   target=./helpers name=helper alias=- flags=0
+L18   target=./helpers name=other alias=alias2 flags=0
+L89   target=./lazy name=- alias=m flags=0
+L90   target=./cjs-named name=pick alias=p2 flags=0
+L90   target=./cjs-named name=omit alias=- flags=0

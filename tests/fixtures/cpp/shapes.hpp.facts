@@ -1,0 +1,126 @@
+lang=cpp ok=true lines=77 errors=0
+--- defs (65)
+  0 ns      geo                          L8-74 parent=- type=- arity=0..0 flags=0x00 | namespace geo::shapes
+  1 ns      shapes                       L8-74 parent=geo type=- arity=0..0 flags=0x00 | namespace geo::shapes
+  2 struct  Point                        L11-11 parent=shapes type=- arity=0..0 flags=0x00 | struct Point
+  3 field   x                            L11-11 parent=Point type=- arity=0..0 flags=0x00 | int x =
+  4 field   y                            L11-11 parent=Point type=- arity=0..0 flags=0x00 | int x = 0, y =
+  5 enum    Color                        L12-12 parent=shapes type=- arity=0..0 flags=0x00 | enum Color
+  6 enumval Red                          L12-12 parent=Color type=- arity=0..0 flags=0x00 | Red
+  7 enumval Green                        L12-12 parent=Color type=- arity=0..0 flags=0x00 | Green = 2
+  8 enum    Fill                         L13-13 parent=shapes type=- arity=0..0 flags=0x00 | enum class Fill : unsigned char
+  9 enumval None                         L13-13 parent=Fill type=- arity=0..0 flags=0x00 | None
+ 10 enumval Solid                        L13-13 parent=Fill type=- arity=0..0 flags=0x00 | Solid
+ 11 union   Scalar                       L14-14 parent=shapes type=- arity=0..0 flags=0x00 | union Scalar
+ 12 field   i                            L14-14 parent=Scalar type=- arity=0..0 flags=0x00 | int i;
+ 13 field   f                            L14-14 parent=Scalar type=- arity=0..0 flags=0x00 | float f;
+ 14 type    Id                           L15-15 parent=shapes type=- arity=0..0 flags=0x00 | typedef unsigned long Id;
+ 15 type    Path                         L16-16 parent=shapes type=vector arity=0..0 flags=0x00 | using Path = std::vector<Point>;
+ 16 type    Ref                          L17-17 parent=shapes type=- arity=0..0 flags=0x00 | template <typename T> using Ref = std::shared_ptr<T>;
+ 17 trait   Drawable                     L18-18 parent=shapes type=- arity=0..0 flags=0x00 | template <typename T> concept Drawable = requires(T t) { t.draw(); };
+ 18 const   tau                          L19-19 parent=shapes type=- arity=0..0 flags=0x00 | template <typename T> constexpr T tau =
+ 19 var     instances                    L20-20 parent=shapes type=- arity=0..0 flags=0x01 | extern int instances;
+ 20 const   kMaxSides                    L21-21 parent=shapes type=- arity=0..0 flags=0x00 | constexpr int kMaxSides =
+ 21 enumval kDefaultLayer                L22-22 parent=shapes type=- arity=0..0 flags=0x00 | kDefaultLayer = 1
+ 22 class   Shape                        L24-56 parent=shapes type=- arity=0..0 flags=0x00 | class Shape
+ 23 method  Shape                        L26-26 parent=Shape type=Shape arity=0..0 flags=0x00 | Shape()
+ 24 method  Shape                        L27-27 parent=Shape type=Shape arity=1..2 flags=0x00 | explicit Shape(Id id, Fill fill = Fill::None)
+ 25 method  Shape                        L28-28 parent=Shape type=Shape arity=1..1 flags=0x01 | Shape(const Shape &)
+ 26 method  ~Shape                       L29-29 parent=Shape type=- arity=0..0 flags=0x01 | virtual ~Shape();
+ 27 method  area                         L30-30 parent=Shape type=- arity=0..0 flags=0x41 | virtual double area() const =
+ 28 method  draw                         L31-31 parent=Shape type=- arity=1..2 flags=0x01 | virtual void draw(Canvas &canvas, int layer = 0) const;
+ 29 method  id                           L32-32 parent=Shape type=Id arity=0..0 flags=0x00 | Id id() const
+ 30 method  filled                       L33-33 parent=Shape type=- arity=0..0 flags=0x00 | bool filled() const
+ 31 method  make                         L34-34 parent=Shape type=Ref arity=1..255 flags=0x01 | static Ref<Shape> make(const char *kind, ...);
+ 32 method  operator==                   L35-35 parent=Shape type=- arity=1..1 flags=0x00 | bool operator==(const Shape &other) const
+ 33 method  operator bool                L36-36 parent=Shape type=- arity=0..0 flags=0x00 | explicit operator bool() const
+ 34 method  accept                       L37-37 parent=Shape type=- arity=1..1 flags=0x00 | template <typename V> void accept(V &&visitor) const
+ 35 fn      swap                         L38-38 parent=Shape type=- arity=2..2 flags=0x00 | void swap(Shape &a, Shape &b)
+ 36 type    Children                     L40-40 parent=Shape type=vector arity=0..0 flags=0x00 | using Children = std::vector<std::unique_ptr<Shape>>;
+ 37 field   kids_                        L41-41 parent=Shape type=vector arity=0..0 flags=0x00 | Children kids_;
+ 38 fn      same                         L42-42 parent=Shape type=- arity=2..2 flags=0x00 | bool same(const Shape &a, const Shape &b)
+ 39 field   kVersion                     L43-43 parent=Shape type=- arity=0..0 flags=0x00 | static const int kVersion =
+ 40 field   live                         L44-44 parent=Shape type=- arity=0..0 flags=0x00 | static int live;
+ 41 method  validate                     L47-47 parent=Shape type=- arity=0..0 flags=0x01 | bool validate() const;
+ 42 field   id_                          L48-48 parent=Shape type=Id arity=0..0 flags=0x00 | Id id_ =
+ 43 field   fill_                        L49-49 parent=Shape type=Fill arity=0..0 flags=0x00 | Fill fill_;
+ 44 field   outline_                     L50-50 parent=Shape type=Path arity=0..0 flags=0x00 | mutable Path outline_;
+ 45 field   cache_                       L51-51 parent=Shape type=Canvas arity=0..0 flags=0x00 | std::unique_ptr<Canvas> cache_;
+ 46 field   on_change_                   L52-52 parent=Shape type=- arity=1..1 flags=0x20 | void (*on_change_)(Shape *) =
+ 47 field   stats_                       L53-53 parent=Shape type=Stats arity=0..0 flags=0x00 | struct Stats { int draws; } stats_;
+ 48 struct  Stats                        L53-53 parent=Shape type=- arity=0..0 flags=0x00 | struct Stats
+ 49 field   draws                        L53-53 parent=Stats type=- arity=0..0 flags=0x00 | int draws;
+ 50 enumval kInline                      L54-54 parent=Shape type=- arity=0..0 flags=0x00 | kInline = 4
+ 51 field   tag                          L55-55 parent=Shape type=- arity=0..0 flags=0x00 | int tag;
+ 52 field   weight                       L55-55 parent=Shape type=- arity=0..0 flags=0x00 | float weight;
+ 53 class   Poly                         L58-65 parent=shapes type=- arity=0..0 flags=0x00 | template <typename T, int N = 2, typename... Rest> class Poly final : public Shape, private Ref<T>
+ 54 field   sides                        L61-61 parent=Poly type=- arity=0..0 flags=0x00 | T sides[N];
+ 55 method  at                           L62-62 parent=Poly type=- arity=1..1 flags=0x00 | T &at(int i)
+ 56 method  area                         L63-63 parent=Poly type=- arity=0..0 flags=0x01 | double area() const override;
+ 57 method  cast                         L64-64 parent=Poly type=Poly arity=0..0 flags=0x01 | template <typename U> Poly<U, N> cast() const;
+ 58 struct  Poly                         L67-67 parent=shapes type=- arity=0..0 flags=0x00 | template <> struct Poly<void>
+ 59 field   none                         L67-67 parent=Poly type=- arity=0..0 flags=0x00 | int none;
+ 60 fn      clamp                        L69-69 parent=shapes type=- arity=3..3 flags=0x01 | template <typename T> T clamp(T v, T lo, T hi);
+ 61 fn      length                       L70-70 parent=shapes type=- arity=1..2 flags=0x01 | double length(const Path &path, bool closed = false);
+ 62 fn      twice                        L71-71 parent=shapes type=- arity=1..1 flags=0x00 | inline int twice(int v)
+ 63 fn      operator<<                   L72-72 parent=shapes type=Shape arity=2..2 flags=0x01 | Shape &operator<<(Shape &s, const Point &p);
+ 64 var     in_header                    L76-76 parent=- type=- arity=0..0 flags=0x00 | int in_header;
+--- refs (54)
+L10   type    Canvas                       in shapes
+L16   type    Point                        in Path
+L16   type    vector                       in Path qual=std
+L17   type    shared_ptr                   in Ref qual=std
+L18   mcall   draw                         in Drawable nargs=0
+L27   type    Fill                         in Shape
+L27   type    Fill                         in Shape
+L27   type    Id                           in Shape
+L27   read    None                         in Shape qual=Fill
+L27   mwrite  fill_                        in Shape qual=Shape
+L27   mwrite  id_                          in Shape qual=Shape
+L28   type    Shape                        in Shape
+L31   type    Canvas                       in draw
+L32   type    Id                           in id
+L32   mread   id_                          in id qual=Shape
+L33   call    validate                     in filled qual=Shape nargs=0
+L33   type    Fill                         in filled
+L33   read    None                         in filled qual=Fill
+L33   mread   fill_                        in filled qual=Shape
+L34   type    Ref                          in make
+L34   type    Shape                        in make
+L35   type    Shape                        in operator==
+L35   mread   id_                          in operator== qual=Shape
+L35   mread   id_                          in operator== qual=Shape
+L36   mread   id_                          in operator bool qual=Shape
+L37   mcall   visit                        in accept nargs=1
+L38   call    exchange                     in swap qual=Shape nargs=2
+L38   type    Shape                        in swap
+L38   type    Shape                        in swap
+L38   mread   id_                          in swap qual=Shape
+L38   mread   id_                          in swap qual=Shape
+L39   type    Canvas                       in Shape
+L40   type    Shape                        in Children
+L40   type    unique_ptr                   in Children qual=std
+L40   type    vector                       in Children qual=std
+L41   type    Children                     in Shape
+L42   type    Shape                        in same
+L42   type    Shape                        in same
+L42   mread   id_                          in same qual=Shape
+L42   mread   id_                          in same qual=Shape
+L48   type    Id                           in id_
+L49   type    Fill                         in Shape
+L50   type    Path                         in Shape
+L51   type    Canvas                       in Shape
+L51   type    unique_ptr                   in Shape qual=std
+L52   type    Shape                        in on_change_
+L59   extends Ref                          in Poly
+L59   extends Shape                        in Poly
+L62   mread   sides                        in at qual=Poly
+L64   type    Poly                         in cast
+L70   type    Path                         in length
+L72   type    Point                        in operator<<
+L72   type    Shape                        in operator<<
+L72   type    Shape                        in operator<<
+--- imports (3)
+L4    target=memory name=- alias=- flags=1
+L5    target=vector name=- alias=- flags=1
+L6    target=geo/point.hpp name=- alias=- flags=0

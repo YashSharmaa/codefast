@@ -1,0 +1,26 @@
+{
+  "tool": "codebase-memory-mcp",
+  "version": "codebase-memory-mcp 0.12.1",
+  "repo": "bench/repos/linux",
+  "repo_git_files": 97362,
+  "command": "bench/tools/codebase-memory-mcp/bin/codebase-memory-mcp cli --progress index_repository --repo-path bench/repos/linux --name linux-8515d680 --mode full",
+  "extra_env": "CBM_CACHE_DIR=/tmp/codefast-bench/cbm/linux-8515d680 CBM_WORKERS=18",
+  "threads_requested": 18,
+  "wall_seconds": 725.18,
+  "user_seconds": 0.15,
+  "sys_seconds": 0.4,
+  "peak_rss_bytes": 11178295296,
+  "peak_rss_source": "tree_sampled",
+  "peak_rss_bytes_time_l": 4259840,
+  "peak_rss_bytes_tree_sampled": 11178295296,
+  "index_bytes": 15774492819,
+  "index_disk_bytes": 15775637504,
+  "index_paths": [
+    "/tmp/codefast-bench/cbm/linux-8515d680"
+  ],
+  "exit_status": 0,
+  "host": "macOS-27.2-arm64-arm-64bit",
+  "timestamp": "2026-11-13T05:07:19+0530",
+  "mode": "full",
+  "project": "linux-8515d680"
+}

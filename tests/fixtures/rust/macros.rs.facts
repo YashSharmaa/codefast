@@ -1,0 +1,162 @@
+lang=rust ok=true lines=93 errors=0
+--- defs (40)
+  0 macro   int_impl                     L5-18 parent=- type=- arity=0..255 flags=0x00 | macro_rules! int_impl
+  1 method  checked_add                  L9-12 parent=int_impl type=Option arity=1..1 flags=0x14 | pub const fn checked_add(self, rhs: Self) -> Option<Self>
+  2 const   MAX                          L13-13 parent=int_impl type=- arity=0..0 flags=0x14 | pub const MAX: Self
+  3 fn      from_str_radix               L14-16 parent=int_impl type=Result arity=2..2 flags=0x14 | pub fn from_str_radix(src: &str, radix: u32) -> Result<Self, ParseIntError>
+  4 impl    i32                          L20-22 parent=- type=- arity=0..0 flags=0x00 | impl i32
+  5 macro   newtypes                     L24-46 parent=- type=- arity=0..255 flags=0x00 | macro_rules! newtypes
+  6 method  from                         L29-29 parent=newtypes type=- arity=1..1 flags=0x10 | fn from(v: $inner) -> Self
+  7 enum    Kind                         L32-32 parent=newtypes type=- arity=0..0 flags=0x14 | pub enum Kind
+  8 enumval Alpha                        L32-32 parent=Kind type=- arity=0..0 flags=0x14 | Alpha
+  9 enumval Beta                         L32-32 parent=Kind type=- arity=0..0 flags=0x14 | Beta(u32, Payload)
+ 10 enumval Gamma                        L32-32 parent=Kind type=- arity=0..0 flags=0x14 | Gamma
+ 11 field   x                            L32-32 parent=Gamma type=Coord arity=0..0 flags=0x10 | x: Coord
+ 12 field   y                            L32-32 parent=Gamma type=Coord arity=0..0 flags=0x14 | pub y: Box<Coord>
+ 13 struct  Holder                       L33-33 parent=newtypes type=- arity=0..0 flags=0x14 | pub struct Holder<T: Clone>
+ 14 field   inner                        L33-33 parent=Holder type=- arity=0..0 flags=0x14 | pub inner: Arc<T>
+ 15 field   count                        L33-33 parent=Holder type=- arity=0..0 flags=0x10 | count: usize
+ 16 impl    Holder                       L34-37 parent=newtypes type=- arity=0..0 flags=0x10 | impl<T: Clone> Holder<T>
+ 17 method  get                          L35-35 parent=Holder type=- arity=1..1 flags=0x14 | pub fn get(&self, key: &Key) -> &T
+ 18 method  fresh                        L36-36 parent=Holder type=Holder arity=1..1 flags=0x10 | fn fresh(seed: Seed) -> Self
+ 19 impl    Holder                       L38-40 parent=newtypes type=- arity=0..0 flags=0x10 | impl fmt::Display for Holder<u8>
+ 20 method  fmt                          L39-39 parent=Holder type=fmt|Result arity=1..1 flags=0x10 | fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+ 21 trait   Visit                        L41-41 parent=newtypes type=- arity=0..0 flags=0x14 | pub trait Visit
+ 22 method  visit                        L41-41 parent=Visit type=- arity=1..1 flags=0x55 | fn visit(&mut self, n: &Node)
+ 23 method  done                         L41-41 parent=Visit type=- arity=0..0 flags=0x14 | fn done(&self) -> bool
+ 24 type    Out                          L41-41 parent=Visit type=- arity=0..0 flags=0x55 | type Out
+ 25 mod     generated                    L42-42 parent=newtypes type=- arity=0..0 flags=0x10 | mod generated
+ 26 fn      deep                         L42-42 parent=generated type=- arity=0..0 flags=0x14 | pub fn deep()
+ 27 type    Alias                        L43-43 parent=newtypes type=Holder arity=0..0 flags=0x10 | type Alias
+ 28 macro   nested                       L44-44 parent=newtypes type=- arity=0..255 flags=0x10 | macro_rules! nested
+ 29 mod     unix                         L50-50 parent=- type=- arity=0..0 flags=0x11 | mod unix
+ 30 fn      platform_init                L52-52 parent=- type=io|Result arity=1..1 flags=0x14 | pub(crate) fn platform_init(flags: Flags) -> io::Result<Handle>
+ 31 fn      platform_init                L54-54 parent=- type=- arity=0..0 flags=0x14 | pub fn platform_init()
+ 32 struct  Flags                        L60-63 parent=- type=- arity=0..0 flags=0x14 | pub struct Flags: u32
+ 33 const   READ                         L61-61 parent=Flags type=- arity=0..0 flags=0x10 | const READ
+ 34 const   WRITE                        L62-62 parent=Flags type=- arity=0..0 flags=0x10 | const WRITE
+ 35 var     CACHE                        L67-67 parent=- type=RefCell arity=0..0 flags=0x10 | static CACHE: RefCell<Cache>
+ 36 var     DEPTH                        L68-68 parent=- type=Cell arity=0..0 flags=0x14 | pub static DEPTH: Cell<usize>
+ 37 var     PATTERN                      L72-72 parent=- type=Regex arity=0..0 flags=0x10 | static ref PATTERN: Regex
+ 38 impl    Holder                       L75-93 parent=- type=- arity=0..0 flags=0x00 | impl Holder<u8>
+ 39 method  user                         L76-92 parent=Holder type=- arity=2..2 flags=0x00 | fn user(&self, other: &Holder<u8>, items: Vec<Item>) -> usize
+--- refs (115)
+L3    import  RefCell                      in <file> qual=std::cell
+L9    type    Option                       in checked_add
+L10   mcall   overflowing_add              in checked_add nargs=1
+L11   call    unlikely                     in checked_add qual=intrinsics nargs=1
+L13   read    MIN                          in MAX qual=Self
+L14   type    ParseIntError                in from_str_radix
+L14   type    Result                       in from_str_radix
+L15   call    parse                        in from_str_radix nargs=2
+L15   mcall   map_err                      in from_str_radix nargs=1
+L15   type    ParseIntError                in from_str_radix
+L15   read    from                         in from_str_radix qual=ParseIntError
+L21   macro   int_impl                     in i32
+L28   type    From                         in newtypes
+L32   type    Box                          in Gamma
+L32   type    Coord                        in Gamma
+L32   type    Coord                        in Gamma
+L32   type    Payload                      in Beta
+L33   type    Arc                          in Holder
+L33   type    Clone                        in Holder
+L34   type    Clone                        in Holder
+L34   type    Holder                       in Holder
+L35   mcall   touch                        in get qual=Key nargs=0
+L35   type    Key                          in get
+L35   mread   inner                        in get qual=Holder
+L36   mcall   into                         in fresh qual=Seed nargs=0
+L36   type    Seed                         in fresh
+L36   new     Holder                       in fresh
+L38   type    Holder                       in Holder
+L38   impl    Display                      in Holder
+L39   type    Formatter                    in fmt qual=fmt
+L39   type    Result                       in fmt
+L39   mread   count                        in fmt qual=Holder
+L39   macro   write                        in fmt
+L41   type    Node                         in visit
+L42   call    shallow                      in deep qual=super nargs=0
+L43   read    Holder                       in Alias
+L44   call    inner_call                   in nested nargs=0
+L48   macro   cfg_if                       in <file> qual=cfg_if
+L51   import  Handle                       in <file> qual=self::unix
+L51   import  raw                          in <file> qual=self::unix
+L52   call    open                         in platform_init qual=Handle nargs=1
+L52   mcall   bits                         in platform_init qual=Flags nargs=0
+L52   type    Flags                        in platform_init
+L52   type    Handle                       in platform_init
+L52   type    Handle                       in platform_init
+L52   type    Result                       in platform_init
+L58   macro   bitflags                     in <file>
+L62   mcall   bits                         in WRITE nargs=0
+L62   read    READ                         in WRITE qual=Flags
+L66   macro   thread_local                 in <file>
+L67   call    default                      in CACHE qual=Cache nargs=0
+L67   call    new                          in CACHE qual=RefCell nargs=1
+L67   type    Cache                        in CACHE
+L67   type    Cache                        in CACHE
+L67   type    RefCell                      in CACHE
+L67   type    RefCell                      in CACHE
+L68   call    new                          in DEPTH qual=Cell nargs=1
+L68   type    Cell                         in DEPTH
+L68   type    Cell                         in DEPTH
+L71   macro   lazy_static                  in <file>
+L72   call    new                          in PATTERN qual=Regex nargs=1
+L72   mcall   unwrap                       in PATTERN nargs=0
+L72   type    Regex                        in PATTERN
+L72   type    Regex                        in PATTERN
+L75   type    Holder                       in Holder
+L76   type    Holder                       in user
+L76   type    Item                         in user
+L76   type    Vec                          in user
+L77   call    fresh                        in user qual=Holder nargs=1
+L77   call    make_seed                    in user nargs=0
+L77   mcall   get                          in user qual=Holder nargs=1
+L77   type    Holder                       in user
+L77   read    KEY                          in user
+L77   mread   count                        in user
+L77   macro   debug                        in user
+L78   call    Beta                         in user qual=Kind nargs=2
+L78   call    new                          in user qual=Payload nargs=0
+L78   type    Kind                         in user
+L78   type    Kind                         in user
+L78   type    Payload                      in user
+L78   read    Alpha                        in user qual=Kind
+L78   macro   vec                          in user
+L79   call    compute                      in user nargs=2
+L79   mcall   len                          in user qual=Holder::inner nargs=0
+L79   mcall   len                          in user qual=Vec nargs=0
+L79   mread   count                        in user qual=Holder
+L79   mread   inner                        in user qual=Holder
+L79   macro   assert_eq                    in user
+L80   mcall   first                        in user qual=Vec nargs=0
+L80   mcall   is_valid                     in user nargs=0
+L80   type    Item                         in user
+L80   macro   assert                       in user
+L80   macro   matches                      in user
+L81   mcall   iter                         in user qual=Vec nargs=0
+L81   mcall   map                          in user nargs=1
+L81   mcall   weight                       in user nargs=0
+L81   read    BASE                         in user
+L81   macro   sum                          in user
+L82   call    describe                     in user nargs=1
+L82   mread   count                        in user qual=Holder
+L82   macro   warn                         in user qual=log
+L83   macro   select                       in user qual=tokio
+L84   mcall   handle                       in user qual=Holder nargs=1
+L84   mcall   recv                         in user qual=Holder::inbox nargs=0
+L84   mread   inbox                        in user qual=Holder
+L85   mcall   changed                      in user nargs=0
+L87   mcall   call                         in user nargs=0
+L87   macro   quote                        in user
+L88   macro   stringify                    in user
+L89   call    trace_state                  in user nargs=0
+L89   macro   cfg                          in user
+L90   call    apply                        in user qual=crate::rules nargs=1
+L90   call    size_of                      in user qual=mem nargs=0
+L90   read    Item                         in user
+L90   macro   my_dsl                       in user
+--- imports (3)
+L3    target=std::cell name=RefCell alias=- flags=1
+L51   target=self::unix name=Handle alias=- flags=4
+L51   target=self::unix name=raw alias=sys flags=4

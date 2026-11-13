@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.YashSharmaa/codefast",
+  "title": "codefast",
+  "description": "LLM-free code intelligence: definitions, references, callers and call paths in few tokens.",
+  "version": "0.1.0",
+  "websiteUrl": "https://github.com/YashSharmaa/codefast",
+  "repository": {
+    "url": "https://github.com/YashSharmaa/codefast",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@yashsharmaa/codefast",
+      "version": "0.1.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "CODEFAST_ROOT",
+          "description": "Absolute path of the repository to answer questions about. Without it the server uses the directory it was started in when that is a git work tree, or the `root` argument of each tool call.",
+          "format": "filepath",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

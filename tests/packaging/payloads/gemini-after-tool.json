@@ -1,0 +1,13 @@
+{
+  "session_id": "6d1c2b3a-4f5e-4a6b-8c7d-9e0f1a2b3c4d",
+  "transcript_path": "{{HOME}}/.gemini/tmp/project/chats/session-2026-11-13.json",
+  "cwd": "{{REPO}}",
+  "hook_event_name": "AfterTool",
+  "timestamp": "2026-11-13T09:15:02.118Z",
+  "tool_name": "run_shell_command",
+  "tool_input": { "command": "grep -rn dev_read src", "description": "search for dev_read" },
+  "tool_response": {
+    "llmContent": "src/io.c:4:int dev_read(struct dev *d, char *buf, int count)",
+    "returnDisplay": "src/io.c:4:int dev_read(struct dev *d, char *buf, int count)"
+  }
+}

@@ -1,0 +1,115 @@
+lang=go ok=true lines=125 errors=0
+--- defs (29)
+  0 mod     edge                         L3-3 parent=- type=- arity=0..0 flags=0x00 | package edge
+  1 struct  Options                      L18-24 parent=- type=- arity=0..0 flags=0x04 | type Options struct
+  2 field   Port                         L19-19 parent=Options type=- arity=0..0 flags=0x04 | Port *int32
+  3 field   Protocol                     L20-20 parent=Options type=k8s.io/api/core/v1|Protocol arity=0..0 flags=0x04 | Protocol *corev1.Protocol
+  4 field   Name                         L21-21 parent=Options type=- arity=0..0 flags=0x04 | Name *string
+  5 field   Limits                       L22-22 parent=Options type=- arity=0..0 flags=0x04 | Limits map[string]int
+  6 field   Nested                       L23-23 parent=Options type=Options arity=0..0 flags=0x04 | Nested []Options
+  7 type    Matrix                       L26-26 parent=- type=- arity=0..0 flags=0x04 | type Matrix [][]float64
+  8 type    Registry                     L28-28 parent=- type=- arity=0..0 flags=0x04 | type Registry map[Kind]func() Handler
+  9 iface   Handler                      L30-30 parent=- type=- arity=0..0 flags=0x04 | type Handler interface
+ 10 method  Handle                       L30-30 parent=Handler type=- arity=1..1 flags=0x45 | Handle(req *Request) error
+ 11 type    HandlerFunc                  L32-32 parent=- type=- arity=0..0 flags=0x04 | type HandlerFunc func(req *Request) error
+ 12 method  Handle                       L34-34 parent=~HandlerFunc type=- arity=1..1 flags=0x04 | func (f HandlerFunc) Handle(req *Request) error
+ 13 struct  Request                      L36-39 parent=- type=- arity=0..0 flags=0x04 | type Request struct
+ 14 field   Body                         L37-37 parent=Request type=unsafe|Pointer arity=0..0 flags=0x04 | Body unsafe.Pointer
+ 15 field   Kind                         L38-38 parent=Request type=Kind arity=0..0 flags=0x04 | Kind Kind
+ 16 type    Kind                         L41-41 parent=- type=- arity=0..0 flags=0x04 | type Kind uint8
+ 17 const   KindA                        L44-44 parent=- type=Kind arity=0..0 flags=0x04 | KindA Kind = 1 << iota
+ 18 const   KindB                        L45-45 parent=- type=Kind arity=0..0 flags=0x04 | KindB
+ 19 const   KindD                        L47-47 parent=- type=- arity=0..0 flags=0x04 | KindD = "d"
+ 20 var     ErrClosed                    L50-50 parent=- type=- arity=0..0 flags=0x04 | var ErrClosed
+ 21 var     registry                     L52-52 parent=- type=Registry arity=0..0 flags=0x00 | var registry
+ 22 var     defaults                     L54-60 parent=- type=Options arity=0..0 flags=0x00 | var defaults
+ 23 fn      pointers                     L63-72 parent=- type=- arity=2..2 flags=0x00 | func pointers(o Options, k Kind)
+ 24 fn      newA                         L74-74 parent=- type=Handler arity=0..0 flags=0x00 | func newA() Handler
+ 25 fn      serve                        L76-97 parent=- type=- arity=1..1 flags=0x00 | func serve(req *Request) error
+ 26 method  validate                     L99-114 parent=~Request type=- arity=0..255 flags=0x00 | func (r *Request) validate(row ...float64) (err error)
+ 27 type    local                        L105-105 parent=validate type=Request arity=0..0 flags=0x02 | type local = Request
+ 28 fn      compose                      L116-125 parent=- type=- arity=0..255 flags=0x00 | func compose[T any, PT interface{ *T; Handler }](fs ...func(PT) error) func(PT) error
+--- refs (77)
+L20   type    Protocol                     in Options qual=k8s.io/api/core/v1
+L23   type    Options                      in Options
+L28   type    Handler                      in Registry
+L28   type    Kind                         in Registry
+L30   type    Request                      in Handle
+L32   type    Request                      in HandlerFunc
+L34   type    HandlerFunc                  in Handle
+L34   type    Request                      in Handle
+L37   type    Pointer                      in Request qual=unsafe
+L38   type    Kind                         in Request
+L44   type    Kind                         in KindA
+L50   call    New                          in ErrClosed qual=errors nargs=1
+L52   type    Handler                      in registry
+L52   read    KindA                        in registry
+L52   read    KindB                        in registry
+L52   read    newA                         in registry
+L52   new     Registry                     in registry
+L54   new     Options                      in defaults
+L55   mwrite  Port                         in defaults qual=Options
+L56   type    ProtocolTCP                  in defaults qual=k8s.io/api/core/v1
+L56   mwrite  Protocol                     in defaults qual=Options
+L57   mwrite  Name                         in defaults qual=Options
+L58   mwrite  Limits                       in defaults qual=Options
+L59   call    To                           in defaults qual=k8s.io/utils/ptr nargs=1
+L59   call    defaultName                  in defaults nargs=0
+L59   type    Options                      in defaults
+L59   mwrite  Name                         in defaults qual=Options
+L59   mwrite  Nested                       in defaults qual=Options
+L59   mwrite  Port                         in defaults qual=Options
+L63   type    Kind                         in pointers
+L63   type    Options                      in pointers
+L64   mread   Limits                       in pointers qual=Options
+L65   mread   Name                         in pointers qual=Options
+L65   mwrite  Name                         in pointers qual=Options
+L65   new     Options                      in pointers
+L66   new     Kind                         in pointers
+L68   type    Pod                          in pointers qual=k8s.io/api/core/v1
+L70   mread   Nested                       in pointers qual=Options
+L70   mwrite  Port                         in pointers qual=Options::Nested
+L74   type    Handler                      in newA
+L74   type    HandlerFunc                  in newA
+L74   read    serve                        in newA
+L76   type    Request                      in serve
+L77   type    char                         in serve qual=C
+L77   mread   Body                         in serve qual=Request
+L78   call    Pointer                      in serve qual=unsafe nargs=1
+L78   call    free                         in serve qual=C
+L79   call    Sizeof                       in serve qual=unsafe nargs=1
+L80   new     Matrix                       in serve
+L81   call    registry                     in serve nargs=0
+L81   mread   Kind                         in serve qual=Request
+L82   call    Is                           in serve qual=errors nargs=2
+L82   mcall   Handle                       in serve qual=registry() nargs=1
+L82   read    ErrClosed                    in serve
+L83   mcall   validate                     in serve qual=Request nargs=1
+L83   mwrite  Kind                         in serve qual=Request
+L83   bind    KindB                        in serve qual=Request.Kind
+L83   new     Request                      in serve
+L85   type    HandlerFunc                  in serve
+L85   read    Handle                       in serve qual=HandlerFunc
+L86   mread   Handle                       in serve qual=registry()
+L88   type    Handler                      in serve
+L92   type    Handler                      in serve
+L95   mcall   Close                        in serve nargs=0
+L96   call    Join                         in serve qual=errors nargs=4
+L96   mcall   Handle                       in serve nargs=1
+L99   type    Request                      in validate
+L105  type    Request                      in local
+L106  type    local                        in validate
+L107  mwrite  Kind                         in validate qual=local
+L108  type    Handler                      in validate
+L108  type    Kind                         in validate
+L109  read    registry                     in validate
+L112  mread   Kind                         in validate qual=local
+L113  mcall   Handle                       in validate nargs=1
+L116  type    Handler                      in compose
+L123  mcall   Handle                       in compose nargs=1
+--- imports (5)
+L8    target=C name=- alias=- flags=1
+L11   target=errors name=- alias=- flags=1
+L12   target=unsafe name=- alias=- flags=1
+L14   target=k8s.io/api/core/v1 name=- alias=corev1 flags=0
+L15   target=k8s.io/utils/ptr name=- alias=- flags=0

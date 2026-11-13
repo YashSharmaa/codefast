@@ -1,0 +1,26 @@
+{
+  "tool": "gnu-global",
+  "version": "gtags (GNU Global) 6.7",
+  "repo": "bench/repos/linux",
+  "repo_git_files": 97362,
+  "command": "gtags -f bench/tools/_work/global/linux-8515d680/files.list --gtagslabel=native-pygments bench/tools/_work/global/linux-8515d680/db",
+  "extra_env": "",
+  "threads_requested": 1,
+  "wall_seconds": 43.19,
+  "user_seconds": 33.15,
+  "sys_seconds": 6.48,
+  "peak_rss_bytes": 1444560896,
+  "peak_rss_source": "time_l",
+  "peak_rss_bytes_time_l": 1444560896,
+  "peak_rss_bytes_tree_sampled": null,
+  "index_bytes": 1686061056,
+  "index_disk_bytes": 1693589504,
+  "index_paths": [
+    "bench/tools/_work/global/linux-8515d680/db"
+  ],
+  "exit_status": 0,
+  "host": "macOS-27.2-arm64-arm-64bit",
+  "timestamp": "2026-11-13T04:55:14+0530",
+  "files_listed": 68774,
+  "gtagslabel": "native-pygments"
+}

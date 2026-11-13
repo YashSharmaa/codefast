@@ -1,0 +1,204 @@
+lang=rust ok=true lines=132 errors=0
+--- defs (32)
+  0 mod     inline                       L12-14 parent=- type=- arity=0..0 flags=0x00 | mod inline
+  1 fn      local_fn                     L13-13 parent=inline type=- arity=0..0 flags=0x04 | pub fn local_fn()
+  2 mod     child                        L15-15 parent=- type=- arity=0..0 flags=0x01 | mod child
+  3 struct  Engine                       L17-25 parent=- type=- arity=0..0 flags=0x04 | pub struct Engine
+  4 field   store                        L18-18 parent=Engine type=crate::store|Index arity=0..0 flags=0x00 | store: store::Index
+  5 field   by_name                      L19-19 parent=Engine type=Index arity=0..0 flags=0x00 | by_name: Index
+  6 field   conn                         L20-20 parent=Engine type=Option arity=0..0 flags=0x00 | conn: Option<Link>
+  7 field   table                        L21-21 parent=Engine type=HashMap arity=0..0 flags=0x00 | table: HashMap<u32, cfg::Entry>
+  8 field   err                          L22-22 parent=Engine type=crate::a::b|Failure arity=0..0 flags=0x00 | err: crate::a::b::Failure
+  9 field   out                          L23-23 parent=Engine type=std::fmt|Write arity=0..0 flags=0x00 | out: Box<dyn fmt::Write>
+ 10 field   plain                        L24-24 parent=Engine type=Plain arity=0..0 flags=0x00 | plain: Plain
+ 11 fn      open                         L27-39 parent=- type=crate::store|Index arity=1..1 flags=0x04 | pub fn open(path: &str) -> store::Index
+ 12 impl    Engine                       L41-89 parent=- type=- arity=0..0 flags=0x00 | impl Engine
+ 13 method  new                          L42-44 parent=Engine type=Engine arity=0..0 flags=0x04 | pub fn new() -> Self
+ 14 method  build                        L46-58 parent=Engine type=Engine arity=2..2 flags=0x00 | fn build(n: u32, plan: q::Plan) -> Self
+ 15 method  step                         L60-88 parent=Engine type=Plain arity=0..0 flags=0x00 | fn step(&self) -> &Plain
+ 16 impl    Engine                       L91-95 parent=- type=- arity=0..0 flags=0x00 | impl fmt::Display for Engine
+ 17 method  fmt                          L92-94 parent=Engine type=std::fmt|Result arity=1..1 flags=0x00 | fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+ 18 impl    Engine                       L97-97 parent=- type=- arity=0..0 flags=0x00 | impl q::Runner for Engine
+ 19 trait   Deep                         L99-101 parent=- type=- arity=0..0 flags=0x04 | pub trait Deep: q::Runner + fmt::Debug
+ 20 method  dig                          L100-100 parent=Deep type=crate::store|Index arity=0..0 flags=0x45 | fn dig(&self) -> store::Index
+ 21 fn      generic                      L103-113 parent=- type=crate::cfg|Entry arity=3..3 flags=0x00 | fn generic<T: q::Runner>(x: T, y: Box<store::Index>, z: Option<store::Index>) -> cfg::Entry
+ 22 macro   tuple_like                   L115-128 parent=- type=- arity=0..255 flags=0x00 | macro_rules! tuple_like
+ 23 impl    tuple                        L118-120 parent=tuple_like type=- arity=0..0 flags=0x10 | impl<$($T: PartialEq),+> PartialEq for ($($T,)+)
+ 24 method  eq                           L119-119 parent=tuple type=- arity=1..1 flags=0x10 | fn eq(&self, other: &($($T,)+)) -> bool
+ 25 impl    Wrapper                      L122-124 parent=tuple_like type=- arity=0..0 flags=0x10 | impl<T> From<[T; 2]> for Wrapper
+ 26 method  from                         L123-123 parent=Wrapper type=crate::query|Plan arity=2..2 flags=0x10 | fn from(a: [T; 2], b: Vec<(u8, u8)>) -> q::Plan
+ 27 impl    slice                        L125-125 parent=tuple_like type=- arity=0..0 flags=0x10 | impl<T> Marker for [T]
+ 28 impl    unit                         L126-126 parent=tuple_like type=- arity=0..0 flags=0x10 | impl Marker for ()
+ 29 enum    Shape                        L130-132 parent=- type=- arity=0..0 flags=0x04 | pub enum Shape
+ 30 enumval Rect                         L131-131 parent=Shape type=- arity=0..0 flags=0x04 | Rect
+ 31 field   w                            L131-131 parent=Rect type=- arity=0..0 flags=0x04 | w: f64
+--- refs (156)
+L2    import  query                        in <file> qual=crate
+L3    import  Index                        in <file> qual=crate::store
+L3    import  store                        in <file> qual=crate
+L4    import  Conn                         in <file> qual=crate::net
+L4    import  cfg                          in <file> qual=crate
+L5    import  Entry                        in <file> qual=std::collections::hash_map
+L5    import  HashMap                      in <file> qual=std::collections::hash_map
+L6    import  fmt                          in <file> qual=std
+L7    import  B                            in <file> qual=crate::a
+L8    import  wild                         in <file> qual=crate
+L9    import  sibling                      in <file> qual=super
+L10   import  alloc                        in <file>
+L18   type    Index                        in Engine qual=crate::store
+L19   type    Index                        in Engine
+L20   type    Link                         in Engine
+L20   type    Option                       in Engine
+L21   type    Entry                        in Engine qual=crate::cfg
+L21   type    HashMap                      in Engine
+L22   type    Failure                      in Engine qual=crate::a::b
+L23   type    Box                          in Engine
+L23   type    Write                        in Engine qual=std::fmt
+L24   type    Plain                        in Engine
+L27   type    Index                        in open qual=crate::store
+L28   call    open                         in open qual=crate::store nargs=1
+L28   type    Index                        in open qual=crate::store
+L29   mcall   flush                        in open qual=crate::store|Index nargs=0
+L30   call    new                          in open qual=crate::store|Index nargs=0
+L30   type    Index                        in open qual=crate::store
+L31   mcall   flush                        in open qual=crate::store|Index nargs=0
+L32   call    load                         in open qual=crate::store|Index nargs=1
+L32   type    Index                        in open qual=crate::store
+L33   mcall   flush                        in open qual=crate::store|Index::load() nargs=0
+L34   call    new                          in open qual=crate::a::b|Type nargs=0
+L34   type    Type                         in open qual=crate::a::b
+L35   mcall   touch                        in open qual=crate::a::b|Type nargs=0
+L36   call    open                         in open qual=crate::store nargs=1
+L37   mcall   flush                        in open qual=crate::store|open() nargs=0
+L41   type    Engine                       in Engine
+L43   call    build                        in new qual=Engine nargs=2
+L43   call    default                      in new qual=crate::query|Plan nargs=0
+L43   call    run                          in new qual=crate::query nargs=0
+L43   type    Plan                         in new qual=crate::query
+L46   type    Plan                         in build qual=crate::query
+L47   call    new                          in build qual=Engine nargs=0
+L48   mcall   step                         in build qual=Engine nargs=0
+L49   call    build                        in build qual=Engine nargs=2
+L50   mcall   step                         in build qual=Engine::build() nargs=0
+L51   call    from_parts                   in build qual=Engine nargs=1
+L51   type    Engine                       in build
+L52   mcall   step                         in build qual=Engine nargs=0
+L53   call    with_store                   in build qual=Engine nargs=1
+L53   type    Engine                       in build
+L54   mcall   step                         in build qual=Engine nargs=0
+L55   call    configure                    in build qual=Engine nargs=1
+L55   type    Engine                       in build
+L56   mcall   step                         in build qual=Engine::configure() nargs=0
+L60   type    Plain                        in step
+L61   mcall   get                          in step qual=Engine::store nargs=1
+L61   mcall   name                         in step nargs=0
+L61   mcall   unwrap                       in step qual=Engine::store::get() nargs=0
+L61   mread   store                        in step qual=Engine
+L62   mcall   finish                       in step qual=Engine::plain::render() nargs=0
+L62   mcall   render                       in step qual=Engine::plain nargs=0
+L62   mread   plain                        in step qual=Engine
+L63   mcall   render                       in step qual=Engine::step() nargs=0
+L63   mcall   step                         in step qual=Engine nargs=0
+L64   mcall   len                          in step qual=Engine::by_name::lookup() nargs=0
+L64   mcall   lookup                       in step qual=Engine::by_name nargs=1
+L64   mread   by_name                      in step qual=Engine
+L65   mcall   as_ref                       in step qual=Engine::conn nargs=0
+L65   mcall   send                         in step nargs=0
+L65   mcall   unwrap                       in step nargs=0
+L65   mread   conn                         in step qual=Engine
+L66   mcall   load                         in step qual=crate::cfg|$DEFAULT nargs=0
+L66   read    DEFAULT                      in step qual=crate::cfg
+L67   call    current                      in step qual=crate::cfg nargs=0
+L67   mcall   load                         in step qual=crate::cfg|current() nargs=0
+L68   mcall   describe                     in step qual=Mode nargs=0
+L68   type    Mode                         in step
+L68   read    Fast                         in step qual=Mode
+L69   mcall   check                        in step qual=Engine::LIMIT nargs=0
+L69   read    LIMIT                        in step qual=Engine
+L70   call    local_fn                     in step qual=inline nargs=0
+L71   call    remote_fn                    in step qual=child nargs=0
+L72   call    new                          in step qual=alloc::vec|Vec nargs=0
+L72   type    Vec                          in step qual=alloc::vec
+L73   call    fmt                          in step qual=std::fmt|Display nargs=2
+L73   type    Display                      in step qual=std::fmt
+L73   type    Plain                        in step
+L73   read    f                            in step
+L73   mread   plain                        in step qual=Engine
+L74   call    run                          in step qual=Runner nargs=1
+L74   type    Runner                       in step
+L75   call    build                        in step qual=Engine nargs=2
+L75   type    Engine                       in step
+L75   read    p                            in step
+L76   type    Type                         in step qual=crate::a::b
+L76   read    CONST                        in step qual=crate::a::b|Type
+L77   call    swap                         in step qual=std::mem nargs=2
+L77   read    a                            in step
+L77   read    b                            in step
+L78   call    drop                         in step qual=std::mem nargs=1
+L78   read    a                            in step
+L79   call    format                       in step qual=std::fmt nargs=1
+L79   read    args                         in step
+L80   call    from_str_radix               in step qual=u32 nargs=2
+L80   mcall   unwrap                       in step nargs=0
+L81   mwrite  root                         in step qual=crate::store|Index
+L81   new     Index                        in step qual=crate::store
+L82   mcall   flush                        in step qual=crate::store|Index nargs=0
+L83   call    Vacant                       in step qual=crate::cfg|Entry nargs=1
+L83   type    Entry                        in step qual=crate::cfg
+L84   mcall   insert                       in step qual=crate::cfg|Entry nargs=0
+L85   call    Pair                         in step qual=crate::store nargs=2
+L86   mcall   swap                         in step qual=crate::store|Pair nargs=0
+L87   mread   plain                        in step qual=Engine
+L91   type    Engine                       in Engine
+L91   impl    Display                      in Engine qual=std::fmt
+L92   type    Formatter                    in fmt qual=std::fmt
+L92   type    Result                       in fmt qual=std::fmt
+L97   type    Engine                       in Engine
+L97   impl    Runner                       in Engine qual=crate::query
+L99   extends Debug                        in Deep qual=std::fmt
+L99   extends Runner                       in Deep qual=crate::query
+L100  type    Index                        in dig qual=crate::store
+L103  type    Box                          in generic
+L103  type    Entry                        in generic qual=crate::cfg
+L103  type    Index                        in generic qual=crate::store
+L103  type    Index                        in generic qual=crate::store
+L103  type    Option                       in generic
+L103  type    Runner                       in generic qual=crate::query
+L104  mcall   run                          in generic qual=crate::query|Runner nargs=0
+L105  mcall   flush                        in generic qual=crate::store|Index nargs=0
+L106  mcall   flush                        in generic qual=crate::store|Index nargs=0
+L106  mcall   unwrap                       in generic qual=Option nargs=0
+L108  mcall   flush                        in generic qual=crate::store|Index nargs=0
+L109  call    default                      in generic qual=crate::store|Index nargs=0
+L109  mcall   flush                        in generic qual=crate::store|Index nargs=0
+L109  type    Index                        in generic qual=crate::store
+L111  call    helper                       in generic qual=Self nargs=0
+L111  call    new                          in generic qual=crate::store|Index nargs=0
+L111  call    run                          in generic qual=crate::query nargs=0
+L111  type    Index                        in generic qual=crate::store
+L111  new     Entry                        in generic qual=crate::cfg
+L111  macro   make                         in generic
+L112  macro   todo                         in generic
+L118  type    PartialEq                    in tuple
+L118  impl    PartialEq                    in tuple
+L122  type    Wrapper                      in Wrapper
+L122  impl    From                         in Wrapper
+L123  call    open                         in from qual=crate::store nargs=1
+L123  mcall   flush                        in from nargs=0
+L123  type    Plan                         in from
+L123  type    Vec                          in from
+L125  impl    Marker                       in slice
+L126  impl    Marker                       in unit
+--- imports (12)
+L2    target=crate name=query alias=q flags=0
+L3    target=crate name=store alias=- flags=0
+L3    target=crate::store name=Index alias=- flags=0
+L4    target=crate name=cfg alias=- flags=0
+L4    target=crate::net name=Conn alias=Link flags=0
+L5    target=std::collections::hash_map name=Entry alias=- flags=1
+L5    target=std::collections::hash_map name=HashMap alias=- flags=1
+L6    target=std name=fmt alias=- flags=1
+L7    target=crate::a name=B alias=- flags=4
+L8    target=crate::wild name=- alias=- flags=6
+L9    target=super::sibling name=- alias=- flags=2
+L10   target=alloc name=- alias=al flags=1

@@ -1,0 +1,74 @@
+lang=rust ok=true lines=57 errors=0
+--- defs (9)
+  0 impl    SmallCStr                    L7-12 parent=- type=- arity=0..0 flags=0x00 | impl std::ops::Deref for SmallCStr
+  1 type    Target                       L8-8 parent=SmallCStr type=std::ffi|CStr arity=0..0 flags=0x00 | type Target = ffi::CStr
+  2 method  deref                        L9-11 parent=SmallCStr type=std::ffi|CStr arity=0..0 flags=0x00 | fn deref(&self) -> &ffi::CStr
+  3 struct  Unit                         L15-17 parent=- type=- arity=0..0 flags=0x00 | struct Unit<T>(T) where (): Bound<T>
+  4 type    Empty                        L18-18 parent=- type=Ty arity=0..0 flags=0x00 | type Empty = Ty<>
+  5 fn      assoc_bound                  L21-24 parent=- type=Vec arity=1..1 flags=0x00 | fn assoc_bound(it: impl IntoIterator<Item: Clone>) -> Vec<Item>
+  6 fn      variants                     L27-38 parent=- type=- arity=2..2 flags=0x00 | fn variants(k: Kind, t: store::Thing) -> u32
+  7 fn      dsl                          L41-50 parent=- type=- arity=1..1 flags=0x00 | fn dsl(sock: Socket)
+  8 macro   each_fn                      L53-57 parent=- type=- arity=0..255 flags=0x00 | macro_rules! each_fn
+--- refs (57)
+L2    import  ffi                          in <file> qual=std
+L3    import  store                        in <file> qual=crate
+L4    import  Kind                         in <file> qual=crate::kinds
+L7    type    SmallCStr                    in SmallCStr
+L7    impl    Deref                        in SmallCStr qual=std::ops
+L8    type    CStr                         in Target qual=std::ffi
+L8    extends CStr                         in SmallCStr qual=std::ffi
+L9    type    CStr                         in deref qual=std::ffi
+L10   macro   todo                         in deref
+L17   type    Bound                        in Unit
+L18   type    Ty                           in Empty
+L21   type    Clone                        in assoc_bound
+L21   type    IntoIterator                 in assoc_bound
+L21   type    Item                         in assoc_bound
+L21   type    Vec                          in assoc_bound
+L22   type    Box                          in assoc_bound
+L22   type    Iterator                     in assoc_bound
+L22   type    Kind                         in assoc_bound
+L22   type    Send                         in assoc_bound
+L23   call    new                          in assoc_bound qual=Vec nargs=0
+L23   type    Vec                          in assoc_bound
+L27   type    Kind                         in variants
+L27   type    Thing                        in variants qual=crate::store
+L28   type    Kind                         in variants
+L28   mwrite  left                         in variants qual=Kind::Pair
+L28   mwrite  right                        in variants qual=Kind::Pair
+L28   bind    helper                       in variants qual=Kind::Pair.right
+L28   new     Pair                         in variants qual=Kind
+L30   mcall   get                          in variants qual=crate::store|Thing::Wide::width nargs=0
+L30   type    Thing                        in variants qual=crate::store
+L30   type    Wide                         in variants qual=crate::store|Thing
+L30   mread   width                        in variants qual=crate::store|Thing::Wide
+L31   mcall   get                          in variants nargs=0
+L31   type    Thing                        in variants qual=crate::store
+L31   read    Tall                         in variants qual=crate::store|Thing
+L33   type    Kind                         in variants
+L33   type    Pair                         in variants qual=Kind
+L33   mread   left                         in variants qual=Kind::Pair
+L34   mcall   get                          in variants qual=Kind::Pair::left nargs=0
+L36   type    Plain                        in variants qual=crate::store
+L36   mread   root                         in variants qual=crate::store|Plain
+L36   macro   todo                         in variants
+L37   mcall   get                          in variants qual=crate::store|Plain::root nargs=0
+L41   type    Socket                       in dsl
+L42   macro   callback                     in dsl
+L43   read    Socket                       in dsl
+L44   read    UnblockKind                  in dsl
+L45   type    UnblockKind                  in dsl
+L45   read    Ready                        in dsl qual=UnblockKind
+L45   macro   assert_eq                    in dsl
+L46   mcall   write                        in dsl nargs=2
+L46   read    other                        in dsl
+L49   read    MASK                         in dsl
+L49   read    extra                        in dsl
+L49   read    flags                        in dsl
+L49   macro   table                        in dsl
+L55   import  Index                        in each_fn qual=crate::store
+--- imports (4)
+L2    target=std name=ffi alias=- flags=1
+L3    target=crate name=store alias=- flags=0
+L4    target=crate::kinds name=Kind alias=- flags=0
+L55   target=crate::store name=Index alias=- flags=0

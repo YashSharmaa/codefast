@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release --locked
+      - name: Test
+        run: cargo test --release --locked
+      # The packaging files: manifests, the launcher, install.sh and the npm wrapper. None of
+      # these checks needs a coding harness or the network.
+      - name: Packaging manifests
+        run: python3 tests/packaging/manifests/validate.py --binary target/release/codefast
+      - name: Launcher and installer (sh)
+        run: sh tests/packaging/manifests/launcher_test.sh "$PWD/target/release/codefast"
+      - name: Launcher and installer (dash)
+        if: runner.os == 'Linux'
+        run: CODEFAST_TEST_SH=dash sh tests/packaging/manifests/launcher_test.sh "$PWD/target/release/codefast"
+      - name: npm wrapper
+        run: sh tests/packaging/manifests/npm_shim_test.sh "$PWD/target/release/codefast"

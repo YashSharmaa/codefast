@@ -1,0 +1,13 @@
+{
+  "conversation_id": "c1b0a7e2-0d3f-4c55-8a41-1f2e3d4c5b6a",
+  "generation_id": "9f8e7d6c-5b4a-4c3d-9e2f-1a0b9c8d7e6f",
+  "model": "claude-opus-4-7-thinking-max",
+  "hook_event_name": "sessionStart",
+  "cursor_version": "3.2.1",
+  "workspace_roots": ["{{REPO}}"],
+  "user_email": null,
+  "transcript_path": null,
+  "session_id": "c1b0a7e2-0d3f-4c55-8a41-1f2e3d4c5b6a",
+  "is_background_agent": false,
+  "composer_mode": "agent"
+}

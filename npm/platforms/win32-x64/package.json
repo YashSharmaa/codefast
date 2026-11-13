@@ -1,0 +1,24 @@
+{
+  "name": "@yashsharmaa/codefast-win32-x64",
+  "version": "0.1.0",
+  "description": "The codefast binary for Windows on x86-64. Install @yashsharmaa/codefast instead: it selects this package.",
+  "homepage": "https://github.com/YashSharmaa/codefast",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YashSharmaa/codefast.git",
+    "directory": "npm/platforms/win32-x64"
+  },
+  "license": "(MIT OR Apache-2.0)",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/codefast.exe"
+  ],
+  "codefast": {
+    "target": "x86_64-pc-windows-msvc"
+  }
+}

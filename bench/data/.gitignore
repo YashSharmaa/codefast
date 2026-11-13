@@ -1,0 +1,14 @@
+# Third-party downloads. Re-create them with bench/scripts/datasets/fetch_datasets.sh
+# (pinned revisions; checked against SHA256SUMS). Only the READMEs, SHA256SUMS and the two small derived *absent* lists are meant to be tracked.
+/linuxflbench/upstream/
+/locbench/hf-czlll-Loc-Bench_V1/
+/locbench/ripwire/
+/locbench/locagent/
+/locbench/ripwire-r4-slice/
+/contextbench/upstream/
+/contextbench/repowise-bench/
+/contextbench/repowise/
+/live-kbench/hf-live-kbench/
+/live-kbench/upstream-code/
+/live-kbench/lkbench-2512.metadata.jsonl
+/.linux-full-clone.log

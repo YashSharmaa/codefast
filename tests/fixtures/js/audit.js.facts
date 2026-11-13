@@ -1,0 +1,27 @@
+lang=javascript ok=true lines=35 errors=0
+--- defs (6)
+  0 fn      runOnce                      L7-14 parent=- type=- arity=0..0 flags=0x82 | async function runOnce()
+  1 fn      tests                        L17-25 parent=- type=- arity=0..0 flags=0x02 | function tests()
+  2 fn      hoisted                      L27-30 parent=- type=- arity=0..0 flags=0x02 | function hoisted()
+  3 fn      Server                       L33-33 parent=- type=- arity=0..0 flags=0x02 | function Server()
+  4 method  listen                       L34-34 parent=~Server type=- arity=1..1 flags=0x00 | Server.prototype.listen = function (port)
+  5 method  close                        L35-35 parent=~Server type=- arity=0..0 flags=0x00 | Server.prototype.close = function ()
+--- refs (13)
+L9    call    measure                      in runOnce nargs=0
+L10   call    fetchIt                      in runOnce nargs=1
+L11   read    pending                      in runOnce
+L19   call    glob                         in tests qual=glob nargs=3
+L20   new     Mocha                        in tests qual=mocha nargs=1
+L21   call    helper                       in tests qual=./helper nargs=1
+L22   call    sub                          in tests qual=./helper nargs=1
+L23   call    local                        in tests qual=./local nargs=1
+L28   call    on                           in hoisted nargs=1
+L28   mcall   run                          in hoisted nargs=0
+L29   call    create                       in hoisted nargs=0
+L34   call    bind                         in listen qual=./helper nargs=2
+L35   call    finish                       in close nargs=1
+--- imports (4)
+L2    target=glob name=- alias=glob flags=1
+L3    target=mocha name=- alias=Mocha flags=1
+L4    target=./helper name=- alias=helper flags=0
+L18   target=./local name=- alias=local flags=0

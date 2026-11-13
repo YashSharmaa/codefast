@@ -1,0 +1,87 @@
+{
+ "oracle": {
+  "repo": "zod",
+  "commit": "bbc68f990c7e6a5e3f506c56fb04bd0279b9c9b5",
+  "language": "typescript",
+  "oracle": "TypeScript 5.9.3 type checker (getResolvedSignature per call site)",
+  "tests_included": false
+ },
+ "options": {
+  "variant": "",
+  "scope_prefix": [],
+  "include_variable_endpoints": false,
+  "with_funcptr_candidates": false,
+  "repowise_compat": true
+ },
+ "oracle_edges": {
+  "must": 1271,
+  "candidate": 0,
+  "dynamic_sites": 0,
+  "excluded": {
+   "variable_endpoint": 725,
+   "beyond_reference_method": 706
+  }
+ },
+ "tool_edges": {
+  "rows": 1496,
+  "distinct_function_level": 1288,
+  "ambiguous_endpoint_rows": 0,
+  "out_of_scope": 66,
+  "unmapped_callee": 98
+ },
+ "matched_must": 1230,
+ "matched_candidate": 0,
+ "contradicted": 0,
+ "unjudged": 58,
+ "unmapped_callee_distinct_with_judged_caller": 0,
+ "precision": {
+  "value": 1.0,
+  "k": 1230,
+  "n": 1230,
+  "ci95": [
+   0.9969,
+   1.0
+  ]
+ },
+ "precision_strict": {
+  "value": 1.0,
+  "k": 1230,
+  "n": 1230,
+  "ci95": [
+   0.9969,
+   1.0
+  ]
+ },
+ "recall_static": {
+  "value": 0.9677,
+  "k": 1230,
+  "n": 1271,
+  "ci95": [
+   0.9565,
+   0.9761
+  ]
+ },
+ "recall_candidate_edges": {
+  "value": null,
+  "k": 0,
+  "n": 0,
+  "ci95": null
+ },
+ "recall_candidate_edges_by_kind": {},
+ "recall_dynamic_sites": {
+  "value": null,
+  "k": 0,
+  "n": 0,
+  "ci95": null
+ },
+ "recall_all_edges": {
+  "value": 0.9677,
+  "k": 1230,
+  "n": 1271,
+  "ci95": [
+   0.9565,
+   0.9761
+  ]
+ },
+ "unjudged_share": 0.045
+}

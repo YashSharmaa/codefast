@@ -1,0 +1,65 @@
+name: release
+
+# Pushing a tag vX.Y.Z builds the binaries and publishes a release with the assets that
+# bin/codefast and install.sh download (see docs/INSTALL.md, "Release assets").
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build
+        run: cargo build --profile dist --locked --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          tar -czf codefast-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/dist codefast
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codefast-${{ matrix.target }}
+          path: codefast-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum codefast-*.tar.gz > SHA256SUMS && cat SHA256SUMS
+      # Created as a draft and published once every asset is attached, so that no client
+      # ever sees a release with only some of its files.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --title "$TAG" --notes "codefast $TAG" dist/codefast-*.tar.gz dist/SHA256SUMS
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false

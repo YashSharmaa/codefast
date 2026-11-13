@@ -1,0 +1,25 @@
+lang=python ok=true lines=43 errors=0
+--- defs (8)
+  0 class   Registry                     L4-38 parent=- type=- arity=0..255 flags=0x00 | class Registry(type)
+  1 method  __new__                      L6-9 parent=Registry type=- arity=3..3 flags=0x00 | def __new__(mcls, name, bases, ns)
+  2 method  build                        L12-17 parent=Registry type=- arity=1..255 flags=0x00 | @classmethod def build(klass, size, *parts, **options)
+  3 method  helper                       L19-21 parent=Registry type=- arity=0..0 flags=0x00 | @classmethod def helper(typ)
+  4 method  odd                          L25-26 parent=Registry type=- arity=2..2 flags=0x00 | def odd(this, other)
+  5 method  run                          L28-31 parent=Registry type=- arity=0..255 flags=0x00 | def run(self, *args, **kwargs)
+  6 method  rebound                      L33-38 parent=Registry type=- arity=0..255 flags=0x00 | def rebound(self, *labels, **options)
+  7 fn      free                         L41-43 parent=- type=- arity=1..255 flags=0x00 | def free(klass, self_like=None, *rest)
+--- refs (13)
+L7    mcall   __new__                      in __new__ qual=^Registry nargs=4
+L8    mcall   add                          in __new__ qual=Registry::known nargs=1
+L8    mread   known                        in __new__ qual=Registry
+L14   call    Registry                     in build nargs=1
+L15   mcall   run                          in build qual=Registry nargs=0
+L16   mcall   helper                       in build qual=Registry nargs=0
+L26   mcall   run                          in odd nargs=0
+L30   mcall   count                        in run qual=tuple nargs=1
+L31   mcall   items                        in run qual=dict nargs=0
+L36   mcall   pop                          in rebound nargs=0
+L37   call    Options                      in rebound nargs=1
+L38   mcall   validate                     in rebound nargs=0
+L42   mcall   index                        in free qual=tuple nargs=1
+--- imports (0)

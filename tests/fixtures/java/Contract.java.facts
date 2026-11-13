@@ -1,0 +1,291 @@
+lang=java ok=true lines=163 errors=1
+--- defs (24)
+  0 ns      com.acme.shop                L1-1 parent=- type=- arity=0..0 flags=0x00 | package com.acme.shop
+  1 class   Contract                     L10-163 parent=- type=- arity=0..0 flags=0x04 | public class Contract extends com.acme.base.Service implements java.io.Closeable, Outer.Listener
+  2 field   repo                         L11-11 parent=Contract type=Repo arity=0..0 flags=0x02 | private final Repo repo
+  3 field   service                      L12-12 parent=Contract type=Service arity=0..0 flags=0x02 | private Service service
+  4 field   names                        L13-13 parent=Contract type=java.util|List arity=0..0 flags=0x00 | java.util.List<String> names
+  5 field   entry                        L14-14 parent=Contract type=java.util|Map::Entry arity=0..0 flags=0x00 | java.util.Map.Entry<String, Order> entry
+  6 field   inner                        L15-15 parent=Contract type=Outer::Inner arity=0..0 flags=0x00 | Outer.Inner inner
+  7 field   far                          L16-16 parent=Contract type=com.acme.model|Outer::Inner arity=0..0 flags=0x00 | com.acme.model.Outer.Inner far
+  8 field   deep                         L17-17 parent=Contract type=Outer::Inner::Deep arity=0..0 flags=0x00 | Outer.Inner.Deep[] deep
+  9 method  Contract                     L19-22 parent=Contract type=- arity=1..1 flags=0x00 | Contract(Repo repo)
+ 10 method  find                         L24-26 parent=Contract type=java.util|Optional arity=1..1 flags=0x00 | java.util.Optional<Order> find(long id)
+ 11 method  make                         L28-30 parent=Contract type=Outer::Inner arity=0..0 flags=0x00 | Outer.Inner make()
+ 12 method  chains                       L32-50 parent=Contract type=- arity=2..2 flags=0x00 | void chains(long id, Order x)
+ 13 method  typed                        L52-70 parent=Contract type=- arity=3..3 flags=0x00 | void typed(java.util.List<Order> all, Outer.Inner in, com.acme.model.Outer.Inner out)
+ 14 method  inferred                     L72-99 parent=Contract type=- arity=1..1 flags=0x00 | void inferred(long id) throws java.io.IOException
+ 15 method  methodRefs                   L101-111 parent=Contract type=- arity=1..1 flags=0x00 | void methodRefs(java.util.List<Order> all)
+ 16 method  statics                      L113-121 parent=Contract type=- arity=1..1 flags=0x00 | void statics(Order x)
+ 17 method  extras                       L123-142 parent=Contract type=Object arity=2..2 flags=0x00 | Object extras(Object o, Outer outer)
+ 18 method  own                          L127-129 parent=extras type=Order arity=0..0 flags=0x00 | Order own()
+ 19 method  run                          L131-135 parent=extras type=- arity=0..0 flags=0x04 | public void run()
+ 20 method  close                        L144-147 parent=Contract type=- arity=0..0 flags=0x04 | public void close() throws java.io.IOException
+ 21 class   Nested                       L149-162 parent=Contract type=- arity=0..0 flags=0x00 | class Nested extends Outer.Inner implements com.acme.model.Outer.Listener
+ 22 method  Nested                       L150-152 parent=Nested type=- arity=0..0 flags=0x00 | Nested()
+ 23 method  run                          L154-161 parent=Nested type=- arity=0..0 flags=0x00 | void run()
+--- refs (258)
+L3    import  Channel                      in <file> qual=com.acme.io
+L4    import  Repo                         in <file> qual=com.acme.repo
+L6    import  require                      in <file> qual=com.acme.util.Checks
+L7    import  Limits                       in <file> qual=com.acme.util
+L10   type    Outer                        in Contract
+L10   extends Service                      in Contract qual=com.acme.base
+L10   impl    Closeable                    in Contract qual=java.io
+L10   impl    Listener                     in Contract qual=Outer
+L11   type    Repo                         in repo
+L12   type    Service                      in service
+L13   type    List                         in names qual=java.util
+L14   type    Entry                        in entry qual=Map
+L14   type    Map                          in entry qual=java.util
+L14   type    Order                        in entry
+L15   type    Inner                        in inner qual=Outer
+L15   type    Outer                        in inner
+L16   type    Inner                        in far qual=Outer
+L16   type    Outer                        in far qual=com.acme.model
+L17   type    Deep                         in deep qual=Inner
+L17   type    Inner                        in deep qual=Outer
+L17   type    Outer                        in deep
+L19   type    Repo                         in Contract
+L20   call    Service                      in Contract qual=com.acme.base|Service nargs=1
+L21   mwrite  repo                         in Contract qual=Contract
+L24   type    Optional                     in find qual=java.util
+L24   type    Order                        in find
+L25   call    empty                        in find qual=java.util|Optional nargs=0
+L25   type    Optional                     in find qual=java.util
+L28   type    Inner                        in make qual=Outer
+L28   type    Outer                        in make
+L29   type    Outer                        in make
+L29   new     Inner                        in make qual=Outer nargs=0
+L32   type    Order                        in chains
+L33   mcall   find                         in chains qual=Contract::repo nargs=1
+L33   mcall   getName                      in chains qual=Contract::repo::find() nargs=0
+L33   mread   repo                         in chains qual=Contract
+L34   mcall   client                       in chains qual=Contract::service nargs=0
+L34   mcall   send                         in chains qual=Contract::service::client() nargs=0
+L34   mread   service                      in chains qual=Contract
+L35   mcall   client                       in chains qual=Contract::service nargs=0
+L35   mcall   send                         in chains qual=Contract::service::client() nargs=0
+L35   mread   service                      in chains qual=Contract
+L36   call    of                           in chains qual=Foo nargs=1
+L36   mcall   build                        in chains qual=Foo::of() nargs=0
+L36   type    Foo                          in chains
+L37   call    of                           in chains qual=Foo nargs=1
+L37   mcall   build                        in chains qual=Foo::of() nargs=0
+L37   mcall   run                          in chains qual=Foo::of()::build() nargs=0
+L37   type    Foo                          in chains
+L38   call    find                         in chains qual=Contract nargs=1
+L38   mcall   get                          in chains qual=Contract::find() nargs=0
+L39   mcall   find                         in chains qual=Contract nargs=1
+L39   mcall   orElse                       in chains qual=Contract::find() nargs=1
+L40   mcall   close                        in chains qual=Contract::open() nargs=0
+L40   mcall   open                         in chains qual=^Contract nargs=0
+L41   call    make                         in chains qual=Contract nargs=0
+L41   mcall   go                           in chains qual=Contract::make() nargs=0
+L42   mcall   line                         in chains qual=Order nargs=1
+L42   mcall   price                        in chains qual=Order::line() nargs=0
+L42   new     Order                        in chains nargs=1
+L43   mcall   cents                        in chains qual=Order::total() nargs=0
+L43   mcall   total                        in chains qual=Order nargs=0
+L43   type    Order                        in chains
+L44   call    next                         in chains qual=com.acme.util|Ids nargs=0
+L44   mcall   toString                     in chains qual=com.acme.util|Ids::next() nargs=0
+L44   type    Ids                          in chains qual=com.acme.util
+L45   call    requireNonNull               in chains qual=java.util|Objects nargs=1
+L45   mcall   cancel                       in chains qual=java.util|Objects::requireNonNull() nargs=0
+L45   type    Objects                      in chains qual=java.util
+L46   call    create                       in chains qual=Outer::Inner nargs=0
+L46   mcall   go                           in chains qual=Outer::Inner::create() nargs=0
+L46   type    Inner                        in chains qual=Outer
+L46   type    Outer                        in chains
+L47   mcall   cents                        in chains qual=Order::lines::price() nargs=0
+L47   mcall   price                        in chains qual=Order::lines nargs=0
+L47   mread   lines                        in chains qual=Order
+L48   mcall   find                         in chains qual=Contract::repo nargs=1
+L48   mcall   notify                       in chains qual=Contract::repo::find()::owner nargs=1
+L48   mread   owner                        in chains qual=Contract::repo::find()
+L48   mread   repo                         in chains qual=Contract
+L49   call    a                            in chains qual=Contract nargs=0
+L49   mcall   b                            in chains qual=Contract::a() nargs=0
+L49   mcall   c                            in chains qual=Contract::a()::b() nargs=0
+L49   mcall   d                            in chains qual=Contract::a()::b()::c() nargs=0
+L49   mcall   e                            in chains qual=Contract::a()::b()::c()::d() nargs=0
+L49   mcall   f                            in chains qual=Contract::a()::b()::c()::d()::e() nargs=0
+L52   type    Inner                        in typed qual=Outer
+L52   type    Inner                        in typed qual=Outer
+L52   type    List                         in typed qual=java.util
+L52   type    Order                        in typed
+L52   type    Outer                        in typed
+L52   type    Outer                        in typed qual=com.acme.model
+L53   mcall   add                          in typed qual=java.util|List nargs=1
+L54   mcall   go                           in typed qual=Outer::Inner nargs=0
+L55   mcall   go                           in typed qual=com.acme.model|Outer::Inner nargs=0
+L56   mcall   go                           in typed qual=Contract::inner nargs=0
+L56   mread   inner                        in typed qual=Contract
+L57   mcall   go                           in typed qual=Contract::far nargs=0
+L57   mread   far                          in typed qual=Contract
+L58   mcall   clear                        in typed qual=Contract::names nargs=0
+L58   mread   names                        in typed qual=Contract
+L59   mcall   cancel                       in typed qual=Contract::entry::getValue() nargs=0
+L59   mcall   getValue                     in typed qual=Contract::entry nargs=0
+L59   mread   entry                        in typed qual=Contract
+L60   mcall   dive                         in typed qual=Contract::deep nargs=0
+L60   mread   deep                         in typed qual=Contract
+L61   type    Map                          in typed qual=java.util
+L61   type    Order                        in typed
+L61   new     HashMap                      in typed qual=java.util nargs=0
+L62   mcall   cancel                       in typed qual=java.util|Map::get() nargs=0
+L62   mcall   get                          in typed qual=java.util|Map nargs=1
+L63   type    Inner                        in typed qual=Outer
+L63   type    Inner                        in typed qual=Outer
+L63   type    Outer                        in typed
+L63   type    Outer                        in typed
+L64   mcall   go                           in typed qual=Outer::Inner nargs=0
+L65   type    Outer                        in typed qual=com.acme.model
+L65   new     Inner                        in typed qual=Outer nargs=1
+L66   type    File                         in typed qual=java.io
+L66   type    Inner                        in typed qual=Outer
+L66   type    Outer                        in typed
+L67   mcall   go                           in typed qual=Outer::Inner nargs=0
+L68   mcall   delete                       in typed qual=java.io|File nargs=0
+L72   type    IOException                  in inferred qual=java.io
+L73   mcall   find                         in inferred qual=Contract::repo nargs=1
+L73   mread   repo                         in inferred qual=Contract
+L74   mcall   cancel                       in inferred qual=Contract::repo::find() nargs=0
+L75   mcall   client                       in inferred qual=Contract::service nargs=0
+L75   mread   service                      in inferred qual=Contract
+L76   mcall   send                         in inferred qual=Contract::service::client() nargs=0
+L77   call    of                           in inferred qual=Foo nargs=1
+L77   type    Foo                          in inferred
+L78   mcall   build                        in inferred qual=Foo::of() nargs=0
+L79   call    make                         in inferred qual=Contract nargs=0
+L80   mcall   go                           in inferred qual=Contract::make() nargs=0
+L81   type    Order                        in inferred
+L81   new     ArrayList                    in inferred qual=java.util nargs=0
+L82   mcall   add                          in inferred qual=java.util|ArrayList nargs=1
+L83   type    Order                        in inferred
+L84   mcall   cancel                       in inferred qual=Order nargs=0
+L85   mcall   clone                        in inferred nargs=0
+L87   mcall   ship                         in inferred qual=Contract::repo::find() nargs=2
+L88   mread   service                      in inferred qual=Contract
+L89   mcall   client                       in inferred qual=Contract::service nargs=0
+L91   mcall   cancel                       in inferred nargs=0
+L92   call    open                         in inferred qual=Channel nargs=0
+L92   mcall   sink                         in inferred qual=Channel::open() nargs=0
+L92   type    Channel                      in inferred
+L93   mcall   send                         in inferred qual=Channel::open() nargs=2
+L94   mcall   flush                        in inferred qual=Channel::open()::sink() nargs=0
+L96   mcall   lines                        in inferred qual=Contract::repo::find() nargs=0
+L97   mcall   price                        in inferred nargs=0
+L101  type    List                         in methodRefs qual=java.util
+L101  type    Order                        in methodRefs
+L102  mcall   forEach                      in methodRefs qual=java.util|List nargs=1
+L102  type    Foo                          in methodRefs
+L102  read    bar                          in methodRefs qual=Foo
+L102  arg     bar                          in methodRefs qual=forEach
+L103  mcall   forEach                      in methodRefs qual=java.util|List nargs=1
+L103  read    save                         in methodRefs qual=Contract::repo
+L103  mread   repo                         in methodRefs qual=Contract
+L103  arg     save                         in methodRefs qual=forEach
+L104  mcall   forEach                      in methodRefs qual=java.util|List nargs=1
+L104  read    accept                       in methodRefs qual=Contract::service
+L104  mread   service                      in methodRefs qual=Contract
+L104  arg     accept                       in methodRefs qual=forEach
+L105  mcall   forEach                      in methodRefs qual=java.util|List nargs=1
+L105  type    Objects                      in methodRefs qual=java.util
+L105  read    requireNonNull               in methodRefs qual=java.util|Objects
+L105  arg     requireNonNull               in methodRefs qual=forEach
+L106  mcall   forEach                      in methodRefs qual=java.util|List::stream()::map()::map() nargs=1
+L106  mcall   map                          in methodRefs qual=java.util|List::stream() nargs=1
+L106  mcall   map                          in methodRefs qual=java.util|List::stream()::map() nargs=1
+L106  mcall   stream                       in methodRefs qual=java.util|List nargs=0
+L106  type    Inner                        in methodRefs qual=Outer
+L106  type    Outer                        in methodRefs
+L106  type    Outer                        in methodRefs qual=com.acme.model
+L106  read    of                           in methodRefs qual=com.acme.model|Outer
+L106  read    println                      in methodRefs qual=System::out
+L106  read    wrap                         in methodRefs qual=Outer::Inner
+L106  mread   out                          in methodRefs qual=System
+L106  arg     of                           in methodRefs qual=map
+L106  arg     println                      in methodRefs qual=forEach
+L106  arg     wrap                         in methodRefs qual=map
+L107  type    Order                        in methodRefs
+L107  type    Supplier                     in methodRefs qual=java.util.function
+L107  new     Order                        in methodRefs
+L108  type    Contract                     in methodRefs
+L108  read    close                        in methodRefs qual=^Contract
+L109  type    Foo                          in methodRefs
+L109  read    bar                          in methodRefs qual=Foo
+L109  mwrite  handler                      in methodRefs qual=Contract
+L109  bind    bar                          in methodRefs qual=Contract.handler
+L110  call    register                     in methodRefs qual=Contract nargs=2
+L110  type    Foo                          in methodRefs
+L110  read    baz                          in methodRefs qual=Foo
+L110  read    close                        in methodRefs qual=Contract
+L110  arg     baz                          in methodRefs qual=register
+L110  arg     close                        in methodRefs qual=register
+L113  type    Order                        in statics
+L114  call    require                      in statics qual=com.acme.util|Checks nargs=1
+L115  call    check                        in statics qual=Contract nargs=1
+L115  mread   MAX_ORDERS                   in statics qual=Contract
+L116  type    Limits                       in statics
+L116  type    Limits                       in statics qual=com.acme.util
+L116  mread   MAX_ORDERS                   in statics qual=Contract
+L116  mread   MIN_ORDERS                   in statics qual=Limits
+L116  mread   STEP                         in statics qual=com.acme.util|Limits
+L117  type    Foo                          in statics
+L117  mwrite  count                        in statics qual=Foo
+L118  mcall   add                          in statics qual=Foo::Registry::INSTANCE nargs=1
+L118  type    Foo                          in statics
+L118  type    Registry                     in statics qual=Foo
+L118  mread   INSTANCE                     in statics qual=Foo::Registry
+L119  mcall   go                           in statics qual=Outer::Inner::DEFAULT nargs=0
+L119  type    Inner                        in statics qual=Outer
+L119  type    Outer                        in statics
+L119  mread   DEFAULT                      in statics qual=Outer::Inner
+L120  call    of                           in statics qual=com.acme.util|Limits::Range nargs=2
+L120  mcall   clamp                        in statics qual=com.acme.util|Limits::Range::of() nargs=1
+L120  type    Limits                       in statics qual=com.acme.util
+L120  type    Range                        in statics qual=Limits
+L123  type    Outer                        in extras
+L124  mcall   go                           in extras qual=Outer::Inner nargs=0
+L124  new     Inner                        in extras qual=Outer nargs=0
+L125  mcall   toBytes                      in extras qual=Unit::B nargs=1
+L125  type    Unit                         in extras
+L125  mread   B                            in extras qual=Unit
+L127  type    Order                        in own
+L132  call    own                          in run nargs=0
+L133  call    own                          in run nargs=0
+L133  mcall   cancel                       in run qual=own() nargs=0
+L134  call    statics                      in run qual=Contract nargs=1
+L138  mcall   total                        in extras qual=Order nargs=0
+L138  type    Order                        in extras
+L139  mcall   go                           in extras qual=Outer::Inner nargs=0
+L139  mcall   ok                           in extras qual=Outer::Inner nargs=0
+L139  type    Inner                        in extras qual=Outer
+L139  type    Outer                        in extras
+L145  type    IOException                  in close qual=java.io
+L146  new     Failure                      in close qual=com.acme nargs=0
+L146  new     IOException                  in close qual=java.io nargs=2
+L149  type    Outer                        in Nested
+L149  type    Outer                        in Nested qual=com.acme.model
+L149  extends Inner                        in Nested qual=Outer
+L149  impl    Listener                     in Nested qual=Outer
+L151  call    Inner                        in Nested qual=Outer::Inner nargs=1
+L155  mcall   cancel                       in run qual=Contract::repo::find() nargs=0
+L155  mcall   find                         in run qual=Contract::repo nargs=1
+L155  mread   repo                         in run qual=Contract
+L156  call    close                        in run qual=Nested nargs=0
+L157  call    go                           in run qual=Nested nargs=0
+L158  mcall   go                           in run qual=Nested nargs=0
+L159  mcall   go                           in run qual=^Nested nargs=0
+L160  mcall   client                       in run qual=Contract::service nargs=0
+L160  mcall   send                         in run qual=Contract::service::client() nargs=0
+L160  type    Contract                     in run
+L160  mread   service                      in run qual=Contract
+--- imports (5)
+L3    target=com.acme.io name=Channel alias=- flags=0
+L4    target=com.acme.repo name=Repo alias=- flags=0
+L5    target=com.acme.repo name=- alias=- flags=2
+L6    target=com.acme.util.Checks name=require alias=- flags=0
+L7    target=com.acme.util.Limits name=- alias=- flags=2

@@ -1,0 +1,147 @@
+lang=java ok=true lines=140 errors=4
+--- defs (31)
+  0 ns      com.acme.shop                L1-1 parent=- type=- arity=0..0 flags=0x00 | package com.acme.shop
+  1 class   Modern                       L6-140 parent=- type=- arity=0..0 flags=0x04 | public class Modern
+  2 iface   Shape                        L7-7 parent=Modern type=- arity=0..0 flags=0x00 | sealed interface Shape permits Circle, Square
+  3 class   Circle                       L9-9 parent=Modern type=- arity=0..0 flags=0x00 | record Circle(double radius) implements Shape
+  4 field   radius                       L9-9 parent=Circle type=- arity=0..0 flags=0x04 | double radius
+  5 class   Square                       L11-11 parent=Modern type=- arity=0..0 flags=0x00 | record Square(double side) implements Shape
+  6 field   side                         L11-11 parent=Square type=- arity=0..0 flags=0x04 | double side
+  7 enum    Level                        L13-20 parent=Modern type=- arity=0..0 flags=0x00 | enum Level
+  8 enumval LOW                          L14-14 parent=Level type=Level arity=0..0 flags=0x04 | LOW
+  9 enumval HIGH                         L15-15 parent=Level type=Level arity=0..0 flags=0x04 | HIGH
+ 10 method  next                         L17-19 parent=Level type=Level arity=0..0 flags=0x00 | Level next()
+ 11 iface   Named                        L22-26 parent=Modern type=- arity=0..0 flags=0x00 | interface Named
+ 12 method  name                         L23-25 parent=Named type=String arity=0..0 flags=0x04 | default String name()
+ 13 field   level                        L28-28 parent=Modern type=Level arity=0..0 flags=0x02 | private Level level
+ 14 field   shapes                       L29-29 parent=Modern type=Map arity=0..0 flags=0x02 | private final Map<String, Shape> shapes =
+ 15 field   BY_AREA                      L30-30 parent=Modern type=Comparator arity=0..0 flags=0x20 | static final Comparator<Shape> BY_AREA =
+ 16 field   PROBE                        L31-35 parent=Modern type=Object arity=0..0 flags=0x00 | static final Object PROBE =
+ 17 method  name                         L32-34 parent=PROBE type=String arity=0..0 flags=0x04 | public String name()
+ 18 method  area                         L37-42 parent=Modern type=- arity=1..1 flags=0x00 | static double area(Shape shape)
+ 19 method  describe                     L44-59 parent=Modern type=String arity=1..1 flags=0x00 | String describe(Object o)
+ 20 method  oldSwitch                    L61-74 parent=Modern type=- arity=2..2 flags=0x00 | int oldSwitch(Level l, String s)
+ 21 method  matcher                      L76-81 parent=Modern type=Predicate arity=1..1 flags=0x00 | static Predicate<Level> matcher(Level wanted)
+ 22 method  qualifiedPatterns            L83-92 parent=Modern type=- arity=1..1 flags=0x00 | void qualifiedPatterns(Object o)
+ 23 class   Inner                        L94-105 parent=Modern type=- arity=0..0 flags=0x00 | class Inner extends Base implements Named
+ 24 field   level                        L95-95 parent=Inner type=- arity=0..0 flags=0x00 | int level
+ 25 method  name                         L97-104 parent=Inner type=String arity=0..0 flags=0x04 | public String name()
+ 26 method  max                          L107-118 parent=Modern type=Shape arity=2..2 flags=0x00 | <T extends Shape & Comparable<T>> T max(List<? extends T> items, T fallback)
+ 27 class   Handler                      L120-128 parent=Modern type=- arity=0..0 flags=0x00 | class Handler<Request, Response extends Result>
+ 28 method  handle                       L121-123 parent=Handler type=Result arity=2..2 flags=0x00 | Response handle(Request request, Modern.Request other)
+ 29 method  create                       L125-127 parent=Handler type=Response arity=1..1 flags=0x00 | static Response create(Request request)
+ 30 method  annotated                    L130-139 parent=Modern type=- arity=2..2 flags=0x00 | void annotated(@NonNull String s, Catalog.@NonNull Entry<String> e)
+--- refs (111)
+L3    import  HIGH                         in <file> qual=com.acme.shop.Modern.Level
+L7    type    Circle                       in Shape
+L7    type    Square                       in Shape
+L9    impl    Shape                        in Circle
+L11   impl    Shape                        in Square
+L17   type    Level                        in next
+L18   mread   HIGH                         in next qual=Level
+L18   mread   LOW                          in next qual=Level
+L18   mread   LOW                          in next qual=Level
+L28   type    Level                        in level
+L29   type    Map                          in shapes
+L29   type    Shape                        in shapes
+L29   new     HashMap                      in shapes nargs=0
+L30   call    area                         in BY_AREA qual=Modern nargs=1
+L30   call    area                         in BY_AREA qual=Modern nargs=1
+L30   call    compare                      in BY_AREA qual=Double nargs=2
+L30   type    Comparator                   in BY_AREA
+L30   type    Shape                        in BY_AREA
+L31   extends Named                        in PROBE
+L31   new     Named                        in PROBE nargs=0
+L33   mcall   toString                     in name qual=Modern::BY_AREA nargs=0
+L33   mread   BY_AREA                      in name qual=Modern
+L37   type    Shape                        in area
+L39   mcall   radius                       in area qual=Circle nargs=0
+L39   mcall   radius                       in area qual=Circle nargs=0
+L39   type    Circle                       in area
+L39   mread   PI                           in area qual=Math
+L40   type    Square                       in area
+L45   type    Circle                       in describe
+L48   type    Square                       in describe
+L51   mread   level                        in describe qual=Modern
+L52   mcall   side                         in describe qual=Square nargs=0
+L52   mread   LOW                          in describe qual=Level
+L53   mread   HIGH                         in describe qual=Level
+L56   mcall   strip                        in describe qual=String nargs=0
+L61   type    Level                        in oldSwitch
+L63   mread   LOW                          in oldSwitch qual=Level
+L65   mread   HIGH                         in oldSwitch qual=Level
+L70   mread   NAME                         in oldSwitch
+L73   mcall   next                         in oldSwitch qual=Level::LOW nargs=0
+L73   mcall   ordinal                      in oldSwitch qual=com.acme.shop|Modern::Level::HIGH nargs=0
+L73   mcall   ordinal                      in oldSwitch qual=Level::LOW::next() nargs=0
+L73   type    Defaults                     in oldSwitch qual=Limits
+L73   type    Level                        in oldSwitch
+L73   type    Limits                       in oldSwitch
+L73   mread   HIGH                         in oldSwitch qual=com.acme.shop|Modern::Level
+L73   mread   LOW                          in oldSwitch qual=Level
+L73   mread   MAX                          in oldSwitch qual=Limits::Defaults
+L73   mread   value                        in oldSwitch qual=Limits::Defaults::MAX
+L76   type    Level                        in matcher
+L76   type    Level                        in matcher
+L76   type    Predicate                    in matcher
+L78   mread   HIGH                         in matcher qual=com.acme.shop|Modern::Level
+L78   mread   LOW                          in matcher qual=Level
+L79   mcall   next                         in matcher qual=Level nargs=0
+L79   type    Level                        in matcher
+L79   mread   HIGH                         in matcher qual=Level
+L85   call    use                          in qualifiedPatterns qual=Modern nargs=1
+L85   type    Circle                       in qualifiedPatterns qual=Modern
+L85   type    Modern                       in qualifiedPatterns
+L86   mcall   move                         in qualifiedPatterns qual=Point nargs=1
+L86   type    Box                          in qualifiedPatterns qual=Shapes
+L86   type    Point                        in qualifiedPatterns
+L86   type    Shapes                       in qualifiedPatterns
+L89   type    Box                          in qualifiedPatterns qual=Shapes
+L89   type    Point                        in qualifiedPatterns
+L89   type    Shapes                       in qualifiedPatterns
+L90   mcall   move                         in qualifiedPatterns qual=Point nargs=1
+L94   extends Base                         in Inner
+L94   impl    Named                        in Inner
+L98   mwrite  level                        in name qual=Inner
+L99   type    Modern                       in name
+L99   mread   HIGH                         in name qual=com.acme.shop|Modern::Level
+L99   mwrite  level                        in name qual=Modern
+L100  mcall   clear                        in name qual=Modern::shapes nargs=0
+L100  mread   shapes                       in name qual=Modern
+L101  call    describe                     in name qual=Inner nargs=1
+L102  mcall   toString                     in name qual=^Modern nargs=0
+L102  type    Modern                       in name
+L103  mcall   name                         in name qual=Named nargs=0
+L103  type    Named                        in name
+L107  type    List                         in max
+L107  type    Shape                        in max
+L111  mcall   compareTo                    in max qual=Shape nargs=1
+L116  mcall   hashCode                     in max qual=Shape nargs=0
+L120  type    Result                       in Handler
+L121  type    Modern                       in handle
+L121  type    Request                      in handle qual=Modern
+L122  mcall   reply                        in handle qual=Modern::Request nargs=1
+L125  type    Request                      in create
+L125  type    Response                     in create
+L126  mcall   reply                        in create qual=Request nargs=1
+L130  type    Circle                       in annotated
+L130  mwrite  levels                       in annotated qual=Audited
+L130  mwrite  type                         in annotated qual=Audited
+L130  mwrite  value                        in annotated qual=Audited
+L130  annot   Audited                      in annotated
+L131  type    Catalog                      in annotated
+L131  annot   Marker                       in annotated qual=Catalog
+L132  type    Catalog                      in annotated
+L132  type    Entry                        in annotated qual=Catalog
+L132  annot   NonNull                      in annotated
+L132  annot   NonNull                      in annotated
+L133  mcall   values                       in annotated qual=Modern::shapes nargs=0
+L133  type    Shape                        in annotated
+L133  mread   shapes                       in annotated qual=Modern
+L134  mcall   toString                     in annotated qual=Shape nargs=0
+L136  mcall   all                          in annotated qual=Modern::level nargs=0
+L136  type    Level                        in annotated
+L136  mread   level                        in annotated qual=Modern
+L137  mcall   next                         in annotated qual=Level nargs=0
+--- imports (1)
+L3    target=com.acme.shop.Modern.Level name=HIGH alias=- flags=0

@@ -1,0 +1,9 @@
+{
+  "cwd": "{{REPO}}",
+  "hook_event_name": "SessionStart",
+  "model": "gpt-5.5",
+  "permission_mode": "default",
+  "session_id": "019a7c1e-2f4b-7d10-9c33-6f0e2a1b4c5d",
+  "source": "startup",
+  "transcript_path": null
+}

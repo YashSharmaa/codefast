@@ -1,0 +1,71 @@
+lang=c ok=true lines=51 errors=8
+--- defs (19)
+  0 fn      sys_read                     L4-7 parent=- type=- arity=0..255 flags=0x10 | SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
+  1 fn      compat_sys_getitimer         L9-12 parent=- type=- arity=0..255 flags=0x10 | COMPAT_SYSCALL_DEFINE2(getitimer, int, which, struct old_itimerval32 __user *, value)
+  2 fn      bpf_map_lookup_elem          L14-17 parent=- type=- arity=0..255 flags=0x10 | BPF_CALL_2(bpf_map_lookup_elem, struct bpf_map *, map, void *, key)
+  3 fn      speed_show                   L19-22 parent=- type=- arity=3..3 flags=0x02 | static ssize_t speed_show(struct device *dev, struct device_attribute *attr, char *buf)
+  4 var     dev_attr_speed               L23-23 parent=- type=- arity=0..0 flags=0x12 | static DEVICE_ATTR_RO(speed)
+  5 var     dev_attr_duplex              L24-24 parent=- type=- arity=0..0 flags=0x10 | DEVICE_ATTR_RW(duplex)
+  6 var     foo_mutex                    L26-26 parent=- type=DEFINE_MUTEX arity=0..0 flags=0x02 | static DEFINE_MUTEX(foo_mutex);
+  7 var     runqueues                    L27-27 parent=- type=- arity=0..0 flags=0x14 | DEFINE_PER_CPU(struct rq, runqueues)
+  8 var     sched_numa_balancing         L28-28 parent=- type=- arity=0..0 flags=0x10 | DEFINE_STATIC_KEY_FALSE(sched_numa_balancing);
+  9 fn      cleanup_kfree                L29-29 parent=- type=- arity=0..255 flags=0x10 | DEFINE_FREE(kfree, void *, if (_T) kfree(_T))
+ 10 fn      class_mutex                  L30-30 parent=- type=- arity=0..255 flags=0x10 | DEFINE_GUARD(mutex, struct mutex *, mutex_lock(_T), mutex_unlock(_T))
+ 11 fn      class_mutex_try              L31-31 parent=- type=- arity=0..255 flags=0x10 | DEFINE_GUARD_COND(mutex, _try, mutex_trylock(_T))
+ 12 var     foo_stats_fops               L32-32 parent=- type=- arity=0..0 flags=0x10 | DEFINE_SHOW_ATTRIBUTE(foo_stats)
+ 13 fn      foo_stats_open               L32-32 parent=- type=- arity=0..255 flags=0x10 | DEFINE_SHOW_ATTRIBUTE(foo_stats)
+ 14 fn      trace_sched_switch           L33-36 parent=- type=- arity=0..255 flags=0x10 | TRACE_EVENT(sched_switch, TP_PROTO(bool preempt), TP_ARGS(preempt) )
+ 15 var     debug_level                  L37-37 parent=- type=- arity=0..0 flags=0x10 | module_param(debug_level, int, 0644)
+ 16 fn      foo_init                     L39-42 parent=- type=- arity=0..0 flags=0x02 | static int __init foo_init(void)
+ 17 fn      foo_exit                     L43-43 parent=- type=- arity=0..0 flags=0x02 | static void __exit foo_exit(void)
+ 18 fn      foo_setup                    L44-44 parent=- type=- arity=1..1 flags=0x02 | static int __init foo_setup(char *s)
+--- refs (47)
+L4    call    SYSCALL_DEFINE3              in sys_read
+L6    call    ksys_read                    in sys_read nargs=3
+L9    call    COMPAT_SYSCALL_DEFINE2       in compat_sys_getitimer
+L11   call    do_compat                    in compat_sys_getitimer nargs=2
+L14   call    BPF_CALL_2                   in bpf_map_lookup_elem
+L16   mcall   map_lookup_elem              in bpf_map_lookup_elem nargs=2
+L16   mread   ops                          in bpf_map_lookup_elem
+L19   type    device                       in speed_show
+L19   type    device_attribute             in speed_show
+L21   call    sysfs_emit                   in speed_show nargs=3
+L23   call    DEVICE_ATTR_RO               in dev_attr_speed
+L24   call    DEVICE_ATTR_RW               in dev_attr_duplex
+L26   type    DEFINE_MUTEX                 in foo_mutex
+L27   call    DEFINE_PER_CPU               in runqueues
+L27   type    rq                           in runqueues
+L27   type    runqueues                    in runqueues
+L28   call    DEFINE_STATIC_KEY_FALSE      in sched_numa_balancing nargs=1
+L29   call    DEFINE_FREE                  in cleanup_kfree
+L29   call    kfree                        in cleanup_kfree nargs=1
+L29   arg     _T                           in cleanup_kfree qual=if
+L29   arg     _T                           in cleanup_kfree qual=kfree
+L30   call    DEFINE_GUARD                 in class_mutex
+L30   call    mutex_lock                   in class_mutex nargs=1
+L30   call    mutex_unlock                 in class_mutex nargs=1
+L30   arg     _T                           in class_mutex qual=mutex_lock
+L30   arg     _T                           in class_mutex qual=mutex_unlock
+L31   call    DEFINE_GUARD_COND            in class_mutex_try
+L31   call    mutex_trylock                in class_mutex_try nargs=1
+L31   arg     _T                           in class_mutex_try qual=mutex_trylock
+L31   arg     _try                         in class_mutex_try qual=DEFINE_GUARD_COND
+L32   call    DEFINE_SHOW_ATTRIBUTE        in foo_stats_fops
+L33   call    TRACE_EVENT                  in trace_sched_switch
+L34   call    TP_PROTO                     in trace_sched_switch nargs=2
+L34   arg     preempt                      in trace_sched_switch qual=TP_PROTO
+L35   call    TP_ARGS                      in trace_sched_switch nargs=1
+L35   arg     preempt                      in trace_sched_switch qual=TP_ARGS
+L37   call    module_param                 in debug_level
+L46   call    module_init                  in <file>
+L46   bind    foo_init                     in <file> qual=@module_init
+L47   call    module_exit                  in <file>
+L47   bind    foo_exit                     in <file> qual=@module_exit
+L48   call    __setup                      in <file>
+L48   bind    foo_setup                    in <file> qual=@__setup
+L49   call    subsys_initcall              in <file>
+L49   bind    foo_init                     in <file> qual=@subsys_initcall
+L50   call    module_platform_driver       in <file>
+L50   bind    foo_driver                   in <file> qual=@module_platform_driver
+--- imports (1)
+L2    target=linux/module.h name=- alias=- flags=1

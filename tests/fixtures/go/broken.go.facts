@@ -1,0 +1,33 @@
+lang=go ok=true lines=36 errors=5
+--- defs (12)
+  0 mod     broken                       L1-1 parent=- type=- arity=0..0 flags=0x00 | package broken
+  1 struct  Good                         L5-7 parent=- type=- arity=0..0 flags=0x04 | type Good struct
+  2 field   Name                         L6-6 parent=Good type=- arity=0..0 flags=0x04 | Name string
+  3 method  Hello                        L9-9 parent=~Good type=- arity=0..0 flags=0x04 | func (g *Good) Hello() string
+  4 fn      half                         L12-15 parent=- type=- arity=1..1 flags=0x00 | func half(g *Good)
+  5 struct  Bad                          L17-20 parent=- type=- arity=0..0 flags=0x04 | type Bad struct
+  6 field   Field                        L18-18 parent=Bad type=- arity=0..0 flags=0x04 | Field int
+  7 field   Other                        L19-19 parent=Bad type=- arity=0..0 flags=0x04 | Other string
+  8 fn      after                        L22-28 parent=- type=- arity=1..1 flags=0x00 | func after(g *Good) int
+  9 fn      weird                        L32-32 parent=- type=- arity=1..1 flags=0x00 | func @@ weird(a int)
+ 10 var     tail                         L34-34 parent=- type=Good arity=0..0 flags=0x00 | var tail
+ 11 fn      last                         L36-36 parent=- type=- arity=0..0 flags=0x00 | func last()
+--- refs (16)
+L9    call    Sprintf                      in Hello qual=fmt nargs=2
+L9    type    Good                         in Hello
+L9    mread   Name                         in Hello qual=Good
+L12   type    Good                         in half
+L13   mread   Hello                        in half qual=Good
+L14   call    Println                      in half qual=fmt nargs=1
+L14   read    x                            in half
+L22   type    Good                         in after
+L27   call    Println                      in after qual=fmt nargs=2
+L27   mread   Name                         in after qual=Good
+L29   read    g                            in <file>
+L29   mread   Name                         in <file> qual=$g
+L34   mwrite  Name                         in tail qual=Good
+L34   new     Good                         in tail
+L36   mcall   Hello                        in last qual=$tail nargs=0
+L36   read    tail                         in last
+--- imports (1)
+L3    target=fmt name=- alias=- flags=1

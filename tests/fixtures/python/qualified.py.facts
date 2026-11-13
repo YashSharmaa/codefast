@@ -1,0 +1,264 @@
+lang=python ok=true lines=162 errors=0
+--- defs (33)
+  0 var     primary                      L16-16 parent=- type=app.models|User arity=0..0 flags=0x00 | primary: models.User =
+  1 var     fallback                     L17-17 parent=- type=app.models|User arity=0..0 flags=0x00 | fallback =
+  2 var     engine                       L18-18 parent=- type=- arity=0..0 flags=0x00 | engine =
+  3 type    Handler                      L19-19 parent=- type=app.models|BaseHandler arity=0..0 flags=0x00 | Handler =
+  4 type    Alias                        L20-20 parent=- type=app.models|Account arity=0..0 flags=0x00 | Alias: t.TypeAlias =
+  5 var     loose                        L21-21 parent=- type=unknown_pkg|Thing arity=0..0 flags=0x00 | loose: unknown_pkg.Thing =
+  6 class   Admin                        L24-97 parent=- type=- arity=1..2 flags=0x00 | class Admin(models.User, forms.Mixin, models.Outer.Inner, Engine.Nested, metaclass=models.Meta)
+  7 field   owner                        L25-25 parent=Admin type=app.models|User arity=0..0 flags=0x00 | owner: models.User
+  8 field   peers                        L26-26 parent=Admin type=typing|List arity=0..0 flags=0x00 | peers: t.List[models.User]
+  9 field   maybe                        L27-27 parent=Admin type=.forms|Form arity=0..0 flags=0x00 | maybe: t.Optional[forms.Form] =
+ 10 field   union                        L28-28 parent=Admin type=app.models|Account arity=0..0 flags=0x00 | union: "models.Account | None" =
+ 11 field   quoted                       L29-29 parent=Admin type=.forms|Form arity=0..0 flags=0x00 | quoted: "forms.Form"
+ 12 field   nested                       L30-30 parent=Admin type=Nested arity=0..0 flags=0x00 | nested: Engine.Nested
+ 13 field   lazy                         L31-31 parent=Admin type=Lazy arity=0..0 flags=0x00 | lazy: "Lazy"
+ 14 field   anything                     L32-32 parent=Admin type=- arity=0..0 flags=0x00 | anything: t.Any
+ 15 field   queue                        L33-33 parent=Admin type=collections.abc|Sequence arity=0..0 flags=0x00 | queue: collections.abc.Sequence
+ 16 method  __init__                     L35-42 parent=Admin type=- arity=1..2 flags=0x00 | def __init__(self, repo: models.Repo, cache=None)
+ 17 field   repo                         L36-36 parent=Admin type=app.models|Repo arity=0..0 flags=0x00 | self.repo =
+ 18 field   session                      L37-37 parent=Admin type=app.models|Session arity=0..0 flags=0x00 | self.session =
+ 19 field   inner                        L38-38 parent=Admin type=app.models|Inner arity=0..0 flags=0x00 | self.inner =
+ 20 field   conn                         L39-39 parent=Admin type=- arity=0..0 flags=0x00 | self.conn =
+ 21 field   tool                         L40-40 parent=Admin type=pkg.util|Tool arity=0..0 flags=0x00 | self.tool =
+ 22 field   limit                        L41-41 parent=Admin type=- arity=0..0 flags=0x00 | self.limit =
+ 23 field   cache                        L42-42 parent=Admin type=- arity=0..0 flags=0x00 | self.cache =
+ 24 method  build                        L44-45 parent=Admin type=.forms|Form arity=0..0 flags=0x00 | def build(self) -> forms.Form
+ 25 method  run                          L47-83 parent=Admin type=- arity=1..1 flags=0x00 | def run(self, ident)
+ 26 method  later                        L85-91 parent=Admin type=- arity=1..1 flags=0x80 | async def later(self, client: models.Client)
+ 27 method  make_admin                   L93-97 parent=Admin type=app.models|User arity=0..0 flags=0x00 | @classmethod def make_admin(cls) -> "models.User"
+ 28 fn      helper                       L100-122 parent=- type=- arity=5..5 flags=0x00 | def helper(a: models.User, b: "forms.Form", c: t.Optional[models.User], d: reg.Entry, e: unknown_pkg
+ 29 fn      local_import                 L125-134 parent=- type=- arity=0..0 flags=0x00 | def local_import()
+ 30 fn      after_local_import           L137-139 parent=- type=- arity=0..0 flags=0x00 | def after_local_import()
+ 31 class   Sub                          L146-147 parent=- type=- arity=0..255 flags=0x00 | class Sub(Book)
+ 32 fn      aliased                      L150-162 parent=- type=.models|Ledger arity=2..2 flags=0x00 | def aliased(b: Book, c: "Book | None") -> Book
+--- refs (207)
+L6    import  forms                        in <file> qual=.
+L7    import  registry                     in <file> qual=..
+L8    import  LIMITS                       in <file> qual=..conf
+L8    import  settings                     in <file> qual=..conf
+L10   import  Engine                       in <file> qual=pkg
+L10   import  util                         in <file> qual=pkg
+L11   import  make                         in <file> qual=pkg.sub
+L13   read    TYPE_CHECKING                in <file> qual=typing
+L14   import  Lazy                         in <file> qual=.lazy
+L16   type    User                         in primary qual=app.models
+L17   call    User                         in fallback qual=app.models nargs=0
+L18   call    create                       in engine qual=Engine nargs=0
+L18   read    Engine                       in engine
+L19   read    BaseHandler                  in Handler qual=app.models
+L20   type    Account                      in Alias qual=app.models
+L20   type    TypeAlias                    in Alias qual=typing
+L21   type    Thing                        in loose
+L21   read    unknown_pkg                  in loose
+L24   type    Meta                         in Admin qual=app.models
+L24   read    Engine                       in Admin
+L24   read    Outer                        in Admin qual=app.models
+L24   read    forms                        in Admin
+L24   extends Inner                        in Admin qual=app.models
+L24   extends Mixin                        in Admin qual=.forms
+L24   extends Nested                       in Admin
+L24   extends User                         in Admin qual=app.models
+L25   type    User                         in owner qual=app.models
+L26   type    List                         in peers qual=typing
+L26   type    User                         in peers qual=app.models
+L27   type    Form                         in maybe qual=.forms
+L27   type    Optional                     in maybe qual=typing
+L27   read    forms                        in maybe
+L28   type    Account                      in union qual=app.models
+L29   type    Form                         in quoted qual=.forms
+L30   type    Engine                       in nested
+L30   type    Nested                       in nested
+L31   type    Lazy                         in lazy
+L32   type    Any                          in anything qual=typing
+L33   type    Sequence                     in queue qual=collections.abc
+L35   type    Repo                         in __init__ qual=app.models
+L37   call    Session                      in __init__ qual=app.models nargs=0
+L38   call    Inner                        in __init__ qual=app.models|Outer nargs=0
+L38   read    Outer                        in __init__ qual=app.models
+L39   call    connect                      in __init__ qual=.forms nargs=0
+L39   read    forms                        in __init__
+L40   call    Tool                         in __init__ qual=pkg.util nargs=1
+L40   read    util                         in __init__ qual=pkg
+L41   read    LIMITS                       in __init__
+L41   mread   default                      in __init__ qual=$LIMITS
+L42   call    lookup                       in __init__ qual=..registry nargs=1
+L42   read    registry                     in __init__ qual=..
+L44   type    Form                         in build qual=.forms
+L44   read    forms                        in build
+L45   call    Form                         in build qual=.forms nargs=1
+L45   read    forms                        in build
+L48   call    make                         in run nargs=0
+L49   mcall   start                        in run qual=make() nargs=0
+L50   call    make                         in run qual=app.models nargs=0
+L51   mcall   start                        in run qual=app.models|make() nargs=0
+L52   mcall   build                        in run qual=Admin nargs=0
+L53   mcall   validate                     in run qual=Admin::build() nargs=0
+L54   call    Engine                       in run nargs=0
+L55   mcall   spin                         in run qual=Engine nargs=0
+L56   call    User                         in run qual=app.models nargs=0
+L57   mcall   save                         in run qual=app.models|User nargs=0
+L58   call    make                         in run qual=pkg.sub nargs=0
+L59   mcall   go                           in run qual=pkg.sub|make() nargs=0
+L60   mcall   get                          in run qual=Admin::repo nargs=1
+L60   mcall   save                         in run qual=Admin::repo::get() nargs=0
+L60   mread   repo                         in run qual=Admin
+L61   mcall   build                        in run qual=Admin nargs=0
+L61   mcall   clean                        in run qual=Admin::build() nargs=0
+L61   mcall   render                       in run qual=Admin::build()::clean() nargs=0
+L62   mcall   filter                       in run qual=app.models|User::objects nargs=1
+L62   mcall   first                        in run qual=app.models|User::objects::filter() nargs=0
+L62   read    User                         in run qual=app.models
+L62   mread   objects                      in run qual=app.models|User
+L63   call    create                       in run qual=app.models|User nargs=1
+L63   read    User                         in run qual=app.models
+L64   mcall   add                          in run qual=app.models|$REGISTRY nargs=1
+L64   read    REGISTRY                     in run qual=app.models
+L65   call    connect                      in run qual=app.models.signals.post_save nargs=1
+L65   mread   run                          in run qual=Admin
+L66   call    helper                       in run qual=.forms nargs=1
+L66   read    forms                        in run
+L67   call    render                       in run qual=.forms.widgets nargs=1
+L67   read    forms                        in run
+L68   call    lookup                       in run qual=..registry nargs=1
+L68   read    registry                     in run qual=..
+L69   call    configure                    in run qual=..conf.settings nargs=0
+L69   read    settings                     in run
+L70   mcall   get                          in run qual=..conf.settings|$DATABASES nargs=1
+L70   read    DATABASES                    in run qual=..conf.settings
+L70   read    settings                     in run
+L71   mcall   check                        in run qual=$LIMITS::get() nargs=0
+L71   mcall   get                          in run qual=$LIMITS nargs=1
+L71   read    LIMITS                       in run
+L72   call    call                         in run qual=pkg.util.deep.chain nargs=0
+L72   read    util                         in run qual=pkg
+L73   call    start                        in run qual=app.services nargs=1
+L74   call    create                       in run qual=Engine nargs=0
+L74   mcall   spin                         in run qual=Engine::create() nargs=0
+L74   read    Engine                       in run
+L75   call    make                         in run qual=Nested nargs=0
+L75   read    Engine                       in run
+L75   read    Nested                       in run qual=Engine
+L76   mcall   done                         in run nargs=0
+L76   mcall   run                          in run qual=^Admin nargs=1
+L77   mcall   read                         in run nargs=0
+L77   mread   field                        in run qual=^Admin
+L78   mcall   save                         in run qual=Admin::owner nargs=0
+L78   mread   owner                        in run qual=Admin
+L79   mcall   append                       in run qual=Admin::peers nargs=1
+L79   mread   owner                        in run qual=Admin
+L79   mread   peers                        in run qual=Admin
+L80   mcall   commit                       in run qual=Admin::session nargs=0
+L80   mread   session                      in run qual=Admin
+L81   mcall   poke                         in run qual=Admin::inner nargs=0
+L81   mread   inner                        in run qual=Admin
+L82   mcall   close                        in run qual=Admin::conn nargs=0
+L82   mread   conn                         in run qual=Admin
+L83   mcall   use                          in run qual=Admin::tool nargs=0
+L83   mread   tool                         in run qual=Admin
+L85   type    Client                       in later qual=app.models
+L86   mcall   fetch                        in later qual=app.models|Client nargs=0
+L87   mcall   json                         in later qual=app.models|Client::fetch() nargs=0
+L88   mcall   fetch_all                    in later qual=Admin nargs=0
+L89   mcall   close                        in later qual=Admin::fetch_all() nargs=0
+L90   call    load                         in later qual=app.models nargs=0
+L90   mcall   first                        in later qual=app.models|load() nargs=0
+L94   type    User                         in make_admin qual=app.models
+L95   mcall   build_default                in make_admin qual=Admin nargs=0
+L96   mcall   save                         in make_admin qual=Admin::build_default() nargs=0
+L97   call    Admin                        in make_admin nargs=0
+L100  type    Entry                        in helper qual=..registry
+L100  type    Form                         in helper qual=.forms
+L100  type    Optional                     in helper qual=typing
+L100  type    Thing                        in helper
+L100  type    User                         in helper qual=app.models
+L100  type    User                         in helper qual=app.models
+L100  read    registry                     in helper qual=..
+L100  read    unknown_pkg                  in helper
+L101  mcall   save                         in helper qual=app.models|User nargs=0
+L102  mcall   clean                        in helper qual=.forms|Form nargs=0
+L103  mcall   delete                       in helper qual=app.models|User nargs=0
+L104  mcall   fire                         in helper qual=..registry|Entry nargs=0
+L105  mcall   go                           in helper qual=unknown_pkg|Thing nargs=0
+L107  call    risky                        in helper nargs=0
+L108  read    DoesNotExist                 in helper qual=app.models
+L109  mcall   report                       in helper qual=app.models|DoesNotExist nargs=0
+L110  call    cast                         in helper qual=typing nargs=2
+L110  type    Account                      in helper qual=app.models
+L111  mcall   close                        in helper qual=app.models|Account nargs=0
+L112  mcall   city                         in helper qual=app.models|User::profile::address nargs=0
+L112  mread   address                      in helper qual=app.models|User::profile
+L112  mread   profile                      in helper qual=app.models|User
+L113  mcall   upper                        in helper qual=app.models|User::profile::address::city() nargs=0
+L114  call    User                         in helper qual=app.models nargs=0
+L115  mcall   save                         in helper qual=app.models|User nargs=0
+L116  call    atomic                       in helper qual=app.models nargs=0
+L117  mcall   commit                       in helper nargs=0
+L118  mcall   all                          in helper qual=app.models|User::objects nargs=0
+L118  read    User                         in helper qual=app.models
+L118  mread   objects                      in helper qual=app.models|User
+L119  mcall   save                         in helper nargs=0
+L120  call    find                         in helper qual=app.models nargs=1
+L121  mcall   use                          in helper qual=app.models|find() nargs=0
+L122  read    User                         in helper qual=app.models
+L126  import  Job                          in local_import qual=.late
+L126  import  worker                       in local_import qual=.late
+L129  call    run                          in local_import qual=.late.worker nargs=0
+L129  read    worker                       in local_import
+L130  call    Job                          in local_import nargs=0
+L131  mcall   start                        in local_import qual=Job nargs=0
+L132  call    turn                         in local_import qual=late.tools|Wrench nargs=0
+L132  read    Wrench                       in local_import qual=late.tools
+L133  call    pick                         in local_import qual=late.tools nargs=0
+L133  type    Wrench                       in local_import qual=late.tools
+L134  mcall   turn                         in local_import qual=late.tools|Wrench nargs=0
+L138  mcall   run                          in after_local_import qual=$worker nargs=0
+L138  read    worker                       in after_local_import
+L139  mcall   pick                         in after_local_import qual=$lt nargs=0
+L139  read    lt                           in after_local_import
+L142  import  DEFAULTS                     in <file> qual=.models
+L142  import  Ledger                       in <file> qual=.models
+L142  import  make_ledger                  in <file> qual=.models
+L146  extends Ledger                       in Sub qual=.models
+L150  type    Ledger                       in aliased qual=.models
+L150  type    Ledger                       in aliased qual=.models
+L150  type    Ledger                       in aliased qual=.models
+L151  mcall   post                         in aliased qual=.models|Ledger nargs=0
+L152  mcall   post                         in aliased qual=.models|Ledger nargs=0
+L153  call    Ledger                       in aliased qual=.models nargs=0
+L154  mcall   post                         in aliased qual=.models|Ledger nargs=0
+L155  mcall   all                          in aliased qual=.models|Ledger::objects nargs=0
+L155  read    Ledger                       in aliased qual=.models
+L155  mread   objects                      in aliased qual=.models|Ledger
+L156  call    open                         in aliased qual=.models|Ledger nargs=1
+L156  read    Ledger                       in aliased qual=.models
+L157  call    make_ledger                  in aliased qual=.models nargs=1
+L158  mcall   post                         in aliased qual=.models|make_ledger() nargs=0
+L159  mcall   get                          in aliased qual=.models|$DEFAULTS nargs=1
+L159  read    DEFAULTS                     in aliased qual=.models
+L160  call    fromstring                   in aliased qual=xml.etree.ElementTree nargs=1
+L160  mcall   find                         in aliased qual=xml.etree.ElementTree|fromstring() nargs=1
+L161  read    Ledger                       in aliased qual=.models
+L162  read    Ledger                       in aliased qual=.models
+--- imports (20)
+L2    target=app.models name=- alias=models flags=0
+L3    target=app.services name=- alias=- flags=0
+L4    target=collections.abc name=- alias=- flags=0
+L5    target=typing name=- alias=t flags=0
+L6    target=. name=forms alias=- flags=0
+L7    target=.. name=registry alias=reg flags=0
+L8    target=..conf name=settings alias=- flags=0
+L8    target=..conf name=LIMITS alias=- flags=0
+L9    target=.x name=- alias=- flags=2
+L10   target=pkg name=util alias=u flags=0
+L10   target=pkg name=Engine alias=- flags=0
+L11   target=pkg.sub name=make alias=mk flags=0
+L14   target=.lazy name=Lazy alias=- flags=0
+L126  target=.late name=worker alias=- flags=0
+L126  target=.late name=Job alias=- flags=0
+L127  target=late.tools name=- alias=lt flags=0
+L142  target=.models name=Ledger alias=Book flags=0
+L142  target=.models name=make_ledger alias=mkl flags=0
+L142  target=.models name=DEFAULTS alias=DFLT flags=0
+L143  target=xml.etree.ElementTree name=- alias=- flags=0

@@ -1,0 +1,16 @@
+{
+  "session_id": "0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11",
+  "transcript_path": "{{HOME}}/.claude/projects/-work-project/0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11.jsonl",
+  "cwd": "{{REPO}}",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUseFailure",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "grep -rn 'log_msg(' lib/",
+    "description": "Look for log_msg in lib"
+  },
+  "tool_use_id": "toolu_01FAIL0000001",
+  "error": "Exit code 1",
+  "is_interrupt": false,
+  "duration_ms": 8
+}

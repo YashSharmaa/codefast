@@ -1,0 +1,101 @@
+{
+ "oracle": {
+  "repo": "redis",
+  "commit": "498ecd0d6d007db11ddb3aea9428552598a78622",
+  "language": "c",
+  "oracle": "clang AST (libclang): CallExpr with a FunctionDecl callee, per translation unit",
+  "tests_included": false
+ },
+ "options": {
+  "variant": "",
+  "scope_prefix": [],
+  "include_variable_endpoints": false,
+  "with_funcptr_candidates": false,
+  "repowise_compat": false
+ },
+ "oracle_edges": {
+  "must": 24167,
+  "candidate": 56,
+  "dynamic_sites": 34,
+  "excluded": {}
+ },
+ "tool_edges": {
+  "rows": 36240,
+  "distinct_function_level": 24079,
+  "ambiguous_endpoint_rows": 0,
+  "out_of_scope": 10458,
+  "unmapped_callee": 330,
+  "unmapped_caller": 1255
+ },
+ "matched_must": 23492,
+ "matched_candidate": 28,
+ "contradicted": 431,
+ "unjudged": 128,
+ "unmapped_callee_distinct_with_judged_caller": 225,
+ "precision": {
+  "value": 0.982,
+  "k": 23520,
+  "n": 23951,
+  "ci95": [
+   0.9802,
+   0.9836
+  ]
+ },
+ "precision_strict": {
+  "value": 0.9729,
+  "k": 23520,
+  "n": 24176,
+  "ci95": [
+   0.9707,
+   0.9748
+  ]
+ },
+ "recall_static": {
+  "value": 0.9721,
+  "k": 23492,
+  "n": 24167,
+  "ci95": [
+   0.9699,
+   0.9741
+  ]
+ },
+ "recall_candidate_edges": {
+  "value": 0.5,
+  "k": 28,
+  "n": 56,
+  "ci95": [
+   0.3733,
+   0.6267
+  ]
+ },
+ "recall_candidate_edges_by_kind": {
+  "link-variant": {
+   "value": 0.5,
+   "k": 28,
+   "n": 56,
+   "ci95": [
+    0.3733,
+    0.6267
+   ]
+  }
+ },
+ "recall_dynamic_sites": {
+  "value": 1.0,
+  "k": 34,
+  "n": 34,
+  "ci95": [
+   0.8985,
+   1.0
+  ]
+ },
+ "recall_all_edges": {
+  "value": 0.971,
+  "k": 23520,
+  "n": 24223,
+  "ci95": [
+   0.9688,
+   0.973
+  ]
+ },
+ "unjudged_share": 0.0053
+}

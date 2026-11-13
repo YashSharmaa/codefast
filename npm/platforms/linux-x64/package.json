@@ -1,0 +1,24 @@
+{
+  "name": "@yashsharmaa/codefast-linux-x64",
+  "version": "0.1.0",
+  "description": "The codefast binary for Linux on x86-64 (static). Install @yashsharmaa/codefast instead: it selects this package.",
+  "homepage": "https://github.com/YashSharmaa/codefast",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YashSharmaa/codefast.git",
+    "directory": "npm/platforms/linux-x64"
+  },
+  "license": "(MIT OR Apache-2.0)",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/codefast"
+  ],
+  "codefast": {
+    "target": "x86_64-unknown-linux-musl"
+  }
+}

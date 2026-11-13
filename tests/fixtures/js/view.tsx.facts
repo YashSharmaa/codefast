@@ -1,0 +1,119 @@
+lang=tsx ok=true lines=55 errors=0
+--- defs (21)
+  0 iface   Props                        L6-6 parent=- type=- arity=0..0 flags=0x02 | interface Props
+  1 field   items                        L6-6 parent=Props type=Array arity=0..0 flags=0x01 | items: Item[]
+  2 field   onSelect                     L6-6 parent=Props type=- arity=1..1 flags=0x21 | onSelect?: (item: Item) => void
+  3 field   title                        L6-6 parent=Props type=- arity=0..0 flags=0x01 | title: string
+  4 type    State                        L7-7 parent=- type=- arity=0..0 flags=0x02 | type State =
+  5 field   count                        L7-7 parent=State type=- arity=0..0 flags=0x01 | count: number
+  6 field   selected                     L7-7 parent=State type=Item arity=0..0 flags=0x01 | selected?: Item
+  7 var     theme                        L8-8 parent=- type=Theme arity=0..0 flags=0x02 | const theme =
+  8 var     initial                      L9-9 parent=- type=State arity=0..0 flags=0x02 | const initial =
+  9 fn      TodoList                     L11-32 parent=- type=- arity=1..1 flags=0x04 | export const TodoList: FC<Props> = ({ items, onSelect, title = 'Todo' }) =>
+ 10 fn      handleRemove                 L14-14 parent=TodoList type=- arity=1..1 flags=0x02 | const handleRemove = (id: number) =>
+ 11 fn      renderRow                    L15-17 parent=TodoList type=- arity=1..1 flags=0x02 | function renderRow(item: Item)
+ 12 fn      Row                          L34-37 parent=- type=JSX|Element arity=1..1 flags=0x02 | function Row({ item, onPick, children }: RowProps): JSX.Element
+ 13 fn      pick                         L35-35 parent=Row type=- arity=0..0 flags=0x02 | const pick = () =>
+ 14 fn      App                          L39-43 parent=- type=- arity=1..1 flags=0x04 | export default function App(props: { user: User })
+ 15 class   Counter                      L45-55 parent=- type=- arity=0..0 flags=0x04 | export class Counter extends React.Component<Props, State>
+ 16 field   state                        L47-47 parent=Counter type=State arity=0..0 flags=0x00 | state: State =
+ 17 field   timer                        L48-48 parent=Counter type=Timer arity=0..0 flags=0x00 | private timer?: Timer
+ 18 method  render                       L49-52 parent=Counter type=- arity=0..0 flags=0x00 | render()
+ 19 method  handleClick                  L53-53 parent=Counter type=- arity=0..0 flags=0x00 | handleClick = () =>
+ 20 method  attach                       L54-54 parent=Counter type=- arity=1..1 flags=0x00 | private attach(el: HTMLDivElement | null)
+--- refs (85)
+L1    import  FC                           in <file> qual=react
+L1    import  React                        in <file> qual=react
+L1    import  useCallback                  in <file> qual=react
+L1    import  useState                     in <file> qual=react
+L3    import  Button                       in <file> qual=./ui
+L3    import  List                         in <file> qual=./ui
+L4    import  styles                       in <file> qual=./view.module.css
+L6    type    Item                         in items
+L6    type    Item                         in onSelect
+L7    type    Item                         in selected
+L8    type    Theme                        in theme
+L8    mwrite  dark                         in theme qual=Theme
+L9    type    State                        in initial
+L9    mwrite  count                        in initial qual=State
+L11   type    FC                           in TodoList
+L11   type    Props                        in TodoList
+L12   call    useState                     in TodoList nargs=1
+L13   call    addItem                      in TodoList nargs=1
+L13   call    useCallback                  in TodoList nargs=2
+L14   call    removeItem                   in handleRemove nargs=1
+L15   type    Item                         in renderRow
+L16   read    row                          in renderRow qual=./view.module.css
+L16   mread   id                           in renderRow qual=Item
+L16   mread   label                        in renderRow qual=Item
+L16   mwrite  className                    in renderRow
+L16   bind    row                          in renderRow qual=.className
+L18   mread   length                       in TodoList
+L19   new     Empty                        in TodoList
+L22   type    Item                         in TodoList
+L22   read    theme                        in TodoList
+L22   new     Header                       in TodoList
+L22   new     List                         in TodoList
+L23   new     Button                       in TodoList qual=./ui
+L24   mwrite  onClick                      in TodoList
+L24   bind    handleRemove                 in TodoList qual=.onClick
+L24   new     Trash                        in TodoList qual=./icons
+L25   mread   target                       in TodoList
+L25   mread   value                        in TodoList
+L26   mcall   map                          in TodoList nargs=1
+L26   read    renderRow                    in TodoList
+L28   new     Fragment                     in TodoList qual=react
+L34   type    Element                      in Row qual=JSX
+L34   type    JSX                          in Row
+L34   type    RowProps                     in Row
+L34   mread   children                     in Row qual=RowProps
+L34   mread   item                         in Row qual=RowProps
+L34   mread   onPick                       in Row qual=RowProps
+L35   mcall   onPick                       in pick qual=RowProps nargs=1
+L35   mread   id                           in pick qual=RowProps::item
+L36   mwrite  onClick                      in Row
+L36   bind    pick                         in Row qual=.onClick
+L36   new     Button                       in Row qual=./ui
+L39   type    User                         in App
+L41   call    useService                   in App nargs=1
+L41   read    IUserService                 in App
+L42   mread   items                        in App
+L42   mread   select                       in App qual=useService()
+L42   new     TodoList                     in App
+L45   annot   observer                     in Counter
+L46   type    Props                        in Counter
+L46   type    State                        in Counter
+L46   extends Component                    in Counter qual=react
+L47   type    State                        in state
+L47   mwrite  count                        in state qual=State
+L48   type    Timer                        in timer
+L50   mread   items                        in render qual=Counter::props
+L50   mread   props                        in render qual=Counter
+L50   mread   title                        in render qual=Counter::props
+L51   mread   attach                       in render qual=Counter
+L51   mread   count                        in render qual=Counter::state
+L51   mread   handleClick                  in render qual=Counter
+L51   mread   length                       in render qual=Counter::props::items
+L51   mread   state                        in render qual=Counter
+L51   mwrite  onClick                      in render
+L51   mwrite  ref                          in render
+L51   bind    attach                       in render qual=.ref
+L51   bind    handleClick                  in render qual=.onClick
+L53   mcall   setState                     in handleClick qual=Counter nargs=1
+L53   mread   count                        in handleClick qual=Counter::state
+L53   mread   state                        in handleClick qual=Counter
+L54   mcall   start                        in attach qual=Counter::timer nargs=0
+L54   type    HTMLDivElement               in attach
+L54   mread   timer                        in attach qual=Counter
+L54   mwrite  timer                        in attach qual=Counter
+L54   new     Timer                        in attach nargs=1
+--- imports (9)
+L1    target=react name=default alias=React flags=1
+L1    target=react name=useCallback alias=- flags=1
+L1    target=react name=useState alias=- flags=1
+L1    target=react name=FC alias=- flags=1
+L2    target=./icons name=- alias=Icons flags=0
+L3    target=./ui name=Button alias=Btn flags=0
+L3    target=./ui name=List alias=- flags=0
+L4    target=./view.module.css name=default alias=styles flags=0
+L39   target= name=App alias=default flags=4

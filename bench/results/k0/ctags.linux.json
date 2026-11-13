@@ -1,0 +1,25 @@
+{
+  "tool": "universal-ctags",
+  "version": "Universal Ctags 6.2.1, Copyright (C) 2015-2025 Universal Ctags Team",
+  "repo": "bench/repos/linux",
+  "repo_git_files": 97362,
+  "command": "ctags -L bench/tools/_work/ctags/linux-8515d680/files.list -f bench/tools/_work/ctags/linux-8515d680/tags --fields=+niaSK --extras=+q",
+  "extra_env": "",
+  "threads_requested": 1,
+  "wall_seconds": 47.5,
+  "user_seconds": 36.66,
+  "sys_seconds": 12.03,
+  "peak_rss_bytes": 2408316928,
+  "peak_rss_source": "time_l",
+  "peak_rss_bytes_time_l": 2408316928,
+  "peak_rss_bytes_tree_sampled": null,
+  "index_bytes": 1759220952,
+  "index_disk_bytes": 1760096256,
+  "index_paths": [
+    "bench/tools/_work/ctags/linux-8515d680/tags"
+  ],
+  "exit_status": 0,
+  "host": "macOS-27.2-arm64-arm-64bit",
+  "timestamp": "2026-11-13T04:54:30+0530",
+  "files_listed": 68774
+}

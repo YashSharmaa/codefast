@@ -1,0 +1,18 @@
+{
+  "session_id": "0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11",
+  "transcript_path": null,
+  "cwd": "{{REPO}}",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "grep -rn \"dev_read$(touch {{REPO}}/PWNED-1)\" src; grep -rn `touch {{REPO}}/PWNED-2` src; grep -rn 'dev_read;touch {{REPO}}/PWNED-3' src | tee {{REPO}}/PWNED-4 > {{REPO}}/PWNED-5 && grep -rn dev_read\\;id src"
+  },
+  "tool_response": {
+    "stdout": "",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false
+  },
+  "tool_use_id": "toolu_01HOSTILE0001"
+}

@@ -1,0 +1,24 @@
+{
+  "tool": "ripwire",
+  "version": "ripwire 0.6.10 (Release, AppleClang 21.0.0.21000101, emit=std::print, built_from=ac869640e)",
+  "repo": "bench/repos/linux",
+  "repo_git_files": 97362,
+  "command": "ripwire bench/repos/linux --no-cache --index-out=bench/tools/_work/ripwire/linux-8515d680/idx",
+  "extra_env": "",
+  "threads_requested": "uncapped",
+  "wall_seconds": 34.04,
+  "user_seconds": 343.63,
+  "sys_seconds": 15.39,
+  "peak_rss_bytes": 11481464832,
+  "peak_rss_source": "time_l",
+  "peak_rss_bytes_time_l": 11481464832,
+  "peak_rss_bytes_tree_sampled": null,
+  "index_bytes": 3373745443,
+  "index_disk_bytes": 3373752320,
+  "index_paths": [
+    "bench/tools/_work/ripwire/linux-8515d680"
+  ],
+  "exit_status": 0,
+  "host": "macOS-27.2-arm64-arm-64bit",
+  "timestamp": "2026-11-13T04:53:42+0530"
+}

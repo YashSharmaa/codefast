@@ -1,0 +1,199 @@
+lang=go ok=true lines=150 errors=0
+--- defs (31)
+  0 mod     server                       L1-1 parent=- type=- arity=0..0 flags=0x00 | package server
+  1 struct  Client                       L16-16 parent=- type=- arity=0..0 flags=0x04 | type Client struct
+  2 field   Timeout                      L16-16 parent=Client type=- arity=0..0 flags=0x04 | Timeout int
+  3 method  Get                          L18-18 parent=~Client type=Item arity=1..1 flags=0x04 | func (c *Client) Get(key string) (*Item, error)
+  4 struct  Item                         L20-24 parent=- type=- arity=0..0 flags=0x04 | type Item struct
+  5 field   Name                         L21-21 parent=Item type=- arity=0..0 flags=0x04 | Name string
+  6 field   Owner                        L22-22 parent=Item type=Client arity=0..0 flags=0x04 | Owner *Client
+  7 field   Meta                         L23-23 parent=Item type=k8s.io/apimachinery/pkg/apis/meta/v1|ObjectMeta arity=0..0 flags=0x04 | Meta metav1.ObjectMeta
+  8 type    Items                        L26-26 parent=- type=Item arity=0..0 flags=0x04 | type Items []Item
+  9 struct  Server                       L28-35 parent=- type=- arity=0..0 flags=0x04 | type Server struct
+ 10 field   client                       L29-29 parent=Server type=Client arity=0..0 flags=0x00 | client *Client
+ 11 field   items                        L30-30 parent=Server type=Item arity=0..0 flags=0x00 | items map[string]*Item
+ 12 field   queue                        L31-31 parent=Server type=Item arity=0..0 flags=0x00 | queue []Item
+ 13 field   handlers                     L32-32 parent=Server type=net/http|HandlerFunc arity=0..0 flags=0x00 | handlers map[string]http.HandlerFunc
+ 14 field   onEvent                      L33-33 parent=Server type=- arity=1..1 flags=0x20 | onEvent func(*Item) error
+ 15 field   mux                          L34-34 parent=Server type=net/http|ServeMux arity=0..0 flags=0x00 | mux *http.ServeMux
+ 16 var     defaultServer                L38-38 parent=- type=Server arity=0..0 flags=0x00 | defaultServer *Server
+ 17 var     verbose                      L39-39 parent=- type=- arity=0..0 flags=0x00 | verbose bool
+ 18 var     counter                      L40-40 parent=- type=- arity=0..0 flags=0x00 | counter int
+ 19 var     hooks                        L41-41 parent=- type=- arity=0..0 flags=0x00 | hooks
+ 20 fn      NewServer                    L44-44 parent=- type=Server arity=1..1 flags=0x04 | func NewServer(c *Client) *Server
+ 21 fn      min                          L46-46 parent=- type=- arity=2..2 flags=0x00 | func min(a, b int) int
+ 22 method  Run                          L48-81 parent=~Server type=- arity=2..2 flags=0x04 | func (s *Server) Run(args []string, stop <-chan struct{}) error
+ 23 method  handle                       L83-102 parent=~Server type=- arity=2..2 flags=0x00 | func (s *Server) handle(w http.ResponseWriter, r *http.Request)
+ 24 method  record                       L104-104 parent=~Server type=- arity=1..1 flags=0x00 | func (s *Server) record(it *Item) error
+ 25 method  loop                         L106-115 parent=~Server type=- arity=1..1 flags=0x00 | func (s *Server) loop(stop <-chan struct{})
+ 26 fn      handleRoot                   L117-117 parent=- type=- arity=2..2 flags=0x00 | func handleRoot(w http.ResponseWriter, r *http.Request)
+ 27 fn      register                     L119-138 parent=- type=github.com/spf13/cobra|Command arity=2..2 flags=0x00 | func register(informer cache.SharedIndexInformer, s *Server) *cobra.Command
+ 28 method  forget                       L140-140 parent=~Server type=- arity=1..1 flags=0x00 | func (s *Server) forget(obj interface{})
+ 29 fn      Map                          L142-142 parent=- type=- arity=2..2 flags=0x04 | func Map[T, U any](xs []T, f func(T) U) []U
+ 30 fn      generic                      L144-150 parent=- type=- arity=1..1 flags=0x00 | func generic(names []string)
+--- refs (155)
+L18   type    Client                       in Get
+L18   type    Item                         in Get
+L22   type    Client                       in Item
+L23   type    ObjectMeta                   in Item qual=k8s.io/apimachinery/pkg/apis/meta/v1
+L26   type    Item                         in Items
+L29   type    Client                       in Server
+L30   type    Item                         in Server
+L31   type    Item                         in Server
+L32   type    HandlerFunc                  in Server qual=net/http
+L33   type    Item                         in Server
+L34   type    ServeMux                     in Server qual=net/http
+L38   type    Server                       in defaultServer
+L44   type    Client                       in NewServer
+L44   type    Server                       in NewServer
+L44   mwrite  client                       in NewServer qual=Server
+L44   new     Server                       in NewServer
+L48   type    Server                       in Run
+L49   mcall   Get                          in Run qual=Server::client nargs=1
+L49   mread   client                       in Run qual=Server
+L51   call    Errorf                       in Run qual=fmt nargs=3
+L53   call    InfoS                        in Run qual=k8s.io/klog/v2 nargs=5
+L53   mread   Name                         in Run qual=Server::client::Get()
+L53   mread   Owner                        in Run qual=Server::client::Get()
+L53   mread   Timeout                      in Run qual=Server::client::Get()::Owner
+L54   mread   Name                         in Run qual=Server::client::Get()
+L54   mwrite  items                        in Run qual=Server
+L55   mread   queue                        in Run qual=Server
+L55   mwrite  queue                        in Run qual=Server
+L56   mread   items                        in Run qual=Server
+L57   mcall   Get                          in Run qual=Server::items::Owner nargs=1
+L57   mread   Owner                        in Run qual=Server::items
+L59   mread   queue                        in Run qual=Server
+L60   call    ToUpper                      in Run qual=strings nargs=1
+L60   mread   Meta                         in Run qual=Server::queue
+L60   mread   Name                         in Run qual=Server::queue
+L60   mread   queue                        in Run qual=Server
+L60   mread   queue                        in Run qual=Server
+L60   mwrite  Name                         in Run qual=Server::queue::Meta
+L62   call    NewServer                    in Run nargs=1
+L62   mread   client                       in Run qual=Server
+L63   mcall   handle                       in Run qual=NewServer() nargs=2
+L64   call    NewServer                    in Run nargs=1
+L64   mcall   Get                          in Run qual=NewServer()::client nargs=1
+L64   mread   client                       in Run qual=NewServer()
+L65   type    Server                       in Run
+L66   call    min                          in Run nargs=2
+L66   mwrite  Timeout                      in Run qual=Client
+L66   mwrite  client                       in Run qual=Server
+L66   new     Client                       in Run
+L67   new     Server                       in Run
+L68   mread   record                       in Run qual=Server
+L68   mwrite  onEvent                      in Run qual=Server
+L68   bind    record                       in Run qual=Server.onEvent
+L69   mwrite  handlers                     in Run qual=Server
+L69   bind    handleRoot                   in Run qual=Server.handlers
+L70   mcall   handlers                     in Run qual=Server nargs=2
+L71   mcall   onEvent                      in Run qual=Server nargs=1
+L72   mcall   onEvent                      in Run qual=$defaultServer nargs=1
+L72   read    defaultServer                in Run
+L74   mcall   loop                         in Run qual=Server nargs=1
+L75   call    Flush                        in Run qual=k8s.io/klog/v2 nargs=0
+L76   write   counter                      in Run
+L77   write   verbose                      in Run
+L78   mcall   HandleFunc                   in Run qual=$defaultServer::mux nargs=2
+L78   read    defaultServer                in Run
+L78   mread   handle                       in Run qual=Server
+L78   mread   mux                          in Run qual=$defaultServer
+L79   read    DefaultClient                in Run qual=net/http
+L79   mwrite  Timeout                      in Run qual=net/http|$DefaultClient
+L80   read    ErrNotExist                  in Run qual=os
+L83   type    Request                      in handle qual=net/http
+L83   type    ResponseWriter               in handle qual=net/http
+L83   type    Server                       in handle
+L84   mcall   Context                      in handle qual=net/http|Request nargs=0
+L84   mcall   Value                        in handle qual=net/http|Request::Context() nargs=1
+L84   read    ctxKey                       in handle
+L85   type    Item                         in handle
+L86   mcall   Get                          in handle qual=Item::Owner nargs=1
+L86   mread   Name                         in handle qual=Item
+L86   mread   Owner                        in handle qual=Item
+L87   type    Items                        in handle
+L89   type    Stringer                     in handle qual=fmt
+L90   call    Fprintln                     in handle qual=fmt nargs=2
+L90   mcall   String                       in handle qual=fmt|Stringer nargs=0
+L94   mread   Path                         in handle qual=net/http|Request::URL
+L94   mread   URL                          in handle qual=net/http|Request
+L94   mread   items                        in handle qual=Server
+L95   mread   Meta                         in handle qual=Server::items
+L95   mwrite  Labels                       in handle qual=Server::items::Meta
+L97   type    Client                       in handle
+L97   mread   client                       in handle qual=Server
+L98   mwrite  Timeout                      in handle qual=Client
+L99   type    Items                        in handle
+L99   mread   queue                        in handle qual=Server
+L100  call    Slice                        in handle qual=sort nargs=2
+L100  mread   Name                         in handle qual=Items
+L100  mread   Name                         in handle qual=Items
+L101  mcall   Get                          in handle qual=Items::Owner nargs=1
+L101  mread   Owner                        in handle qual=Items
+L104  type    Item                         in record
+L104  type    Server                       in record
+L106  type    Server                       in loop
+L111  read    events                       in loop
+L112  mcall   onEvent                      in loop qual=Server nargs=1
+L117  type    Request                      in handleRoot qual=net/http
+L117  type    ResponseWriter               in handleRoot qual=net/http
+L119  type    Command                      in register qual=github.com/spf13/cobra
+L119  type    Server                       in register
+L119  type    SharedIndexInformer          in register qual=k8s.io/client-go/tools/cache
+L120  mcall   AddEventHandler              in register qual=k8s.io/client-go/tools/cache|SharedIndexInformer nargs=1
+L120  new     ResourceEventHandlerFuncs    in register qual=k8s.io/client-go/tools/cache
+L121  mcall   record                       in register qual=Server nargs=1
+L121  type    Item                         in register
+L121  mwrite  AddFunc                      in register qual=k8s.io/client-go/tools/cache|ResourceEventHandlerFuncs
+L122  mwrite  UpdateFunc                   in register qual=k8s.io/client-go/tools/cache|ResourceEventHandlerFuncs
+L122  bind    updateItem                   in register qual=k8s.io/client-go/tools/cache|ResourceEventHandlerFuncs.UpdateFunc
+L123  mread   forget                       in register qual=Server
+L123  mwrite  DeleteFunc                   in register qual=k8s.io/client-go/tools/cache|ResourceEventHandlerFuncs
+L123  bind    forget                       in register qual=k8s.io/client-go/tools/cache|ResourceEventHandlerFuncs.DeleteFunc
+L125  type    Item                         in register
+L125  mwrite  Name                         in register qual=Item
+L125  mwrite  Name                         in register qual=Item
+L125  mwrite  Owner                        in register qual=Item
+L125  new     Client                       in register
+L126  type    Item                         in register
+L126  read    keyB                         in register
+L126  mwrite  Meta                         in register qual=Item
+L126  mwrite  Name                         in register qual=Item
+L126  mwrite  Name                         in register qual=k8s.io/apimachinery/pkg/apis/meta/v1|ObjectMeta
+L126  new     ObjectMeta                   in register qual=k8s.io/apimachinery/pkg/apis/meta/v1
+L127  mwrite  Name                         in register qual=Items
+L127  new     Items                        in register
+L129  new     Command                      in register qual=github.com/spf13/cobra
+L130  mwrite  Use                          in register qual=github.com/spf13/cobra|Command
+L131  mwrite  RunE                         in register qual=github.com/spf13/cobra|Command
+L131  bind    runServe                     in register qual=github.com/spf13/cobra|Command.RunE
+L132  mcall   Run                          in register qual=$defaultServer nargs=2
+L132  type    Command                      in register qual=github.com/spf13/cobra
+L132  read    defaultServer                in register
+L132  mwrite  Run                          in register qual=github.com/spf13/cobra|Command
+L134  read    NoArgs                       in register qual=github.com/spf13/cobra
+L134  mwrite  PreRun                       in register qual=github.com/spf13/cobra|Command
+L134  bind    NoArgs                       in register qual=github.com/spf13/cobra|Command.PreRun
+L135  read    startHook                    in register
+L135  write   hooks                        in register
+L136  call    apply                        in register nargs=2
+L136  read    TrimSpace                    in register qual=strings
+L136  read    startHook                    in register
+L140  type    Server                       in forget
+L145  call    Map                          in generic nargs=2
+L146  call    Map                          in generic nargs=2
+L146  read    Sprint                       in generic qual=fmt
+L147  call    NewStore                     in generic qual=k8s.io/client-go/tools/cache nargs=0
+L148  type    Items                        in generic
+L148  read    Len                          in generic qual=Items
+--- imports (9)
+L4    target=fmt name=- alias=- flags=1
+L5    target=net/http name=- alias=- flags=1
+L6    target=os name=- alias=- flags=1
+L7    target=sort name=- alias=- flags=1
+L8    target=strings name=- alias=- flags=1
+L10   target=github.com/spf13/cobra name=- alias=- flags=0
+L11   target=k8s.io/apimachinery/pkg/apis/meta/v1 name=- alias=metav1 flags=0
+L12   target=k8s.io/client-go/tools/cache name=- alias=- flags=0
+L13   target=k8s.io/klog/v2 name=- alias=- flags=0

@@ -1,0 +1,11 @@
+{
+  "session_id": "../../../../outside/of/the/index\u0000\n/etc/passwd",
+  "transcript_path": null,
+  "cwd": "{{REPO}}",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": { "command": "grep -rn dev_read src" },
+  "tool_response": { "stdout": "", "stderr": "", "interrupted": false, "isImage": false },
+  "tool_use_id": "toolu_01HOSTILE0003"
+}

@@ -1,0 +1,142 @@
+lang=rust ok=true lines=145 errors=0
+--- defs (62)
+  0 const   LIMIT                        L14-14 parent=- type=- arity=0..0 flags=0x04 | pub const LIMIT: usize =
+  1 var     COUNTER                      L15-15 parent=- type=Option arity=0..0 flags=0x00 | static mut COUNTER: Option<Counter> =
+  2 var     HOOK                         L16-16 parent=- type=- arity=2..2 flags=0x24 | pub static HOOK: fn(&Config, u32) -> bool =
+  3 type    Result                       L17-17 parent=- type=std::result|Result arity=0..0 flags=0x04 | pub type Result<T> = std::result::Result<T, Error>
+  4 type    Shared                       L18-18 parent=- type=Config arity=0..0 flags=0x00 | type Shared = Arc<Config>
+  5 struct  Stack                        L23-30 parent=- type=- arity=0..0 flags=0x04 | pub struct Stack<T: Clone>
+  6 field   items                        L24-24 parent=Stack type=Vec arity=0..0 flags=0x04 | pub items: Vec<T>
+  7 field   cfg                          L25-25 parent=Stack type=Config arity=0..0 flags=0x00 | cfg: Arc<Config>
+  8 field   parent                       L26-26 parent=Stack type=Option arity=0..0 flags=0x00 | parent: Option<Box<Stack<T>>>
+  9 field   on_push                      L27-27 parent=Stack type=- arity=2..2 flags=0x24 | pub(crate) on_push: Box<dyn Fn(&T, usize) + Send>
+ 10 field   cb                           L28-28 parent=Stack type=- arity=1..1 flags=0x20 | cb: Option<fn(u32) -> u32>
+ 11 field   name                         L29-29 parent=Stack type=- arity=0..0 flags=0x00 | name: &'static str
+ 12 struct  Pair                         L32-32 parent=- type=- arity=0..0 flags=0x04 | pub struct Pair(pub u32, Config)
+ 13 struct  Unit                         L33-33 parent=- type=- arity=0..0 flags=0x00 | struct Unit
+ 14 union   Bits                         L35-38 parent=- type=- arity=0..0 flags=0x04 | pub union Bits
+ 15 field   int                          L36-36 parent=Bits type=- arity=0..0 flags=0x00 | int: u32
+ 16 field   float                        L37-37 parent=Bits type=- arity=0..0 flags=0x00 | float: f32
+ 17 enum    Shape                        L40-46 parent=- type=- arity=0..0 flags=0x04 | pub enum Shape
+ 18 enumval Empty                        L41-41 parent=Shape type=- arity=0..0 flags=0x04 | Empty
+ 19 enumval Circle                       L42-42 parent=Shape type=- arity=0..0 flags=0x04 | Circle(f64)
+ 20 enumval Rect                         L44-44 parent=Shape type=- arity=0..0 flags=0x04 | Rect
+ 21 field   w                            L44-44 parent=Rect type=- arity=0..0 flags=0x04 | w: f64
+ 22 field   h                            L44-44 parent=Rect type=Size arity=0..0 flags=0x04 | h: Size
+ 23 enumval Tagged                       L45-45 parent=Shape type=- arity=0..0 flags=0x04 | Tagged = 7
+ 24 trait   Area                         L48-55 parent=- type=- arity=0..0 flags=0x04 | pub trait Area: fmt::Debug + Send
+ 25 const   SIDES                        L49-49 parent=Area type=- arity=0..0 flags=0x45 | const SIDES: u32
+ 26 type    Unit                         L50-50 parent=Area type=- arity=0..0 flags=0x45 | type Unit: Default
+ 27 method  area                         L51-51 parent=Area type=- arity=0..0 flags=0x45 | fn area(&self) -> f64
+ 28 method  describe                     L52-54 parent=Area type=String arity=1..1 flags=0x04 | fn describe(&self, verbose: bool) -> String
+ 29 impl    Stack                        L57-74 parent=- type=- arity=0..0 flags=0x00 | impl<T: Clone> Stack<T>
+ 30 const   DEPTH                        L58-58 parent=Stack type=- arity=0..0 flags=0x04 | pub const DEPTH: usize =
+ 31 method  new                          L60-62 parent=Stack type=Stack arity=1..1 flags=0x04 | pub fn new(cfg: Arc<Config>) -> Self
+ 32 method  drain                        L64-69 parent=Stack type=Result arity=2..2 flags=0x84 | pub async fn drain(&mut self, n: usize, mut sink: impl Sink) -> Result<Vec<T>>
+ 33 fn      helper                       L65-67 parent=drain type=- arity=1..1 flags=0x02 | fn helper(x: u32) -> u32
+ 34 method  peek                         L71-73 parent=Stack type=Option arity=0..0 flags=0x00 | fn peek(&self) -> Option<&T>
+ 35 impl    Shape                        L76-82 parent=- type=- arity=0..0 flags=0x00 | impl Area for Shape
+ 36 const   SIDES                        L77-77 parent=Shape type=- arity=0..0 flags=0x00 | const SIDES: u32 =
+ 37 type    Unit                         L78-78 parent=Shape type=Meters arity=0..0 flags=0x00 | type Unit = Meters
+ 38 method  area                         L79-81 parent=Shape type=- arity=0..0 flags=0x00 | fn area(&self) -> f64
+ 39 impl    Area                         L84-84 parent=- type=- arity=0..0 flags=0x00 | impl<T: fmt::Display> Area for T
+ 40 impl    Stack                        L85-85 parent=- type=- arity=0..0 flags=0x00 | impl<'a, T> fmt::Debug for &'a Stack<T>
+ 41 impl    slice                        L86-90 parent=- type=- arity=0..0 flags=0x00 | impl<T> [T]
+ 42 method  first_or                     L87-89 parent=slice type=- arity=1..1 flags=0x00 | fn first_or(&self, d: T) -> T
+ 43 impl    Area                         L91-91 parent=- type=- arity=0..0 flags=0x00 | impl dyn Area
+ 44 impl    Bits                         L92-92 parent=- type=- arity=0..0 flags=0x00 | unsafe impl Send for Bits
+ 45 mod     net                          L94-94 parent=- type=- arity=0..0 flags=0x05 | pub mod net
+ 46 mod     inner                        L95-102 parent=- type=- arity=0..0 flags=0x00 | mod inner
+ 47 mod     deep                         L96-100 parent=inner type=- arity=0..0 flags=0x04 | pub(super) mod deep
+ 48 fn      dig                          L97-99 parent=deep type=- arity=1..255 flags=0x04 | pub fn dig(depth: u8, ...) -> !
+ 49 const   HIDDEN                       L101-101 parent=inner type=- arity=0..0 flags=0x00 | const HIDDEN: u8 =
+ 50 fn      write                        L105-105 parent=- type=- arity=3..3 flags=0x05 | pub fn write(fd: i32, buf: *const u8, n: usize) -> isize
+ 51 var     errno                        L106-106 parent=- type=- arity=0..0 flags=0x01 | static errno: i32
+ 52 type    Opaque                       L107-107 parent=- type=- arity=0..0 flags=0x01 | type Opaque
+ 53 macro   square                       L111-115 parent=- type=- arity=0..255 flags=0x04 | macro_rules! square
+ 54 fn      main                         L118-118 parent=- type=- arity=0..0 flags=0x80 | async fn main()
+ 55 fn      tuple_ret                    L122-124 parent=- type=- arity=1..1 flags=0x04 | pub(crate) unsafe fn tuple_ret(cfg: &Config) -> (u8, u8)
+ 56 mod     tests                        L127-139 parent=- type=- arity=0..0 flags=0x08 | mod tests
+ 57 fn      fixture                      L130-132 parent=tests type=Stack arity=0..0 flags=0x08 | fn fixture() -> Stack<u8>
+ 58 fn      pushes                       L135-135 parent=tests type=- arity=0..0 flags=0x08 | fn pushes()
+ 59 fn      drains                       L138-138 parent=tests type=- arity=0..0 flags=0x88 | async fn drains()
+ 60 fn      only_in_tests                L142-142 parent=- type=- arity=0..0 flags=0x08 | fn only_in_tests()
+ 61 fn      never_in_tests               L145-145 parent=- type=- arity=0..0 flags=0x00 | fn never_in_tests()
+--- refs (64)
+L4    import  alloc                        in <file>
+L5    import  core                         in <file>
+L7    import  Entry                        in <file> qual=std::collections::hash_map
+L7    import  HashMap                      in <file> qual=std::collections
+L7    import  collections                  in <file> qual=std
+L8    import  fmt                          in <file> qual=std
+L10   import  Client                       in <file> qual=crate::net
+L10   import  Server                       in <file> qual=crate::net
+L11   import  deep                         in <file> qual=self::inner
+L12   import  Serialize                    in <file> qual=::serde
+L15   type    Counter                      in COUNTER
+L15   type    Option                       in COUNTER
+L16   type    Config                       in HOOK
+L16   read    default_hook                 in HOOK
+L17   type    Error                        in Result
+L17   type    Result                       in Result qual=std::result
+L18   type    Arc                          in Shared
+L18   type    Config                       in Shared
+L22   annot   serde                        in Stack
+L23   type    Clone                        in Stack
+L24   type    Vec                          in Stack
+L25   type    Arc                          in Stack
+L25   type    Config                       in Stack
+L26   type    Box                          in Stack
+L26   type    Option                       in Stack
+L26   type    Stack                        in Stack
+L27   type    Box                          in Stack
+L27   type    Fn                           in Stack
+L27   type    Send                         in Stack
+L28   type    Option                       in Stack
+L32   type    Config                       in Pair
+L44   type    Size                         in Rect
+L48   extends Debug                        in Area qual=std::fmt
+L48   extends Send                         in Area
+L50   type    Default                      in Unit
+L52   type    String                       in describe
+L53   call    new                          in describe qual=String nargs=0
+L53   type    String                       in describe
+L57   type    Clone                        in Stack
+L57   type    Stack                        in Stack
+L60   type    Arc                          in new
+L60   type    Config                       in new
+L61   macro   todo                         in new
+L64   type    Result                       in drain
+L64   type    Sink                         in drain
+L64   type    Vec                          in drain
+L68   macro   todo                         in drain
+L71   type    Option                       in peek
+L76   type    Shape                        in Shape
+L76   impl    Area                         in Shape
+L78   type    Meters                       in Unit
+L84   type    Display                      in Area qual=std::fmt
+L84   impl    Area                         in Area
+L85   type    Stack                        in Stack
+L85   impl    Debug                        in Stack qual=std::fmt
+L91   type    Area                         in Area
+L92   type    Bits                         in Bits
+L92   impl    Send                         in Bits
+L117  annot   main                         in main qual=tokio
+L121  annot   instrument                   in tuple_ret
+L122  type    Config                       in tuple_ret
+L130  type    Stack                        in fixture
+L131  macro   todo                         in fixture
+L137  annot   test                         in drains qual=tokio
+--- imports (12)
+L4    target=alloc name=- alias=al flags=1
+L5    target=core name=- alias=- flags=5
+L7    target=std name=collections alias=- flags=1
+L7    target=std::collections::hash_map name=Entry alias=- flags=1
+L7    target=std::collections name=HashMap alias=Map flags=1
+L8    target=std name=fmt alias=- flags=1
+L9    target=super name=- alias=- flags=2
+L10   target=crate::net name=Client alias=- flags=4
+L10   target=crate::net name=Server alias=Srv flags=4
+L11   target=self::inner::deep name=- alias=- flags=6
+L12   target=::serde name=Serialize alias=- flags=0
+L128  target=super name=- alias=- flags=2

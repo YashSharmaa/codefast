@@ -1,0 +1,171 @@
+lang=go ok=true lines=154 errors=0
+--- defs (25)
+  0 mod     contract                     L3-3 parent=- type=- arity=0..0 flags=0x00 | package contract
+  1 struct  Config                       L30-39 parent=- type=- arity=0..0 flags=0x04 | type Config struct
+  2 field   Tags                         L31-31 parent=Config type=github.com/scylladb/go-set/strset|Set arity=0..0 flags=0x04 | Tags *strset.Set
+  3 field   Out                          L32-32 parent=Config type=io|Writer arity=0..0 flags=0x04 | Out io.Writer
+  4 field   Scaler                       L33-33 parent=Config type=example.com/apis/autoscaling|Scaler arity=0..0 flags=0x04 | Scaler autoscaling.Scaler
+  5 field   Targets                      L34-34 parent=Config type=v2|MetricTarget arity=0..0 flags=0x04 | Targets []v2.MetricTarget
+  6 field   Options                      L35-35 parent=Config type=github.com/scylladb/go-set/strset|Options arity=0..0 flags=0x04 | strset.Options
+  7 field   Decoder                      L36-36 parent=Config type=encoding/json|Decoder arity=0..0 flags=0x04 | *json.Decoder
+  8 field   Base                         L37-37 parent=Config type=example.com/app/cli/ui|Base arity=0..0 flags=0x04 | handler.Base[string]
+  9 field   local                        L38-38 parent=Config type=local arity=0..0 flags=0x00 | local
+ 10 struct  local                        L41-41 parent=- type=- arity=0..0 flags=0x00 | type local struct
+ 11 field   cfg                          L41-41 parent=local type=Config arity=0..0 flags=0x00 | cfg *Config
+ 12 type    Alias                        L43-43 parent=- type=example.com/app/cli/ui|Config arity=0..0 flags=0x04 | type Alias = handler.Config
+ 13 type    Renderer                     L45-45 parent=- type=example.com/app/cli/ui|Renderer arity=0..0 flags=0x04 | type Renderer handler.Renderer
+ 14 var     Default                      L47-47 parent=- type=example.com/app/cli/ui|Config arity=0..0 flags=0x04 | var Default handler.Config
+ 15 var     decoder                      L49-49 parent=- type=- arity=0..0 flags=0x00 | var decoder
+ 16 fn      Load                         L53-68 parent=- type=example.com/app/cli/ui|Config arity=1..1 flags=0x04 | func Load(r io.Reader) (*handler.Config, error)
+ 17 method  Apply                        L70-99 parent=~Config type=Config arity=3..3 flags=0x04 | func (c *Config) Apply(in <-chan handler.Event, quit chan struct{}, byID map[handler.ID]handler.Even
+ 18 method  With                         L101-101 parent=~Config type=Config arity=1..1 flags=0x04 | func (c *Config) With(k string) *Config
+ 19 fn      chain                        L103-109 parent=- type=- arity=0..0 flags=0x00 | func chain()
+ 20 fn      NewConfig                    L111-111 parent=- type=Config arity=0..0 flags=0x04 | func NewConfig() *Config
+ 21 fn      methodExprs                  L114-124 parent=- type=- arity=2..2 flags=0x00 | func methodExprs(c *Config, other *Remote)
+ 22 fn      scopes                       L127-149 parent=- type=- arity=1..1 flags=0x00 | func scopes(in <-chan handler.Event)
+ 23 type    Visit                        L152-152 parent=- type=- arity=0..0 flags=0x04 | type Visit func(at struct{ Depth int }) (res struct{ Done bool })
+ 24 var     visit                        L154-154 parent=- type=Config arity=1..1 flags=0x20 | var visit func(at struct{ Depth int }) *Config
+--- refs (127)
+L31   type    Set                          in Config qual=github.com/scylladb/go-set/strset
+L32   type    Writer                       in Config qual=io
+L33   type    Scaler                       in Config qual=example.com/apis/autoscaling
+L34   type    MetricTarget                 in Config qual=v2
+L35   extends Options                      in Config qual=github.com/scylladb/go-set/strset
+L36   extends Decoder                      in Config qual=encoding/json
+L37   extends Base                         in Config qual=example.com/app/cli/ui
+L38   extends local                        in Config
+L41   type    Config                       in local
+L43   type    Config                       in Alias qual=example.com/app/cli/ui
+L45   type    Renderer                     in Renderer qual=example.com/app/cli/ui
+L47   type    Config                       in Default qual=example.com/app/cli/ui
+L49   call    NewDecoder                   in decoder qual=encoding/json nargs=1
+L51   type    Config                       in <file>
+L51   impl    Model                        in Config qual=example.com/app/internal/ui
+L53   type    Config                       in Load qual=example.com/app/cli/ui
+L53   type    Reader                       in Load qual=io
+L54   call    NewDecoder                   in Load qual=encoding/json nargs=1
+L55   type    Node                         in Load qual=gopkg.in/yaml.v3
+L56   mcall   Decode                       in Load qual=encoding/json|NewDecoder() nargs=1
+L57   mcall   Load                         in Load qual=example.com/app/internal/ui|$Default nargs=0
+L57   read    Default                      in Load qual=example.com/app/internal/ui
+L58   call    None                         in Load qual=example.com/app/internal/ui nargs=1
+L58   mcall   Render                       in Load qual=example.com/app/internal/ui|None() nargs=0
+L59   call    DefaultHandlerConfig         in Load qual=example.com/app/cli/ui nargs=0
+L59   call    New                          in Load qual=example.com/app/cli/ui
+L59   mcall   Handle                       in Load qual=example.com/app/cli/ui|New() nargs=1
+L60   call    Dial                         in Load qual=example.com/sdk/transport nargs=1
+L60   mcall   Close                        in Load qual=example.com/sdk/transport|Dial() nargs=0
+L61   call    Scale                        in Load qual=example.com/apis/autoscaling nargs=1
+L62   call    NewMetric                    in Load qual=v2 nargs=0
+L62   mcall   Observe                      in Load qual=v2|NewMetric() nargs=1
+L63   call    Infof                        in Load qual=k8s.io/klog/v2 nargs=1
+L64   call    Join                         in Load qual=util nargs=2
+L65   type    T                            in Load qual=testing
+L66   mcall   Run                          in Load qual=k8s.io/utils/exec/testing|FakeExec nargs=1
+L66   new     FakeExec                     in Load qual=k8s.io/utils/exec/testing
+L67   mwrite  Name                         in Load qual=example.com/app/cli/ui|Config
+L67   new     Config                       in Load qual=example.com/app/cli/ui
+L70   type    Config                       in Apply
+L70   type    Config                       in Apply
+L70   type    Event                        in Apply qual=example.com/app/cli/ui
+L70   type    Event                        in Apply qual=example.com/app/cli/ui
+L70   type    ID                           in Apply qual=example.com/app/cli/ui
+L72   mcall   Ack                          in Apply qual=example.com/app/cli/ui|Event nargs=0
+L74   mread   Targets                      in Apply qual=Config
+L75   mcall   Value                        in Apply nargs=0
+L78   mcall   String                       in Apply nargs=0
+L81   mcall   Ack                          in Apply qual=example.com/app/cli/ui|Event nargs=0
+L83   type    Config                       in Apply
+L85   mcall   Add                          in Apply qual=Config::Tags nargs=1
+L85   mread   Tags                         in Apply qual=Config
+L87   type    Event                        in Apply qual=example.com/app/cli/ui
+L89   mcall   Nack                         in Apply qual=example.com/app/cli/ui|Event nargs=0
+L92   mcall   Ack                          in Apply qual=example.com/app/cli/ui|Event nargs=0
+L94   mcall   Add                          in Apply qual=Config::Tags nargs=1
+L94   mread   Tags                         in Apply qual=Config
+L95   mcall   Decode                       in Apply qual=Config nargs=1
+L96   mcall   Reset                        in Apply qual=Config::Options nargs=0
+L96   mread   Options                      in Apply qual=Config
+L97   mcall   Scale                        in Apply qual=Config::local::cfg::Scaler nargs=1
+L97   mread   Scaler                       in Apply qual=Config::local::cfg
+L97   mread   cfg                          in Apply qual=Config::local
+L97   mread   local                        in Apply qual=Config
+L101  type    Config                       in With
+L101  type    Config                       in With
+L104  mcall   Render                       in chain qual=$Default::Renderer nargs=0
+L104  read    Default                      in chain
+L104  mread   Renderer                     in chain qual=$Default
+L105  mcall   Decode                       in chain qual=$decoder nargs=1
+L105  read    decoder                      in chain
+L106  call    NewConfig                    in chain nargs=0
+L106  mcall   Apply                        in chain qual=NewConfig()::With()::With()::With()::With()::With()::With()::With()::With()::With()::With()::With()::With() nargs=3
+L106  mcall   With                         in chain qual=NewConfig()::With()::With()::With()::With()::With()::With()::With()::With()::With()::With()::With() nargs=1
+L106  mcall   With                         in chain qual=NewConfig()::With()::With()::With()::With()::With()::With()::With()::With()::With()::With() nargs=1
+L106  mcall   With                         in chain qual=NewConfig()::With()::With()::With()::With()::With()::With()::With()::With()::With() nargs=1
+L106  mcall   With                         in chain qual=NewConfig()::With()::With()::With()::With()::With()::With()::With()::With() nargs=1
+L106  mcall   With                         in chain qual=NewConfig()::With()::With()::With()::With()::With()::With()::With() nargs=1
+L106  mcall   With                         in chain qual=NewConfig()::With()::With()::With()::With()::With()::With() nargs=1
+L106  mcall   With                         in chain qual=NewConfig()::With()::With()::With()::With()::With() nargs=1
+L106  mcall   With                         in chain qual=NewConfig()::With()::With()::With()::With() nargs=1
+L106  mcall   With                         in chain qual=NewConfig()::With()::With()::With() nargs=1
+L106  mcall   With                         in chain qual=NewConfig()::With()::With() nargs=1
+L106  mcall   With                         in chain qual=NewConfig()::With() nargs=1
+L106  mcall   With                         in chain qual=NewConfig() nargs=1
+L107  mcall   Clear                        in chain qual=Config::With()::Tags nargs=0
+L107  mcall   With                         in chain qual=Config nargs=1
+L107  mread   Tags                         in chain qual=Config::With()
+L107  new     Config                       in chain
+L108  mcall   Apply                        in chain qual=Config nargs=3
+L108  mcall   Write                        in chain qual=Config::Apply()::Out nargs=1
+L108  mread   Out                          in chain qual=Config::Apply()
+L108  new     Config                       in chain
+L111  type    Config                       in NewConfig
+L111  new     Config                       in NewConfig
+L114  type    Config                       in methodExprs
+L114  type    Remote                       in methodExprs
+L115  type    Config                       in methodExprs
+L115  read    With                         in methodExprs qual=Config
+L117  call    With                         in methodExprs qual=Config nargs=1
+L117  type    Config                       in methodExprs
+L118  call    String                       in methodExprs qual=Config nargs=0
+L118  type    Config                       in methodExprs
+L119  call    Dial                         in methodExprs qual=Remote nargs=2
+L119  type    Remote                       in methodExprs
+L120  call    Validate                     in methodExprs qual=example.com/app/cli/ui|Config nargs=0
+L120  type    Config                       in methodExprs qual=example.com/app/cli/ui
+L121  call    walk                         in methodExprs nargs=3
+L121  type    Remote                       in methodExprs
+L121  read    Close                        in methodExprs qual=Remote
+L121  read    Remote                       in methodExprs
+L121  mread   Name                         in methodExprs qual=$Remote
+L122  mcall   Render                       in methodExprs qual=$Default::Renderer nargs=0
+L122  read    Default                      in methodExprs
+L122  mread   Renderer                     in methodExprs qual=$Default
+L123  mwrite  addr                         in methodExprs qual=Remote
+L127  type    Event                        in scopes qual=example.com/app/cli/ui
+L128  call    NewConfig                    in scopes nargs=0
+L132  mcall   Ack                          in scopes qual=example.com/app/cli/ui|Event nargs=0
+L135  call    Load                         in scopes nargs=1
+L136  mcall   With                         in scopes qual=NewConfig() nargs=1
+L137  mread   Targets                      in scopes qual=NewConfig()
+L138  mcall   Value                        in scopes nargs=0
+L140  mread   Targets                      in scopes qual=NewConfig()
+L142  mcall   Value                        in scopes nargs=0
+L146  mcall   Nack                         in scopes qual=example.com/app/cli/ui|Event nargs=0
+L154  type    Config                       in visit
+--- imports (15)
+L6    target=encoding/json name=- alias=- flags=1
+L7    target=io name=- alias=- flags=1
+L8    target=testing name=- alias=- flags=1
+L11   target=example.com/app/internal/ui name=- alias=- flags=0
+L12   target=example.com/app/cli/ui name=- alias=handler flags=0
+L13   target=example.com/sdk/transport name=- alias=client flags=0
+L14   target=example.com/legacy/client name=- alias=- flags=0
+L17   target=example.com/apis/autoscaling name=- alias=- flags=0
+L18   target=example.com/apis/autoscaling/v2 name=- alias=- flags=0
+L19   target=k8s.io/klog/v2 name=- alias=- flags=0
+L22   target=example.com/a/util name=- alias=- flags=0
+L23   target=example.com/b/util name=- alias=- flags=0
+L24   target=k8s.io/utils/exec/testing name=- alias=exectesting flags=0
+L26   target=github.com/scylladb/go-set/strset name=- alias=- flags=0
+L27   target=gopkg.in/yaml.v3 name=- alias=- flags=0

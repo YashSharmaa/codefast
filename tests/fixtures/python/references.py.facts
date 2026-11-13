@@ -1,0 +1,189 @@
+lang=python ok=true lines=150 errors=0
+--- defs (21)
+  0 var     logger                       L12-12 parent=- type=- arity=0..0 flags=0x00 | logger =
+  1 var     default_account              L13-13 parent=- type=Account arity=0..0 flags=0x00 | default_account =
+  2 class   Service                      L16-65 parent=- type=- arity=1..2 flags=0x00 | class Service(Base, helpers.Mixin, np.Generic[Account])
+  3 field   retries                      L17-17 parent=Service type=int arity=0..0 flags=0x00 | retries =
+  4 field   backoff                      L18-18 parent=Service type=- arity=0..0 flags=0x00 | backoff =
+  5 field   handler                      L19-19 parent=Service type=- arity=0..0 flags=0x00 | handler =
+  6 field   formatter                    L20-20 parent=Service type=- arity=0..0 flags=0x00 | formatter =
+  7 method  __init__                     L22-28 parent=Service type=- arity=1..2 flags=0x00 | def __init__(self, repo: Repository, clock=None)
+  8 field   repo                         L24-24 parent=Service type=Repository arity=0..0 flags=0x00 | self.repo =
+  9 field   clock                        L25-25 parent=Service type=- arity=0..0 flags=0x00 | self.clock =
+ 10 field   accounts                     L26-26 parent=Service type=dict arity=0..0 flags=0x00 | self.accounts: dict[str, Account] =
+ 11 field   on_done                      L27-27 parent=Service type=- arity=0..0 flags=0x00 | self.on_done =
+ 12 method  open                         L30-51 parent=Service type=Account arity=1..2 flags=0x00 | def open(self, name, *, strict=False) -> Account
+ 13 method  audit                        L53-57 parent=Service type=- arity=1..255 flags=0x00 | @classmethod def audit(cls, target, *names)
+ 14 method  touch                        L59-65 parent=Service type=- arity=0..0 flags=0x00 | def touch(self)
+ 15 fn      locals_everywhere            L68-113 parent=- type=- arity=2..255 flags=0x00 | def locals_everywhere(items: list[Account], sink, flag=None, *rest, **options)
+ 16 fn      key_fn                       L89-89 parent=locals_everywhere type=- arity=1..2 flags=0x00 | key_fn = lambda acct, default=flag
+ 17 fn      inner                        L104-107 parent=locals_everywhere type=- arity=1..1 flags=0x00 | def inner(value)
+ 18 fn      builtins_are_silent          L116-120 parent=- type=- arity=1..1 flags=0x00 | def builtins_are_silent(values)
+ 19 fn      typed                        L123-138 parent=- type=- arity=5..5 flags=0x00 | def typed(a: Optional[Account], b: "Book | None", c: Dict[str, Account], d: os.PathLike, e: helpers.
+ 20 fn      decorated                    L141-145 parent=- type=- arity=1..1 flags=0x00 | @helpers.traced(level=logger.level) @np.vectorize @on_event def decorated(x)
+--- refs (151)
+L6    import  OrderedDict                  in <file> qual=collections
+L6    import  namedtuple                   in <file> qual=collections
+L7    import  helpers                      in <file> qual=.
+L8    import  Account                      in <file> qual=.models
+L8    import  Ledger                       in <file> qual=.models
+L9    import  SETTINGS                     in <file> qual=..config
+L9    import  settings                     in <file> qual=..config
+L12   call    make_logger                  in logger nargs=1
+L13   call    Account                      in default_account nargs=1
+L16   type    Account                      in Service
+L16   read    helpers                      in Service
+L16   extends Base                         in Service
+L16   extends Generic                      in Service qual=numpy
+L16   extends Mixin                        in Service qual=.helpers
+L18   mread   retries                      in backoff qual=Service
+L19   bind    on_event                     in handler qual=Service.handler
+L20   read    Formatter                    in formatter
+L22   type    Repository                   in __init__
+L23   mcall   __init__                     in __init__ qual=^Service nargs=1
+L25   call    Clock                        in __init__ nargs=0
+L26   type    Account                      in __init__
+L27   bind    notify                       in __init__ qual=Service.on_done
+L28   mcall   append                       in __init__ qual=Service::repo::listeners nargs=1
+L28   mread   flush                        in __init__ qual=Service
+L28   mread   listeners                    in __init__ qual=Service::repo
+L28   mread   repo                         in __init__ qual=Service
+L30   type    Account                      in open
+L31   call    Account                      in open nargs=1
+L32   mcall   activate                     in open qual=Account nargs=0
+L33   mwrite  accounts                     in open qual=Service
+L34   mcall   add                          in open qual=Service::repo::session nargs=2
+L34   mread   repo                         in open qual=Service
+L34   mread   session                      in open qual=Service::repo
+L35   mcall   tick                         in open qual=Service::clock nargs=0
+L35   mread   clock                        in open qual=Service
+L36   mcall   handler                      in open qual=Service nargs=1
+L37   mcall   touch                        in open qual=Service nargs=0
+L38   mwrite  touched                      in open qual=Service
+L39   call    audit                        in open qual=Service nargs=2
+L39   read    Service                      in open
+L40   call    record                       in open qual=.helpers nargs=1
+L40   read    helpers                      in open
+L41   call    add                          in open qual=.helpers.registry nargs=1
+L41   read    helpers                      in open
+L42   call    join                         in open qual=os.path nargs=2
+L43   call    norm                         in open qual=numpy.linalg nargs=1
+L44   call    fromstring                   in open qual=xml.etree.ElementTree nargs=1
+L44   mcall   find                         in open qual=xml.etree.ElementTree|fromstring() nargs=1
+L45   mcall   filter                       in open qual=.models|Ledger::objects nargs=1
+L45   mcall   first                        in open qual=.models|Ledger::objects::filter() nargs=0
+L45   read    Ledger                       in open qual=.models
+L45   mread   objects                      in open qual=.models|Ledger
+L46   mcall   get                          in open qual=$SETTINGS nargs=1
+L46   read    SETTINGS                     in open
+L47   call    reload                       in open qual=..config.settings nargs=0
+L47   read    settings                     in open
+L48   mcall   info                         in open qual=$logger nargs=2
+L48   read    logger                       in open
+L49   mcall   add                          in open qual=$default_account::balance nargs=1
+L49   read    default_account              in open
+L49   mread   balance                      in open qual=$default_account
+L50   call    make_account                 in open nargs=0
+L50   mcall   close                        in open qual=make_account() nargs=0
+L55   mcall   touch                        in audit qual=Service nargs=1
+L56   mwrite  retries                      in audit qual=Service
+L57   call    Service                      in audit nargs=0
+L60   type    Service                      in touch
+L60   mread   peer                         in touch qual=Service
+L61   mcall   save                         in touch qual=Service::repo nargs=1
+L61   mread   repo                         in touch qual=Service
+L62   mcall   call                         in touch qual=Service::missing::deep nargs=0
+L62   mread   deep                         in touch qual=Service::missing
+L62   mread   missing                      in touch qual=Service
+L63   mcall   audit                        in touch qual=Service nargs=1
+L64   call    Service                      in touch nargs=1
+L64   mread   repo                         in touch qual=Service
+L65   mcall   touch                        in touch qual=^Service nargs=0
+L65   read    Service                      in touch
+L68   type    Account                      in locals_everywhere
+L70   write   total                        in locals_everywhere
+L71   write   total                        in locals_everywhere
+L74   mcall   settle                       in locals_everywhere nargs=0
+L76   read    lock                         in locals_everywhere
+L77   mcall   write                        in locals_everywhere nargs=1
+L79   call    risky                        in locals_everywhere nargs=1
+L80   read    LedgerError                  in locals_everywhere
+L81   mcall   report                       in locals_everywhere nargs=0
+L83   mread   args                         in locals_everywhere qual=ValueError
+L84   call    lookup                       in locals_everywhere nargs=1
+L85   mcall   use                          in locals_everywhere qual=lookup() nargs=0
+L86   mread   active                       in locals_everywhere
+L86   mread   name                         in locals_everywhere
+L87   mcall   items                        in locals_everywhere qual=dict nargs=0
+L89   mread   rank                         in key_fn
+L91   type    Account                      in locals_everywhere
+L91   type    Ledger                       in locals_everywhere
+L92   mcall   strip                        in locals_everywhere nargs=0
+L94   mcall   run                          in locals_everywhere nargs=0
+L96   mcall   check                        in locals_everywhere nargs=0
+L97   read    Ledger                       in locals_everywhere qual=.models
+L97   read    SPECIAL                      in locals_everywhere qual=.helpers
+L97   read    helpers                      in locals_everywhere
+L97   mread   CLOSED                       in locals_everywhere qual=.models|Ledger
+L100  mcall   upper                        in locals_everywhere nargs=0
+L102  call    unknown                      in locals_everywhere nargs=1
+L111  mcall   pop                          in locals_everywhere qual=dict nargs=1
+L112  mcall   count                        in locals_everywhere qual=tuple nargs=1
+L113  read    inner                        in locals_everywhere
+L113  read    key_fn                       in locals_everywhere
+L113  read    undefined_name               in locals_everywhere
+L119  mcall   append                       in builtins_are_silent nargs=1
+L123  type    Account                      in typed
+L123  type    Account                      in typed
+L123  type    Dict                         in typed
+L123  type    Kind                         in typed qual=.helpers
+L123  type    Ledger                       in typed qual=.models
+L123  type    Optional                     in typed
+L123  type    PathLike                     in typed qual=os
+L123  read    helpers                      in typed
+L124  mcall   close                        in typed qual=Account nargs=0
+L125  mcall   close                        in typed qual=.models|Ledger nargs=0
+L126  mcall   items                        in typed qual=Dict nargs=0
+L127  mread   name                         in typed qual=os|PathLike
+L128  mread   value                        in typed qual=.helpers|Kind
+L129  call    cast                         in typed nargs=2
+L129  type    Ledger                       in typed
+L130  mcall   post                         in typed qual=Ledger nargs=0
+L131  mcall   join                         in typed qual=str nargs=1
+L132  mcall   strip                        in typed qual=str::join() nargs=0
+L133  call    open                         in typed qual=Account nargs=1
+L133  read    Account                      in typed
+L134  mcall   close                        in typed qual=Account::open() nargs=0
+L135  call    namedtuple                   in typed qual=collections nargs=2
+L136  call    OrderedDict                  in typed nargs=0
+L137  mcall   move_to_end                  in typed qual=OrderedDict nargs=1
+L138  call    dumps                        in typed qual=json nargs=1
+L138  mread   name                         in typed qual=Account
+L138  mread   width                        in typed qual=.models|Ledger
+L141  read    helpers                      in decorated
+L141  read    logger                       in decorated
+L141  mread   level                        in decorated qual=$logger
+L141  annot   traced                       in decorated qual=.helpers
+L142  annot   vectorize                    in decorated qual=numpy
+L143  annot   on_event                     in decorated
+L148  read    on_event                     in <file>
+L148  read    typed                        in <file>
+L148  mwrite  handlers                     in <file> qual=$on_event
+L149  write   SETTINGS                     in <file>
+L150  read    builtins_are_silent          in <file>
+L150  read    settings                     in <file>
+L150  write   debug                        in <file> qual=..config.settings
+--- imports (13)
+L2    target=os name=- alias=- flags=0
+L3    target=os.path name=- alias=- flags=0
+L4    target=numpy name=- alias=np flags=0
+L5    target=xml.etree.ElementTree name=- alias=ET flags=0
+L5    target=json name=- alias=- flags=0
+L6    target=collections name=OrderedDict alias=- flags=0
+L6    target=collections name=namedtuple alias=nt flags=0
+L7    target=. name=helpers alias=- flags=0
+L8    target=.models name=Account alias=- flags=0
+L8    target=.models name=Ledger alias=Book flags=0
+L9    target=..config name=SETTINGS alias=- flags=0
+L9    target=..config name=settings alias=- flags=0
+L10   target=typing name=- alias=- flags=2

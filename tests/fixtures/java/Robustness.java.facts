@@ -1,0 +1,34 @@
+lang=java ok=true lines=48 errors=7
+--- defs (11)
+  0 mod     com.acme.shop                L2-5 parent=- type=- arity=0..0 flags=0x00 | module com.acme.shop
+  1 field   banner                       L9-9 parent=- type=String arity=0..0 flags=0x00 | String banner =
+  2 method  main                         L11-14 parent=- type=- arity=0..0 flags=0x00 | void main()
+  3 class   Broken                       L16-35 parent=- type=- arity=0..0 flags=0x00 | class Broken
+  4 field   before                       L17-17 parent=Broken type=- arity=0..0 flags=0x00 | int before
+  5 method  incomplete                   L19-27 parent=Broken type=- arity=1..1 flags=0x00 | void incomplete(Foo foo)
+  6 method  fine                         L29-32 parent=Broken type=- arity=1..1 flags=0x00 | void fine(Broken other)
+  7 field   after                        L34-34 parent=Broken type=- arity=0..0 flags=0x00 | int after =
+  8 enum    Empty                        L37-37 parent=- type=- arity=0..0 flags=0x00 | enum Empty
+  9 method  unnamed                      L39-39 parent=- type=- arity=0..0 flags=0x01 | void unnamed()
+ 10 method  of                           L42-44 parent=- type=Trailing arity=0..0 flags=0x00 | static Trailing of()
+--- refs (18)
+L7    import  List                         in <file> qual=java.util
+L12   call    greet                        in main nargs=1
+L12   mread   banner                       in main
+L13   mwrite  banner                       in main
+L19   type    Foo                          in incomplete
+L21   type    Foo                          in incomplete
+L21   new     Foo                          in incomplete
+L22   mread   go                           in incomplete qual=Foo
+L24   call    stop                         in incomplete qual=Broken
+L29   type    Broken                       in fine
+L30   mwrite  before                       in fine qual=Broken
+L31   call    fine                         in fine qual=Broken nargs=1
+L34   call    compute                      in after qual=Broken nargs=1
+L34   mread   before                       in after qual=Broken
+L41   type    Broken                       in <file>
+L42   type    Trailing                     in of
+L43   new     Trailing                     in of nargs=0
+L47   mwrite  before                       in <file>
+--- imports (1)
+L7    target=java.util name=List alias=- flags=1
