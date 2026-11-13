@@ -103,6 +103,8 @@ const REPORT_LINES: usize = 12;
 /// Files of the ranking a report gets, and the room the card may take.
 const REPORT_FILES: usize = 3;
 const REPORT_BYTES_OUT: usize = 420;
+/// What each of those functions may spend on its body, callers and tests.
+const REPORT_CONTEXT_TOKENS: usize = 300;
 /// Messages of a prompt that are traced to the line that writes them, and the files that may
 /// be read to find them. A prompt shorter than this quotes no message.
 const MAX_ORIGINS: usize = 2;
@@ -1148,13 +1150,18 @@ fn origin_cards(ix: &Index, rs: &Resolver, session: &Session, text: &str, cli: &
 /// answer it. A report describes a symptom, and the most the index can say is which files its
 /// words rank highest. The card says that is what it is: on the bug reports measured here the
 /// first file is the right one for 0.41 of them, and one of the first three for 0.90.
-fn report_card(ix: &Index, text: &str, cli: &str) -> Option<String> {
+fn report_card(ix: &Index, rs: &Resolver, text: &str, cli: &str) -> Option<String> {
     let common = crate::query::Common { paths: Vec::new(), kinds: None, tests: false, budget: 0 };
     let (_, ranked) = crate::query::locate::rank(ix, text, &common);
     if ranked.files.len() < 2 {
         return None;
     }
+    // A report that names a failing test names where to start, and the agent starts there.
+    // Then the bodies of the ranked functions are tokens for nothing: with a failing test
+    // given they cost 1.09 of a session without them, and without one they save (0.95).
+    let has_test = ix.files().any(|f| ix.is_test_file(f) && text.contains(ix.path(f)));
     let mut lines: Vec<String> = Vec::new();
+    let mut detail: Vec<String> = Vec::new();
     for (f, _) in ranked.files.iter() {
         if lines.len() == REPORT_FILES {
             break;
@@ -1165,10 +1172,28 @@ fn report_card(ix: &Index, text: &str, cli: &str) -> Option<String> {
             continue;
         }
         let best = ranked.defs.iter().find(|(d, _)| ix.def(*d).file() == *f).map(|(d, _)| ix.def(*d));
-        lines.push(match best {
+        lines.push(match &best {
             Some(v) => format!("  {}: {} {}-{}", ix.path(*f), v.qualified(), v.rec.line, v.rec.end_line),
             None => format!("  {}", ix.path(*f)),
         });
+        // The best function of each of them, as `context` tells it: the body, what it calls,
+        // who calls it, the tests that reach it. One of these three files is a file of the
+        // real fix for 0.79 of the reports measured here, and what the agent does with the
+        // right one is read it.
+        let fun = ranked
+            .defs
+            .iter()
+            .map(|(d, _)| ix.def(*d))
+            .find(|v| v.file() == *f && v.kind().is_callable() && !v.is_decl() && current(ix, v.file()))
+            .or_else(|| best.filter(|v| v.kind().is_callable() && !v.is_decl() && current(ix, v.file())));
+        if let (false, Some(v)) = (has_test, fun) {
+            let mut out = crate::output::Out::new(REPORT_CONTEXT_TOKENS);
+            crate::query::context::context(ix, rs, &[format!("{}:{}", v.path(), v.rec.line)], &common, &mut out);
+            let text = out.finish();
+            if !text.trim().is_empty() && !text.starts_with("no symbol") {
+                detail.push(text.trim_end().to_string());
+            }
+        }
     }
     if lines.is_empty() {
         return None;
@@ -1177,7 +1202,11 @@ fn report_card(ix: &Index, text: &str, cli: &str) -> Option<String> {
         "of the {} files whose text matches the words of this one, these rank highest, tests aside (a ranking, not an answer: `{cli} locate` makes it):",
         count(ranked.candidates)
     );
-    Some(clip_bytes(&format!("{head}\n{}", lines.join("\n")), REPORT_BYTES_OUT))
+    let ranking = clip_bytes(&format!("{head}\n{}", lines.join("\n")), REPORT_BYTES_OUT);
+    if detail.is_empty() {
+        return Some(ranking);
+    }
+    Some(format!("{ranking}\n\nand of the best function of each:\n{}", detail.join("\n\n")))
 }
 
 fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id: Option<String>, cli: String, tx: mpsc::Sender<String>) {
@@ -1281,7 +1310,7 @@ fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id:
         origin_cards(&ix, &rs, &session, &text, &cli, &mut seen, &tx);
     }
     if !found.rename && text.len() >= REPORT_BYTES && text.lines().count() >= REPORT_LINES && session.claim("report") {
-        if let Some(card) = report_card(&ix, &text, &cli) {
+        if let Some(card) = report_card(&ix, &rs, &text, &cli) {
             let _ = tx.send(card);
         }
     }

@@ -218,6 +218,31 @@ reports from 0.29 to 0.36 at the first file and drops ContextBench from 0.684 to
 damping a file that no code-shaped word of the query matches (no effect: every candidate
 already matches one). None was kept.
 
+## What finally saved on a bug fix
+
+The arms above all pushed one guess: the ranking, or the body of the best-ranked function.
+They were chasing the wrong number. The ranker puts a file of the real fix first for 0.36 of
+the development reports, but among the first three for **0.79**, and the oracle says the body
+is what pays. So version 0.2.5 carries the body of the best function of each of the three
+files it names, as `context` tells it, 300 tokens each.
+
+| Arm | Issue text alone (14 reports) | Failing tests given (12) |
+|---|---:|---:|
+| control | 1.00 | 1.00 |
+| the ranking alone (0.2.3, 0.2.4) | 1.01 to 1.19 | 0.97 to 1.19 |
+| the body of the best-ranked function | 1.00 | - |
+| **the bodies of all three** | **0.95** | 1.09 |
+
+Four card runs against six control runs for the first column, two against four for the second.
+Requests fall from 7.2 to 6.2, the fixes are the same (the card solved 6 to 9 of the 14 over
+its runs, the control 7 to 9 over its own), and the saving sits in the long sessions: the
+median task is unchanged and 7 of 14 are cheaper.
+
+The second column is why the card asks a question first. Where a failing test is given, the
+agent already knows where to start, and three function bodies are tokens for nothing: 1.09. So
+a report that names a test file of this repository gets the ranking without the bodies, and one
+that does not gets them. That is the shipped rule.
+
 What that leaves is a number to beat rather than a wall: the push is worth 14% at a selection
 precision of 1.00 and nothing at 0.45, which is the break-even band the push study reports
 (0.45 to 0.68). Raising what `locate` does with the text of a report above that band is the

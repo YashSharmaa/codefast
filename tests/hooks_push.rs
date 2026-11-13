@@ -159,7 +159,12 @@ fn a_card_carries_what_is_small_and_points_at_what_is_large() {
 
 #[test]
 fn a_report_of_a_problem_gets_the_ranking_of_the_files_its_words_match() {
-    let (repo, home) = indexed("prompt-report");
+    let repo = Repo::new("prompt-report");
+    // A test of this repository, so that a report naming it is a report with a starting point.
+    write(&repo.path("tests/test_open.c"), "int dev_read(struct dev *d, char *buf, int count);\n\nint test_open(void)\n{\n    return 0;\n}\n");
+    let home = scratch("home");
+    let (code, out, err) = run(&home, &repo.dir, &["index"], &[], None);
+    assert_eq!(code, 0, "codefast index: {out}{err}");
     let ask = |session: &str, prompt: &str| {
         let mut v: serde_json::Value = serde_json::from_str(&payload("claude-user-prompt", &repo.dir, &home)).unwrap();
         v["prompt"] = prompt.into();
@@ -190,6 +195,16 @@ it is at fault.
     assert!(card.contains("these rank highest, tests aside (a ranking, not an answer:"), "{card}");
     assert!(card.contains("
   src/io.c: "), "the file about reading from a device: {card}");
+    // And the best function of each of them, with its body: a report that names no failing
+    // test says where it hurts and not where to look.
+    assert!(card.contains("and of the best function of each:\nsrc/io.c:"), "{card}");
+    assert!(card.contains("int dev_read(struct dev *d, char *buf, int count)"), "{card}");
+    // A report that names a test of this repository names where to start, so the ranking
+    // comes without the bodies.
+    let with_test = format!("{report}\nThe test tests/test_open.c fails the same way.\n");
+    let named = ask("t", &with_test).context("UserPromptSubmit");
+    assert!(named.contains("rank highest"), "{named}");
+    assert!(!named.contains("and of the best function of each:"), "{named}");
     // Once per session, and never for a question, which names what it is about.
     ask("a", report).assert_quiet("the same report again");
     let short = ask("b", "Why does `dev_read` return zero after a while?").context("UserPromptSubmit");

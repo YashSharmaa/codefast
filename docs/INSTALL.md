@@ -45,7 +45,7 @@ replaces a codefast that works.
 
 ```sh
 sh install.sh --dry-run                 # print every action, download and write nothing
-sh install.sh --version 0.2.4           # a specific release instead of the latest
+sh install.sh --version 0.2.5           # a specific release instead of the latest
 sh install.sh --bin-dir /opt/tools/bin  # another directory
 ```
 
@@ -64,7 +64,7 @@ Windows, and the npm package below is not published yet.
 With Node.js, once the npm packages are published (`npm/` holds them, and nothing is published yet):
 
 ```sh
-npx -y @yashsharmaa/codefast@0.2.4 mcp        # or: npm install -g @yashsharmaa/codefast
+npx -y @yashsharmaa/codefast@0.2.5 mcp        # or: npm install -g @yashsharmaa/codefast
 ```
 
 ### The launcher
@@ -742,8 +742,10 @@ What they add, each said once per session:
   of the source and in no other file.
 - For a report of a problem pasted into a prompt (900 bytes over 12 lines or more, which no
   question about code reaches): the three files whose text its words match best, tests aside,
-  each with the symbol of it that matches best. The card says it is a ranking and not an
-  answer, because that is what it is.
+  each with the symbol of it that matches best, and the body of the best function of each with
+  what calls it and the tests that reach it. The card says it is a ranking and not an answer,
+  because that is what it is. A report that names a test file of the repository gets the
+  ranking without the bodies: it already says where to start.
 - After a `grep`, `rg`, `find -name` or the harness's own search for one known symbol: where it
   is defined and how it is used. When the search itself printed the definition, only what it
   did not print (what the function is for, who calls it), and nothing when there is no such
