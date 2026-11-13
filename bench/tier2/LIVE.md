@@ -31,9 +31,8 @@ of a project from its second session on.
 | K | 18 questions about the Linux kernel from `bench/k3` | the verified answers of `bench/k3` |
 | D | Make failing tests pass: issues of Django and sqlglot from Loc-Bench, at the commit before the fix, with the tests of the fix added | the tests of the fix pass and are unchanged |
 | R | Rename one Go method everywhere, where other types have a method of the same name | `go build` and `go vet` pass, and no other definition was renamed |
-| P | The same in Python (sqlglot), where no compiler lists what is left | the project's test suite passes |
 
-`make_n_tasks.py`, `make_d_tasks.py`, `make_r_tasks.py` and `make_p_tasks.py` build them. None
+`make_n_tasks.py`, `make_d_tasks.py` and `make_r_tasks.py` build them. None
 of the builders uses codefast to choose a task or to judge an answer. A few tasks of D and R
 (`DEV_IDS` in `live.py`) were used while the hooks were being designed and are never reported.
 
@@ -61,3 +60,7 @@ hour, and it is the same formula for every arm.
   answers such questions in three requests, and there is little left to save.
 * The tasks of N were chosen for names that several types share. That is where structure
   matters most, and it is not every question an agent asks.
+* There is no rename family for a language without a compiler. Two attempts to build one for
+  Python (sqlglot) failed for want of a reference to check against: a refactoring library
+  renamed the wrong places, and a rename traced from the running tests left 12 of 16
+  candidates with new failing tests. The four that passed changed three or four lines each.
