@@ -218,7 +218,7 @@ reports from 0.29 to 0.36 at the first file and drops ContextBench from 0.684 to
 damping a file that no code-shaped word of the query matches (no effect: every candidate
 already matches one). None was kept.
 
-## What finally saved on a bug fix
+## What a card for a report is worth
 
 The arms above all pushed one guess: the ranking, or the body of the best-ranked function.
 They were chasing the wrong number. The ranker puts a file of the real fix first for 0.36 of
@@ -239,9 +239,20 @@ its runs, the control 7 to 9 over its own), and the saving sits in the long sess
 median task is unchanged and 7 of 14 are cheaper.
 
 The second column is why the card asks a question first. Where a failing test is given, the
-agent already knows where to start, and three function bodies are tokens for nothing: 1.09. So
-a report that names a test file of this repository gets the ranking without the bodies, and one
-that does not gets them. That is the shipped rule.
+agent already knows where to start, and three function bodies are tokens for nothing: 1.09.
+
+Then the held-out tasks were run on the shipped build, and the saving did not reproduce:
+
+| | Development tasks | Held out |
+|---|---:|---:|
+| issue text alone | 0.95 (14 reports, 4 runs) | **1.03** (15 reports, 2 runs) |
+| failing tests given | 1.09 with bodies | **1.04** with the ranking card, 0.99 with no card |
+
+So the card is neutral on a bug fix, and the 0.95 belongs to the fourteen reports it was built
+on. What the held-out runs did settle is the rule: where a report names a test file of this
+repository the card says nothing at all, which restores every fix (15 of 15 against 14.5) and
+takes the median task to 0.95. That is the shipped behaviour, and the README's table of real
+sessions carries 1.04 and 1.03 for these two families.
 
 What that leaves is a number to beat rather than a wall: the push is worth 14% at a selection
 precision of 1.00 and nothing at 0.45, which is the break-even band the push study reports

@@ -199,12 +199,10 @@ it is at fault.
     // test says where it hurts and not where to look.
     assert!(card.contains("and of the best function of each:\nsrc/io.c:"), "{card}");
     assert!(card.contains("int dev_read(struct dev *d, char *buf, int count)"), "{card}");
-    // A report that names a test of this repository names where to start, so the ranking
-    // comes without the bodies.
+    // A report that names a test of this repository names where to start: the ranking is
+    // worth nothing there and the card says nothing.
     let with_test = format!("{report}\nThe test tests/test_open.c fails the same way.\n");
-    let named = ask("t", &with_test).context("UserPromptSubmit");
-    assert!(named.contains("rank highest"), "{named}");
-    assert!(!named.contains("and of the best function of each:"), "{named}");
+    ask("t", &with_test).assert_quiet("a report that names a failing test");
     // Once per session, and never for a question, which names what it is about.
     ask("a", report).assert_quiet("the same report again");
     let short = ask("b", "Why does `dev_read` return zero after a while?").context("UserPromptSubmit");

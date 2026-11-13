@@ -1156,10 +1156,13 @@ fn report_card(ix: &Index, rs: &Resolver, text: &str, cli: &str) -> Option<Strin
     if ranked.files.len() < 2 {
         return None;
     }
-    // A report that names a failing test names where to start, and the agent starts there.
-    // Then the bodies of the ranked functions are tokens for nothing: with a failing test
-    // given they cost 1.09 of a session without them, and without one they save (0.95).
-    let has_test = ix.files().any(|f| ix.is_test_file(f) && text.contains(ix.path(f)));
+    // A report that names a failing test of this repository names where to start, and the
+    // agent starts there. A ranking is then worth nothing and costs something: on the
+    // held-out tasks the card made those sessions 1.04 of the control, where saying nothing
+    // made them 0.99.
+    if ix.files().any(|f| ix.is_test_file(f) && text.contains(ix.path(f))) {
+        return None;
+    }
     let mut lines: Vec<String> = Vec::new();
     let mut detail: Vec<String> = Vec::new();
     for (f, _) in ranked.files.iter() {
@@ -1186,7 +1189,7 @@ fn report_card(ix: &Index, rs: &Resolver, text: &str, cli: &str) -> Option<Strin
             .map(|(d, _)| ix.def(*d))
             .find(|v| v.file() == *f && v.kind().is_callable() && !v.is_decl() && current(ix, v.file()))
             .or_else(|| best.filter(|v| v.kind().is_callable() && !v.is_decl() && current(ix, v.file())));
-        if let (false, Some(v)) = (has_test, fun) {
+        if let Some(v) = fun {
             let mut out = crate::output::Out::new(REPORT_CONTEXT_TOKENS);
             crate::query::context::context(ix, rs, &[format!("{}:{}", v.path(), v.rec.line)], &common, &mut out);
             let text = out.finish();
