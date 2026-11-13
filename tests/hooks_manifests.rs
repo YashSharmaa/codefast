@@ -115,7 +115,9 @@ fn fire(line: &str, cwd: &Path, home: &Path, envs: &[(&str, &str)], stdin: &str)
         c.env(k, v);
     }
     let mut child = c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("sh -c");
-    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    // A handler may end without reading its payload (a machine without codefast runs
+    // `... || true`), and the pipe is then closed before this write: that is not a failure.
+    let _ = child.stdin.take().unwrap().write_all(stdin.as_bytes());
     let out = child.wait_with_output().unwrap();
     (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned(), String::from_utf8_lossy(&out.stderr).into_owned())
 }
