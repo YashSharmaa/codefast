@@ -30,6 +30,7 @@ Reach for it before `grep` + reading files whenever the question is about a symb
 | The API of an installed dependency | `codefast dep` lists them, `codefast dep requests Session` looks inside one |
 | After an edit: what still uses something the edit removed, renamed or gave another signature | `codefast check` |
 | What the uncommitted changes added, removed and altered, by definition | `codefast changed` |
+| Rename a function or method at its definition and at every call the index is sure of | `codefast rename Set.Add Insert` (`--dry-run` shows the plan) |
 
 Several targets can go in one call: `codefast show foo bar baz`.
 
@@ -37,10 +38,13 @@ Before editing a function, start with `codefast context NAME`. It stands in for 
 opening moves (grep for the name, read the file, look for callers, look for tests) and often
 is all the reading the change needs.
 
-To rename a function or change its parameters, `codefast search NAME` lists every place that
-uses it, tests included, one line per file. After the edit `codefast check` lists the places
-that still use the old name or pass a number of arguments the new signature does not take. In
-a language without a compiler this is the only thing that says so before the code runs.
+To rename a function or method, `codefast rename Owner.name NewName` edits the definition and
+every reference it can vouch for, tests included, and lists what it left alone: calls on a
+receiver of unknown type, and lines where the name stands for two things. It touches no comment
+and no string. To change parameters, `codefast search NAME` lists every place that uses the
+function, one line per file. After either, `codefast check` lists the places that still use
+the old name or pass a number of arguments the new signature does not take. In a language
+without a compiler this is the only thing that says so before the code runs.
 
 ## Trusting the answers
 

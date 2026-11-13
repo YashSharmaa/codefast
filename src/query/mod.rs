@@ -8,6 +8,7 @@ pub mod find;
 pub mod grep;
 pub mod locate;
 pub mod refs;
+pub mod rename;
 pub mod search;
 pub mod show;
 pub mod trace;

@@ -21,6 +21,8 @@ pub struct Mentions {
     pub symbols: Vec<Mention>,
     /// Words that look like file paths (`pkg/collection.go`, `collection.go`).
     pub paths: Vec<String>,
+    /// The prompt asks for something to be renamed.
+    pub rename: bool,
 }
 
 /// Prompts longer than this are read up to here: a pasted log names thousands of things.
@@ -148,6 +150,7 @@ pub fn mentions(prompt: &str) -> Mentions {
     }
     let text = &prompt[..end];
     let mut out = Mentions::default();
+    out.rename = text.split(|c: char| !c.is_alphanumeric()).any(|w| ["rename", "renames", "renamed", "renaming"].iter().any(|r| w.eq_ignore_ascii_case(r)));
     phrases(&mut out, text);
     // Backtick spans first: what the author marked as code.
     let mut rest = text;
