@@ -3,7 +3,7 @@
   "name": "io.github.YashSharmaa/codefast",
   "title": "codefast",
   "description": "LLM-free code intelligence: definitions, references, callers and call paths in few tokens.",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "websiteUrl": "https://github.com/YashSharmaa/codefast",
   "repository": {
     "url": "https://github.com/YashSharmaa/codefast",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@yashsharmaa/codefast",
-      "version": "0.2.6",
+      "version": "0.2.7",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

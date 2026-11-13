@@ -1150,7 +1150,7 @@ fn origin_cards(ix: &Index, rs: &Resolver, session: &Session, text: &str, cli: &
 /// answer it. A report describes a symptom, and the most the index can say is which files its
 /// words rank highest. The card says that is what it is: on the bug reports measured here the
 /// first file is the right one for 0.41 of them, and one of the first three for 0.90.
-fn report_card(ix: &Index, rs: &Resolver, text: &str, cli: &str) -> Option<String> {
+fn report_card(ix: &Index, rs: &Resolver, text: &str, cli: &str, carded: &[FileId]) -> Option<String> {
     let common = crate::query::Common { paths: Vec::new(), kinds: None, tests: false, budget: 0 };
     let (_, ranked) = crate::query::locate::rank(ix, text, &common);
     if ranked.files.len() < 2 {
@@ -1163,6 +1163,7 @@ fn report_card(ix: &Index, rs: &Resolver, text: &str, cli: &str) -> Option<Strin
     if ix.files().any(|f| ix.is_test_file(f) && text.contains(ix.path(f))) {
         return None;
     }
+
     let mut lines: Vec<String> = Vec::new();
     let mut detail: Vec<String> = Vec::new();
     for (f, _) in ranked.files.iter() {
@@ -1189,7 +1190,9 @@ fn report_card(ix: &Index, rs: &Resolver, text: &str, cli: &str) -> Option<Strin
             .map(|(d, _)| ix.def(*d))
             .find(|v| v.file() == *f && v.kind().is_callable() && !v.is_decl() && current(ix, v.file()))
             .or_else(|| best.filter(|v| v.kind().is_callable() && !v.is_decl() && current(ix, v.file())));
-        if let Some(v) = fun {
+        // Never a body the agent has already been given: a symbol of this file was carded
+        // above, with its definition and its uses.
+        if let (false, Some(v)) = (carded.contains(f), fun) {
             let mut out = crate::output::Out::new(REPORT_CONTEXT_TOKENS);
             crate::query::context::context(ix, rs, &[format!("{}:{}", v.path(), v.rec.line)], &common, &mut out);
             let text = out.finish();
@@ -1207,7 +1210,8 @@ fn report_card(ix: &Index, rs: &Resolver, text: &str, cli: &str) -> Option<Strin
     );
     let ranking = clip_bytes(&format!("{head}\n{}", lines.join("\n")), REPORT_BYTES_OUT);
     if detail.is_empty() {
-        return Some(ranking);
+        // Every file it would name has been explained already.
+        return (!carded.iter().any(|f| ranked.files.first().is_some_and(|(top, _)| top == f))).then_some(ranking);
     }
     Some(format!("{ranking}\n\nand of the best function of each:\n{}", detail.join("\n\n")))
 }
@@ -1223,6 +1227,10 @@ fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id:
     order.sort_by_key(|m| (m.name.starts_with("test") || m.name.starts_with("Test"), !m.explicit));
     let mut sent = 0;
     let mut tests_sent = 0;
+    // The prompt wrote a function of this repository as code: in backticks, with its
+    // parentheses, or with the type it belongs to. Then the agent has the name it needs and
+    // a ranking is a guess beside it.
+
     let mut code_left = CARD_CODE_LINES;
     let mut seen: Vec<DefId> = Vec::new();
     for m in order {
@@ -1312,8 +1320,13 @@ fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id:
     if !found.rename && text.len() >= ORIGIN_MIN_PROMPT {
         origin_cards(&ix, &rs, &session, &text, &cli, &mut seen, &tx);
     }
+    // A ranking is what the index has when it has nothing better. Where the prompt named a
+    // symbol the index could pin down, the agent has that and the ranking is a guess beside
+    // it: on the reports that name a function of the real fix the card costs 1.06 of a
+    // session without it, and on those that name none it saves (0.93).
     if !found.rename && text.len() >= REPORT_BYTES && text.lines().count() >= REPORT_LINES && session.claim("report") {
-        if let Some(card) = report_card(&ix, &rs, &text, &cli) {
+        let carded: Vec<FileId> = seen.iter().map(|&d| ix.def(d).file()).collect();
+        if let Some(card) = report_card(&ix, &rs, &text, &cli, &carded) {
             let _ = tx.send(card);
         }
     }

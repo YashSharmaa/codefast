@@ -1,6 +1,6 @@
 {
   "name": "@yashsharmaa/codefast-linux-x64",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "The codefast binary for Linux on x86-64 (static). Install @yashsharmaa/codefast instead: it selects this package.",
   "homepage": "https://github.com/YashSharmaa/codefast",
   "repository": {

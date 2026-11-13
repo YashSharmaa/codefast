@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="534" viewBox="0 0 880 534" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
   <title id="t">The same session, with and without codefast</title>
-  <desc id="d">What a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final: who calls this method 0.28, the same question in typescript 0.53, four such questions in one session 0.15, where does this error come from 0.63, rename a go method everywhere 0.51, a question about the linux kernel 0.86, fix a bug, failing tests given 1.04, fix a bug from the issue text alone 1.03.</desc>
+  <desc id="d">What a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final: who calls this method 0.28, the same question in typescript 0.53, four such questions in one session 0.15, where does this error come from 0.63, rename a go method everywhere 0.51, a question about the linux kernel 0.86, fix a bug, failing tests given 1.04, fix a bug from the issue text alone 0.96.</desc>
   <rect x="0.5" y="0.5" width="879" height="533" rx="12" fill="#f6f8fa" stroke="#d1d9e0"/>
 
   <text x="28" y="42" font-size="20" font-weight="600" fill="#1f2328">The same session, with and without codefast</text>
@@ -40,8 +40,8 @@
   <text x="701.20" y="411.5" font-size="16" font-weight="600" fill="#1f2328">1.04</text>
   <text x="332" y="452" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Fix a bug from the issue text alone</text>
   <text x="332" y="470" font-size="13.5" fill="#59636e" text-anchor="end">15 issues</text>
-  <path fill="#2a78d6" d="M348 444h335.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-335.90z"/>
-  <text x="697.90" y="457.5" font-size="16" font-weight="600" fill="#1f2328">1.03</text>
+  <path fill="#2a78d6" d="M348 444h312.80a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-312.80z"/>
+  <text x="688.00" y="457.5" font-size="16" font-weight="600" fill="#1f2328">0.96</text>
 
   <text x="28" y="514" font-size="13.5" fill="#59636e">Haiku 5.5 in Claude Code 2.1.323, held-out tasks, two runs per task and arm. Cost is priced from the size of every request.</text>
 </svg>

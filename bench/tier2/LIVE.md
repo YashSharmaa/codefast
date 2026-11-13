@@ -89,6 +89,9 @@ account's speed during the batch falls on both arms alike. A figure of the table
 over the tasks of a family, each task being the mean of its runs. The sessions of four
 questions (L) were run right after it with the same build, tag `h1l`.
 
+The bug-fix rows of the README's table are measured on the released build, the rest on 0.2.2,
+whose hooks answer those shorter prompts in exactly the same way.
+
 Of the 328 runs of that batch, 144 ended in an error from the API with no tokens used, in both
 arms alike. They were deleted and run again the same day, when the API answered normally. The
 run of a task that had succeeded was kept. Nothing else was re-run.
@@ -256,7 +259,12 @@ Then the held-out tasks were run on the shipped build, and the saving did not re
 | failing tests given | 1.09 with bodies | **1.04** with the ranking card, 0.99 with no card |
 
 So the card is neutral on a bug fix, and the 0.95 belongs to the fourteen reports it was built
-on. What the held-out runs did settle is the rule: where a report names a test file of this
+on. One refinement did carry over, because it takes text away rather than adding it: a file
+whose symbol the prompt cards already explained gets no body, nothing is said twice, and the
+held-out reports went from 1.03 to **0.96** with 6.9 requests down to 6.4. The fixes in that
+run were 6.5 of 15 against the control's 7.5, which is one task in a run and inside the band
+this family resolves: three card arms have come in at 7.0, 6.5 and 6.5 against a control
+measured once at 7.5, and nothing here separates them. What the held-out runs did settle is the rule: where a report names a test file of this
 repository the card says nothing at all, which restores every fix (15 of 15 against 14.5) and
 takes the median task to 0.95. That is the shipped behaviour, and the README's table of real
 sessions carries 1.04 and 1.03 for these two families.
