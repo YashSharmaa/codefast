@@ -1015,7 +1015,7 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
             let text = loose.len() <= 30;
             list_refs(ix, &loose, text, out);
         } else if !loose.is_empty() {
-            unsure_sites(ix, &mut loose, &def_path, &String::from_utf8_lossy(&t.name), out);
+            unsure_sites(ix, &mut loose, &def_path, &String::from_utf8_lossy(&t.name), false, out);
         }
         if !out.full && (common.tests || !in_tests.is_empty() || ix.is_test_file(p.file())) {
             crate::recent::listed(&crate::build::index_dir(&ix.root), &p.qualified());
@@ -1030,18 +1030,21 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
 /// member of that name: each may or may not be a call of the one asked about. A handful are
 /// printed with their source line, which is what settles it at a glance. Only a count stood
 /// here once, and the reader went off to grep the whole repository to be sure.
-fn unsure_sites(ix: &Index, loose: &mut Vec<RefV>, def_path: &str, name: &str, out: &mut Out) {
+fn unsure_sites(ix: &Index, loose: &mut Vec<RefV>, def_path: &str, name: &str, likely: bool, out: &mut Out) {
     loose.sort_by_cached_key(|r| proximity_key(ix, def_path, r));
     let n = loose.len();
     if n > 10 {
-        out.push(&format!("(+{} more calls of `.{name}(` on a receiver whose type is not written, any of which may be another type's {name}: `codefast refs {name} --loose`)", count(n)));
+        if likely {
+            let files = loose.iter().map(|r| r.file).collect::<FxHashSet<_>>().len();
+            out.push(&format!("called by name, receiver type not written ({} sites in {} files):", count(n), count(files)));
+            list_refs(ix, loose, false, out);
+        } else {
+            out.push(&format!("(+{} more calls of `.{name}(` on a receiver whose type is not written, any of which may be another type's {name}: `codefast refs {name} --loose`)", count(n)));
+        }
         return;
     }
-    out.push(&format!(
-        "{} more call{} of `.{name}(` on a receiver whose type is not written (other types have `{name}` too, so each of these may be theirs):",
-        count(n),
-        if n == 1 { "" } else { "s" }
-    ));
+    let whose = if likely { format!("few types have `{name}`, so these are probably calls of it too") } else { format!("other types have `{name}` too, so each of these may be theirs") };
+    out.push(&format!("{} more call{} of `.{name}(` on a receiver whose type is not written ({whose}):", count(n), if n == 1 { "" } else { "s" }));
     // One line each, whatever is left of the budget: these few lines are the whole point.
     let mut sources: FxHashMap<crate::store::FileId, Option<(std::sync::Arc<Vec<u8>>, Vec<usize>)>> = FxHashMap::default();
     for r in loose.iter() {
@@ -1092,11 +1095,6 @@ pub fn sites_summary(ix: &Index, rs: &Resolver, t: &Target, budget: usize, out: 
         sub.push(&format!("{lead}: {} sites in {} files:", count(tests.len()), count(files(&tests))));
         list_refs(ix, &tests, false, &mut sub);
     }
-    if likely {
-        loose.sort_by_cached_key(|r| proximity_key(ix, &def_path, r));
-        sub.push(&format!("called by name, receiver type not written ({} sites in {} files):", count(loose.len()), count(files(&loose))));
-        list_refs(ix, &loose, false, &mut sub);
-    }
     let complete = !sub.full;
     let text = sub.finish();
     for line in text.lines() {
@@ -1105,8 +1103,8 @@ pub fn sites_summary(ix: &Index, rs: &Resolver, t: &Target, budget: usize, out: 
     if complete && !out.full {
         crate::recent::listed(&crate::build::index_dir(&ix.root), &p.qualified());
     }
-    if !likely && !loose.is_empty() {
-        unsure_sites(ix, &mut loose, &def_path, &String::from_utf8_lossy(&t.name), out);
+    if !loose.is_empty() {
+        unsure_sites(ix, &mut loose, &def_path, &String::from_utf8_lossy(&t.name), likely, out);
     }
     true
 }
