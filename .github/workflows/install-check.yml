@@ -1,0 +1,44 @@
+name: install-check
+
+# Installs the latest release with install.sh on each supported platform and runs the binary.
+# Runs after every release and on request.
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the latest release
+        run: sh install.sh --bin-dir "$RUNNER_TEMP/bin"
+      - name: Run it on this repository
+        run: |
+          "$RUNNER_TEMP/bin/codefast" --version
+          "$RUNNER_TEMP/bin/codefast" find find_root
+          "$RUNNER_TEMP/bin/codefast" callers find_root
+          "$RUNNER_TEMP/bin/codefast" grep -F "is the home directory"
+      - name: The launcher fetches the same binary by itself
+        run: |
+          mkdir -p "$RUNNER_TEMP/home"
+          HOME="$RUNNER_TEMP/home" PATH=/usr/bin:/bin sh bin/codefast --version
+      - name: The Intel build runs under Rosetta
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p "$RUNNER_TEMP/x86" && cd "$RUNNER_TEMP/x86"
+          curl -fsSL -o c.tar.gz https://github.com/${{ github.repository }}/releases/latest/download/codefast-x86_64-apple-darwin.tar.gz
+          tar -xzf c.tar.gz
+          arch -x86_64 ./codefast --version

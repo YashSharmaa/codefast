@@ -284,6 +284,9 @@ sh tests/packaging/manifests/harness_sandbox_test.sh target/release/codefast
   chooses the shell.
 - `npm_shim_test.sh`: the npm wrapper in a hand-made `node_modules` layout, including
   `CODEFAST_BIN` set to the wrapper itself. It is skipped when Node.js is not installed.
+- `.github/workflows/install-check.yml`: after every release, and on request, runs `install.sh`
+  as published on Linux x86-64, Linux arm64 and macOS, runs the installed binary, lets the
+  launcher fetch the binary by itself, and runs the Intel macOS build under Rosetta.
 - `harness_sandbox_test.sh`: stages this repository as a git repository of its own, serves it on
   127.0.0.1, and installs it into Claude Code and Codex with throwaway configuration directories
   and an empty environment. It starts no session and calls no model. The two halves do not

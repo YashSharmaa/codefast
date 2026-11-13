@@ -49,10 +49,13 @@ sh install.sh --bin-dir /opt/tools/bin  # another directory
 `CODEFAST_VERSION`, `CODEFAST_INSTALL_DIR` and `CODEFAST_RELEASE_BASE` set the same things from
 the environment. *Tested in a sandbox* under sh (bash 3.2 in POSIX mode), dash and BusyBox 1.36
 against a local directory standing in for the release server (`CODEFAST_RELEASE_BASE=file://DIR`).
+The `curl` line above was run once as written on 2026-11-13, in a sandbox on macOS arm64, against
+release v0.1.0: it downloaded the asset, checked it and installed a working binary. The
+`install-check` workflow repeats that on Linux x86-64, Linux arm64 and macOS after every release.
 
-From source: `cargo install --git https://github.com/YashSharmaa/codefast`, or `cargo build --release`
-in a checkout (the binary is `target/release/codefast`, which the launcher of that checkout finds
-by itself). On Windows, build from source: neither `install.sh` nor the launcher supports
+From source: `cargo install --git https://github.com/YashSharmaa/codefast` (run once as written on
+2026-11-13), or `cargo build --release` in a checkout (the binary is `target/release/codefast`,
+which the launcher of that checkout finds by itself). On Windows, build from source: neither `install.sh` nor the launcher supports
 Windows, and the npm package below is not published yet.
 
 With Node.js, once the npm packages are published (`npm/` holds them, and nothing is published yet):
@@ -183,7 +186,10 @@ the binary on `PATH` or wherever you run it from, and nothing published.
 
 Plugin: skill, `codefast` on the Bash tool's `PATH`, MCP server, hooks.
 **Tested in a sandbox** with Claude Code 2.1.322 and 2.1.323 (`claude plugin validate --strict`,
-install from a git URL, `claude plugin list`, `claude plugin details`, `claude mcp list`).
+install from a git URL, `claude plugin list`, `claude plugin details`, `claude mcp list`). The
+command below was also run once as written on 2026-11-13 with 2.1.323, in a sandbox: it cloned
+this repository from GitHub, the launcher fetched the v0.1.0 binary by itself, and
+`claude mcp list` reported the plugin's server as connected.
 
 ```sh
 claude plugin install codefast --marketplace YashSharmaa/codefast
