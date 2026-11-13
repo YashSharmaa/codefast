@@ -216,11 +216,11 @@ fn value_end(b: &[u8], i: usize) -> Option<usize> {
 }
 
 const WANTED: &[&str] =
-    &["session_id", "conversation_id", "agent_id", "cwd", "workspace_roots", "hook_event_name", "tool_name", "tool_input", "cursor_version", "prompt", "source"];
+    &["session_id", "conversation_id", "agent_id", "cwd", "workspace_roots", "hook_event_name", "tool_name", "tool_input", "tool_response", "tool_output", "cursor_version", "prompt", "source"];
 
-/// The wanted members of the payload's top-level object, as raw JSON text. Everything else,
-/// notably the tool's output, is stepped over without being parsed. `None` unless the input is
-/// one JSON object and nothing more.
+/// The wanted members of the payload's top-level object, as raw JSON text. Everything else is
+/// stepped over without being parsed. `None` unless the input is one JSON object and nothing
+/// more.
 fn members(input: &str) -> Option<Vec<(String, &str)>> {
     let b = input.as_bytes();
     let mut i = skip_ws(b, 0);
@@ -256,6 +256,33 @@ fn members(input: &str) -> Option<Vec<(String, &str)>> {
     (skip_ws(b, i + 1) == b.len()).then_some(out)
 }
 
+/// Every string of a tool's output, one after the other. Harnesses differ in the shape (a
+/// string, an object with `stdout`, a JSON document inside a string), not in what was printed.
+fn output_text(raw: &str) -> Option<String> {
+    fn walk(v: &Value, out: &mut String, top: bool) {
+        match v {
+            Value::String(s) => {
+                if top && s.starts_with('{') {
+                    if let Ok(inner) = serde_json::from_str::<Value>(s) {
+                        return walk(&inner, out, false);
+                    }
+                }
+                out.push_str(s);
+                out.push('\n');
+            }
+            Value::Array(a) => a.iter().for_each(|x| walk(x, out, false)),
+            Value::Object(o) => o.values().for_each(|x| walk(x, out, false)),
+            _ => {}
+        }
+    }
+    if raw.len() > MAX_TOOL_INPUT_BYTES {
+        return None;
+    }
+    let mut out = String::new();
+    walk(&serde_json::from_str(raw).ok()?, &mut out, true);
+    (!out.is_empty()).then_some(out)
+}
+
 #[derive(Default, Debug)]
 struct Payload {
     session: Option<String>,
@@ -269,6 +296,8 @@ struct Payload {
     prompt: Option<String>,
     /// Why the session starts (`SessionStart`): `startup`, `resume`, `clear`, `compact`, `fork`.
     source: Option<String>,
+    /// What the tool printed, when the payload carries it and it is not large.
+    output: Option<String>,
     /// Cursor's hook protocol: flat, snake-case output.
     cursor: bool,
 }
@@ -301,6 +330,7 @@ impl Payload {
                         p.input = serde_json::from_str(raw).ok();
                     }
                 }
+                "tool_response" | "tool_output" => p.output = output_text(raw).or(p.output),
                 "cursor_version" => p.cursor = true,
                 _ => {}
             }
@@ -926,6 +956,11 @@ fn prompt_cards(place: Place, found: prompt::Mentions, session_id: Option<String
             continue;
         }
         seen.push(def.id);
+        // A test the prompt names together with its file: the agent knows where it is.
+        let test = def.flags() & crate::facts::dflag::TEST != 0 || ix.is_test_file(def.file());
+        if test && found.paths.iter().any(|p| def.path().ends_with(p.as_str())) {
+            continue;
+        }
         let name = def.qualified();
         if session.seen(&format!("p:{name}")) {
             continue;
@@ -981,7 +1016,13 @@ fn user_prompt(passed: &Path, payload: &Payload, started: Instant) -> String {
 /// The first stage of an answer: the definition line.
 struct Head {
     name: String,
+    /// `path:line` of the definition.
+    at: String,
     line: String,
+    /// The search printed the line the definition starts on.
+    shown: bool,
+    /// Test code: what the agent is looking at when it searches for it.
+    test: bool,
     /// The first sentence of its documentation.
     doc: Option<String>,
     callable: bool,
@@ -1035,7 +1076,16 @@ fn pick<'a>(ix: &Index, rs: &Resolver<'a>, id: &Ident, scope: Option<&str>) -> O
     Some((main.clone(), ents.len() - 1))
 }
 
-fn answer_search(place: Place, base: PathBuf, searches: Vec<Search>, session_id: Option<String>, tx: mpsc::Sender<Stage>) {
+/// Whether a tool's output contains the line a definition starts on: the search covered the
+/// file that defines it, and the agent has read where it is.
+fn shows_definition(ix: &Index, def: &crate::store::DefV, output: &str) -> bool {
+    let Some(src) = ix.source(def.file()) else { return false };
+    let starts = crate::query::show::line_starts(&src);
+    let line = String::from_utf8_lossy(crate::query::show::line_text(&src, &starts, def.rec.line)).trim().to_string();
+    line.len() >= 6 && output.contains(&line)
+}
+
+fn answer_search(place: Place, base: PathBuf, searches: Vec<Search>, output: Option<String>, session_id: Option<String>, tx: mpsc::Sender<Stage>) {
     let Some(ix) = open_index(&place) else { return };
     let Some(session) = Session::open(&place, session_id.as_deref()) else { return };
     let rs = Resolver::new(&ix);
@@ -1054,7 +1104,10 @@ fn answer_search(place: Place, base: PathBuf, searches: Vec<Search>, session_id:
         }
         let files = ix.name_id(id.name.as_bytes()).map(|n| ix.files_with(n).count()).unwrap_or(0);
         let doc = crate::query::card::Docs::new(&ix).line(&def, 110);
-        let head = Head { name: id.name.clone(), line: def_line(&def), doc, callable: target.class == Class::Callable, files, others, session };
+        let test = def.flags() & crate::facts::dflag::TEST != 0 || ix.is_test_file(def.file());
+        let shown = output.as_deref().is_some_and(|o| shows_definition(&ix, &def, o));
+        let at = format!("{}:{}", def.path(), def.rec.line);
+        let head = Head { name: id.name.clone(), at, line: def_line(&def), shown, test, doc, callable: target.class == Class::Callable, files, others, session };
         if tx.send(Stage::Head(head)).is_err() {
             return;
         }
@@ -1200,7 +1253,8 @@ fn post_tool_use(passed: &Path, payload: &Payload, started: Instant) -> String {
     let base = dir.or_else(|| payload.cwd.clone()).map(PathBuf::from).filter(|d| d.is_absolute()).unwrap_or_else(|| place.root.clone());
     let session_id = payload.audience();
     let (tx, rx) = mpsc::channel();
-    let worker = std::thread::Builder::new().stack_size(16 << 20).spawn(move || answer_search(place, base, searches, session_id, tx));
+    let output = payload.output.clone();
+    let worker = std::thread::Builder::new().stack_size(16 << 20).spawn(move || answer_search(place, base, searches, output, session_id, tx));
     if worker.is_err() {
         return String::new();
     }
@@ -1211,7 +1265,26 @@ fn post_tool_use(passed: &Path, payload: &Payload, started: Instant) -> String {
         Ok(Stage::Usage(u)) if !budget.is_zero() => u,
         _ => None,
     };
-    let note = symbol_note(&head, usage.as_deref(), &cli());
+    // What the agent has is not said again. When the search printed the definition, or the
+    // symbol is a test (which the agent is looking at), a note is worth its tokens only for
+    // what a text search does not print: what the function is for, who calls it, where it is
+    // registered.
+    let note = if head.shown || head.test {
+        let news = usage.as_deref().filter(|u| !u.contains("no callers found"));
+        let doc = head.doc.as_deref().filter(|_| !head.test);
+        let lead = format!("codefast: {} ({})", head.name, head.at);
+        clip_bytes(
+            &match (doc, news) {
+                (None, None) => return String::new(),
+                (Some(d), Some(u)) => format!("{lead}: {d}\n{u}"),
+                (Some(d), None) => format!("{lead}: {d}"),
+                (None, Some(u)) => format!("{lead} {u}"),
+            },
+            NOTE_BYTES,
+        )
+    } else {
+        symbol_note(&head, usage.as_deref(), &cli())
+    };
     // Last of all, and only for one of the hooks that got this far for the same symbol.
     if !head.session.claim(&format!("s:{}", head.name)) {
         return String::new();
@@ -1475,7 +1548,7 @@ mod tests {
     fn notes_stay_inside_their_budget() {
         let session = Session { file: PathBuf::from("/nonexistent/codefast-test") };
         let long = format!("drivers/gpu/drm/some/long/path/file.c:1234 static int {}", "a_long_parameter_name, ".repeat(40));
-        let head = Head { name: "a_function_with_quite_a_long_name".into(), line: long, doc: None, callable: true, files: 1234, others: 3, session };
+        let head = Head { name: "a_function_with_quite_a_long_name".into(), at: "a.c:1".into(), line: long, shown: false, test: false, doc: None, callable: true, files: 1234, others: 3, session };
         let usage = format!("called by: {}", "another_caller_name, ".repeat(30));
         for usage in [Some(usage.as_str()), None] {
             let note = symbol_note(&head, usage, "codefast");
@@ -1506,7 +1579,9 @@ mod tests {
         }
         let short = Head {
             name: "f_x".into(),
+            at: "a.c:1".into(),
             line: "a.c:1 int f_x(void)".into(),
+            shown: false, test: false,
             doc: None,
             callable: false,
             files: 1,
@@ -1518,7 +1593,7 @@ mod tests {
             "codefast: f_x is defined at a.c:1 int f_x(void)\nmentioned in 1 file; `codefast refs f_x` lists its uses"
         );
         // The sentence its author wrote stands between the definition and its use.
-        let documented = Head { doc: Some("Fold x into the running sum".into()), session: Session { file: PathBuf::from("/nonexistent/y") }, name: "f_x".into(), line: "a.c:1 int f_x(void)".into(), callable: true, files: 1, others: 0 };
+        let documented = Head { doc: Some("Fold x into the running sum".into()), session: Session { file: PathBuf::from("/nonexistent/y") }, name: "f_x".into(), at: "a.c:1".into(), line: "a.c:1 int f_x(void)".into(), shown: false, test: false, callable: true, files: 1, others: 0 };
         assert_eq!(
             symbol_note(&documented, Some("called by: main"), "codefast"),
             "codefast: f_x is defined at a.c:1 int f_x(void)\nFold x into the running sum\ncalled by: main"

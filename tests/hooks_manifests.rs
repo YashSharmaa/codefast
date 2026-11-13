@@ -92,7 +92,9 @@ fn payload_for(harness: &str, wired: &Wired, repo: &Path, home: &Path) -> String
         ("codex", "PostToolUse") => "codex-post-bash-rg",
         other => panic!("no recorded payload for {other:?}"),
     };
-    let text = payload(name, repo, home);
+    // The searches of these tests ran where the definition is not: their output shows a use
+    // of the symbol, and the note then says where it is defined and how to list its callers.
+    let text = payload(name, repo, home).replace("src/io.c:4:int dev_read(struct dev *d, char *buf, int count)\\n", "");
     let v: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(v["hook_event_name"], wired.event.as_str(), "{name} is a payload of that event");
     // The harness only runs the handler when the matcher lets the tool through: an exact name

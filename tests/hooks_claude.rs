@@ -9,8 +9,9 @@ mod support;
 use payloads::*;
 use support::*;
 
-const DEV_READ: &str =
-    "codefast: dev_read is defined at src/io.c:4 int dev_read(struct dev *d, char *buf, int count)\nRead up to count bytes from the device\ncalled by: copy_all";
+/// The search printed the line `dev_read` is defined on, so the note does not repeat it: where
+/// it is, what it is for (the sentence above the definition) and who calls it.
+const DEV_READ: &str = "codefast: dev_read (src/io.c:4): Read up to count bytes from the device\ncalled by: copy_all";
 
 #[test]
 fn a_grep_for_a_symbol_gets_its_definition_and_callers_once_per_session() {
@@ -76,10 +77,7 @@ fn hooks_that_fire_together_say_it_once_between_them() {
 fn the_search_tools_are_understood_like_the_shell() {
     let (repo, home) = indexed("tools");
     let grep = hook(&home, &repo.dir, "post-tool-use", payload("claude-post-grep-tool", &repo.dir, &home).as_bytes(), &[]);
-    assert_eq!(
-        grep.context("PostToolUse"),
-        "codefast: dev_write is defined at src/io.c:11 int dev_write(struct dev *d, const char *buf, int count)\ncalled by: copy_all"
-    );
+    assert_eq!(grep.context("PostToolUse"), "codefast: dev_write (src/io.c:11) called by: copy_all");
     let glob = hook(&home, &repo.dir, "post-tool-use", payload("claude-post-glob-tool", &repo.dir, &home).as_bytes(), &[]);
     let note = glob.context("PostToolUse");
     assert!(
@@ -248,7 +246,7 @@ fn a_file_edited_since_indexing_is_never_quoted_from_the_old_index() {
     loop {
         let ran = hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[]);
         if !ran.stdout.is_empty() {
-            assert!(ran.context("PostToolUse").starts_with("codefast: dev_read is defined at src/io.c:6 int dev_read("), "{}", ran.stdout);
+            assert!(ran.context("PostToolUse").starts_with("codefast: dev_read (src/io.c:6): Read up to count bytes"), "{}", ran.stdout);
             break;
         }
         assert!(std::time::Instant::now() < deadline, "the index was not refreshed");
@@ -260,12 +258,18 @@ fn a_file_edited_since_indexing_is_never_quoted_from_the_old_index() {
 fn the_caller_summary_never_holds_the_answer_back() {
     let (repo, home) = indexed("budget");
     let input = payload("claude-post-bash-grep", &repo.dir, &home);
-    // With no time for the summary, the definition still goes out, with a pointer instead.
-    let ran = hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[("CODEFAST_HOOK_BUDGET_MS", "0")]);
+    // With no time for the summary, the definition still goes out, with a pointer instead. (The
+    // search here was limited to another file, so its output did not show the definition.)
+    let elsewhere = input.replace("src/io.c:4:int dev_read(struct dev *d, char *buf, int count)\\n", "");
+    assert_ne!(elsewhere, input);
+    let ran = hook(&home, &repo.dir, "post-tool-use", elsewhere.as_bytes(), &[("CODEFAST_HOOK_BUDGET_MS", "0")]);
     assert_eq!(
         ran.context("PostToolUse"),
         "codefast: dev_read is defined at src/io.c:4 int dev_read(struct dev *d, char *buf, int count)\nRead up to count bytes from the device\nmentioned in 3 files; `codefast callers dev_read` lists its call sites"
     );
+    // When the search did print the definition, what is left to say is what it is for.
+    let ran = hook(&home, &repo.dir, "post-tool-use", in_session(&input, "shown").as_bytes(), &[("CODEFAST_HOOK_BUDGET_MS", "0")]);
+    assert_eq!(ran.context("PostToolUse"), "codefast: dev_read (src/io.c:4): Read up to count bytes from the device");
     // A type has no callers to summarise: the pointer is to its uses.
     let ops = in_session(&input.replace("\\\"dev_read\\\" src/", "'struct dev_ops {' src/"), "types");
     assert_eq!(
@@ -277,7 +281,9 @@ fn the_caller_summary_never_holds_the_answer_back() {
 #[test]
 fn without_codefast_on_the_path_the_note_names_the_binary() {
     let (repo, home) = indexed("path");
-    let input = payload("claude-post-bash-grep", &repo.dir, &home);
+    // A search whose output did not show the definition: the note then names the command.
+    let input = payload("claude-post-bash-grep", &repo.dir, &home).replace("src/io.c:4:int dev_read(struct dev *d, char *buf, int count)\\n", "");
+    assert!(!input.contains("src/io.c:4:int dev_read"));
     // With no time for the caller summary the note points at the command that has it.
     let note = hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[("PATH", "/usr/bin:/bin"), ("CODEFAST_HOOK_BUDGET_MS", "0")]).context("PostToolUse");
     assert!(note.ends_with(&format!("`{BIN} callers dev_read` lists its call sites")), "{note}");

@@ -20,7 +20,7 @@ fn a_search_through_bash_lc_is_answered() {
     let ran = hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[]);
     assert_eq!(
         ran.context("PostToolUse"),
-        "codefast: dev_read is defined at src/io.c:4 int dev_read(struct dev *d, char *buf, int count)\nRead up to count bytes from the device\ncalled by: copy_all"
+        "codefast: dev_read (src/io.c:4): Read up to count bytes from the device\ncalled by: copy_all"
     );
     hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[]).assert_quiet("once per session");
 }
@@ -67,7 +67,7 @@ fn cursor_gets_its_own_flat_reply() {
     assert_eq!((ran.code, ran.stderr.as_str()), (0, ""));
     let reply: Value = serde_json::from_str(&ran.stdout).unwrap();
     assert_eq!(reply.as_object().unwrap().keys().collect::<Vec<_>>(), ["additional_context"], "{reply}");
-    assert!(reply["additional_context"].as_str().unwrap().starts_with("codefast: dev_read is defined at src/io.c:4 "), "{reply}");
+    assert!(reply["additional_context"].as_str().unwrap().starts_with("codefast: dev_read (src/io.c:4): Read up to count bytes"), "{reply}");
 
     let start = hook(&home, &repo.dir, "session-start", payload("cursor-session-start", &repo.dir, &home).as_bytes(), &[]);
     let reply: Value = serde_json::from_str(&start.stdout).unwrap();
@@ -87,7 +87,7 @@ fn cursor_gets_its_own_flat_reply() {
 fn gemini_cli_after_tool_is_answered_under_its_own_name() {
     let (repo, home) = indexed("gemini");
     let ran = hook(&home, &repo.dir, "post-tool-use", payload("gemini-after-tool", &repo.dir, &home).as_bytes(), &[]);
-    assert!(ran.context("AfterTool").starts_with("codefast: dev_read is defined at src/io.c:4 "));
+    assert!(ran.context("AfterTool").starts_with("codefast: dev_read (src/io.c:4): Read up to count bytes"));
     // The hooks file may also name the event the way Gemini CLI does.
     let other = in_session(&payload("gemini-after-tool", &repo.dir, &home), "second");
     assert!(hook(&home, &repo.dir, "AfterTool", other.as_bytes(), &[]).context("AfterTool").contains("dev_read"));
