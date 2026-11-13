@@ -15,6 +15,12 @@ export CODEFAST_BIN=$PWD/target/release/codefast
 | Real sessions, with and without the plugin | `uv run bench/tier2/live.py run --tag T --n 13 --arms control,plugin --jobs 2`, then `score --tag T` | Claude Code and `CLAUDE_CONFIG_DIR` set to the login to use. This spends model usage |
 | The same on tasks no build has been looked at on | `uv run bench/tier2/live.py run --tag H --held K,N,E,R,D,I,L --arms control,plugin --reps 2 --jobs 2` | the same, plus the go-git checkout and its oracle |
 
+What a bug fix can save at best: the `oracle` arm of `live.py` tells a session the file and
+function of the real fix before it starts, by a hook of its own, for nothing. It costs 0.95 of
+the control from the issue text alone and 0.97 with the failing tests given, against 0.98 for
+the plugin. Perfect localisation is worth less than the spread between two runs of one arm, so
+a change that claims to help this family has to clear that bar before it is believed.
+
 What has been tried on the file ranking and did not work, so that it is not tried again:
 
 - **Scoring a query word that is also a part of a file's path** (`iwlwifi`, `a4tech`,

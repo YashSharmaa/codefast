@@ -16,6 +16,7 @@ tool is installed. An arm differs only in what the harness loads.
 | `lean` | the plugin without its MCP server |
 | `nohooks` | the plugin with `CODEFAST_HOOKS=off` |
 | `uses-count`, `uses-list` | the plugin, with one form of the line about a symbol's uses forced (see "What a card should say") |
+| `oracle` | nothing of codefast, and a hook of the task's own that states the file and function of the real fix (see "What a bug fix can save at best") |
 
 Every session runs with the project's settings only (no user plugins, no cloud connectors), in
 bypass-permissions mode inside a private copy of the repository, with the web tools and
@@ -161,6 +162,30 @@ Over two batches and 26 tasks, pooled against two or three control runs each:
 So the card takes a step or two out of a bug fix and does not make it cheaper. Single tasks run
 from 0.58 to 1.43 of the control, which is the spread of this family and the reason both
 figures are pooled over four runs per task.
+
+## What a bug fix can save at best
+
+Three attempts had moved the figure by a few percent in either direction, so the next question
+was how much there is to win at all. The `oracle` arm answers it: the session is told, before
+it starts, the file and the function the real fix changed, by a hook of its own, for nothing.
+No tool that finds where a change belongs can do better than that.
+
+| Arm | Issue text alone (14) | Failing tests given (12) |
+|---|---:|---:|
+| control | 1.00 | 1.00 |
+| the plugin as released | 0.98 | 0.98 |
+| told the file and function for free | **0.95** | **0.97** |
+
+Averaged over two or three control runs per task, because a single run of one arm differs from
+its own average by 4 to 6%. Perfect localisation, handed over at no cost, is worth less than
+that noise, and the plugin already reaches it.
+
+The reason is in what the cost is made of. Output tokens weigh five times an input token, and
+they are 28 to 60% of a session in every family. Where codefast saves, it saves there: a caller
+question goes from 8,477 output tokens to 2,731, four of them in one session from 42,942 to
+7,860, a rename from 5,100 to 2,823. A bug fix writes the fix and runs the tests, and that
+output does not shrink: 4,536 to 4,335 with the failing tests given, 4,510 to 4,805 without
+them. An index shortens the finding, and finding is not what a bug fix spends.
 
 ## What a card should say
 

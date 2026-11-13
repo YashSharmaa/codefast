@@ -51,6 +51,9 @@ ARMS = {
     "lean": dict(plugin=True, lean=True),
     "nohooks": dict(plugin=True, env={"CODEFAST_HOOKS": "off"}),
     "rules": dict(plugin=True, rules=True),
+    # The ceiling of any tool that finds the place to change: the arm is told the file and the
+    # function of the real fix, for nothing, by a hook of its own (see LIVE.md).
+    "oracle": dict(plugin=False, oracle=True),
     # How a prompt card gives the uses of a symbol (an experiment, see LIVE.md).
     "uses-count": dict(plugin=True, env={"CODEFAST_CARD_USES": "count"}),
     "uses-list": dict(plugin=True, env={"CODEFAST_CARD_USES": "list"}),
@@ -272,6 +275,22 @@ def prepare(t, arm, rep, a, binary):
     if spec.get("rules"):
         with open(repo / "CLAUDE.md", "a") as f:
             f.write("\n" + rules_block(binary))
+    if spec.get("oracle"):
+        where = ", ".join(t.get("gold_files") or [])
+        which = ", ".join(f.rsplit("/", 1)[-1] for f in (t.get("gold_functions") or []))
+        card = f"codefast: the change this asks for belongs in {where}" + (f", in {which}." if which else ".")
+        (repo / ".claude").mkdir(parents=True, exist_ok=True)
+        hook = repo / ".claude/oracle.py"
+        hook.write_text(
+            "import json, sys\n"
+            "sys.stdin.read()\n"
+            f"print(json.dumps({{'hookSpecificOutput': {{'hookEventName': 'UserPromptSubmit', 'additionalContext': {card!r}}}}}))\n"
+        )
+        json.dump(
+            {"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": f"python3 {hook}"}]}]}},
+            open(repo / ".claude/settings.json", "w"),
+            indent=1,
+        )
     git = ["git", "-c", "user.name=bench", "-c", "user.email=bench@localhost", "-c", "commit.gpgsign=false"]
     subprocess.run(git + ["init", "-q", "."], cwd=repo, check=True)
     (repo / ".git/info/exclude").write_text(".codefast/\n")
