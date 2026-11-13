@@ -1,0 +1,47 @@
+lang=php ok=true lines=36 errors=0
+--- defs (2)
+  0 ns      App\Http                     L2-2 parent=- type=- arity=0..0 flags=0x00 | namespace App\Http
+  1 fn      controller                   L18-36 parent=- type=- arity=0..0 flags=0x04 | function controller(): void
+--- refs (28)
+L4    import  User                         in <file> qual=App\Models
+L5    import  Comment                      in <file> qual=App\Models
+L5    import  MAX_LEN                      in <file> qual=App\Models
+L5    import  Post                         in <file> qual=App\Models
+L5    import  slugify                      in <file> qual=App\Models
+L6    import  Support                      in <file> qual=App
+L7    import  format_name                  in <file> qual=App\Support
+L8    import  LIMIT                        in <file> qual=App\Support
+L9    import  Exception                    in <file> qual=\
+L10   import  Str                          in <file> qual=Illuminate\Support
+L20   new     User                         in controller nargs=0
+L21   new     Post                         in controller nargs=0
+L22   new     Note                         in controller nargs=0
+L23   call    slugify                      in controller nargs=1
+L24   call    format_name                  in controller nargs=1
+L25   read    LIMIT                        in controller
+L25   read    MAX_LEN                      in controller
+L26   call    snake                        in controller qual=S nargs=1
+L26   type    S                            in controller
+L27   call    get                          in controller qual=App\Support|Arr nargs=2
+L27   type    Arr                          in controller qual=App\Support
+L28   call    helper                       in controller qual=App\Support nargs=0
+L29   call    run                          in controller qual=App\Http\Models|Local nargs=0
+L29   type    Local                        in controller qual=App\Http\Models
+L30   call    local                        in controller qual=App\Http nargs=0
+L31   call    global_fn                    in controller qual=\ nargs=0
+L32   call    fmt                          in controller qual=App\Support nargs=0
+L35   new     NotFoundException            in controller nargs=0
+--- imports (13)
+L4    target=App\Models name=User alias=- flags=0
+L5    target=App\Models name=Post alias=- flags=0
+L5    target=App\Models name=Comment alias=Note flags=0
+L5    target=App\Models name=slugify alias=- flags=0
+L5    target=App\Models name=MAX_LEN alias=- flags=0
+L6    target=App name=Support alias=- flags=0
+L7    target=App\Support name=format_name alias=- flags=0
+L8    target=App\Support name=LIMIT alias=- flags=0
+L9    target=\ name=Exception alias=- flags=1
+L10   target=Illuminate\Support name=Str alias=S flags=0
+L12   target=./bootstrap.php name=- alias=- flags=0
+L13   target=vendor/autoload.php name=- alias=- flags=0
+L14   target=./lib/legacy.php name=- alias=- flags=0

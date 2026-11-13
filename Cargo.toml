@@ -61,6 +61,7 @@ default = [
     "lang-go",
     "lang-rust",
     "lang-java",
+    "lang-php",
 ]
 lang-c = ["dep:tree-sitter-c"]
 lang-cpp = ["dep:tree-sitter-cpp"]

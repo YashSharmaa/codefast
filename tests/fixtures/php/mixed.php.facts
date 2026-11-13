@@ -1,0 +1,20 @@
+lang=php ok=true lines=32 errors=0
+--- defs (4)
+  0 fn      render_post                  L10-14 parent=- type=- arity=1..2 flags=0x04 | function render_post($post, string $mode = 'short'): void
+  1 fn      legacy_helper                L17-17 parent=- type=- arity=0..0 flags=0x04 | function legacy_helper()
+  2 class   WP_Widget_Custom             L20-28 parent=- type=- arity=0..0 flags=0x04 | class WP_Widget_Custom extends WP_Widget
+  3 method  widget                       L22-27 parent=WP_Widget_Custom type=- arity=2..2 flags=0x04 | public function widget($args, $instance)
+--- refs (12)
+L5    mread   title                        in <file>
+L6    call    render_post                  in <file> nargs=2
+L12   new     View                         in render_post nargs=1
+L13   mcall   render                       in render_post qual=View nargs=1
+L17   call    wp_get_option                in legacy_helper nargs=1
+L20   extends WP_Widget                    in WP_Widget_Custom
+L24   call    add_action                   in widget nargs=2
+L24   mread   setup                        in widget qual=WP_Widget_Custom
+L24   arg     setup                        in widget qual=add_action
+L25   mcall   form                         in widget qual=WP_Widget_Custom nargs=1
+L26   mcall   widget                       in widget qual=^WP_Widget_Custom nargs=2
+L30   call    the_footer                   in <file> nargs=0
+--- imports (0)

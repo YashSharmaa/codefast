@@ -1,0 +1,136 @@
+lang=php ok=true lines=116 errors=0
+--- defs (10)
+  0 ns      App\Services                 L2-2 parent=- type=- arity=0..0 flags=0x00 | namespace App\Services
+  1 class   UserService                  L9-116 parent=- type=- arity=0..0 flags=0x04 | class UserService extends BaseService
+  2 field   repo                         L11-11 parent=UserService type=UserRepo arity=0..0 flags=0x02 | private UserRepo $repo
+  3 field   cache                        L12-12 parent=UserService type=Cache arity=0..0 flags=0x02 | private ?Cache $cache
+  4 method  __construct                  L14-20 parent=UserService type=- arity=2..2 flags=0x04 | public function __construct(UserRepo $repo, private Mailer $mailer)
+  5 field   mailer                       L14-14 parent=UserService type=Mailer arity=0..0 flags=0x02 | private Mailer $mailer
+  6 method  calls                        L22-57 parent=UserService type=User arity=3..3 flags=0x04 | public function calls(User $user, $untyped, P $profile): ?User
+  7 method  members                      L59-72 parent=UserService type=- arity=1..1 flags=0x04 | public function members(User $user): void
+  8 method  types                        L74-105 parent=UserService type=- arity=3..3 flags=0x04 | public function types(Profile|null $p, (A&B)|null $ab, int $n): void
+  9 method  attributed                   L107-115 parent=UserService type=- arity=0..0 flags=0x04 | public function attributed(): void
+--- refs (119)
+L4    import  User                         in <file> qual=App\Models
+L5    import  Profile                      in <file> qual=App\Models
+L6    import  UserRepo                     in <file> qual=App\Repos
+L9    extends BaseService                  in UserService
+L11   type    UserRepo                     in repo
+L12   type    Cache                        in cache
+L14   type    Mailer                       in mailer
+L14   type    UserRepo                     in __construct
+L16   mcall   __construct                  in __construct qual=^UserService nargs=1
+L17   mwrite  repo                         in __construct qual=UserService
+L18   mread   onSaved                      in __construct qual=UserService
+L18   mwrite  handler                      in __construct qual=UserService
+L18   bind    onSaved                      in __construct qual=UserService.handler
+L19   read    format_user                  in __construct
+L19   mwrite  formatter                    in __construct qual=UserService
+L19   bind    format_user                  in __construct qual=UserService.formatter
+L22   type    P                            in calls
+L22   type    User                         in calls
+L22   type    User                         in calls
+L24   call    helper                       in calls nargs=2
+L26   mcall   validate                     in calls qual=UserService nargs=1
+L27   mcall   save                         in calls qual=User nargs=0
+L28   mcall   touch                        in calls qual=User nargs=0
+L29   mcall   save                         in calls nargs=0
+L30   mcall   delete                       in calls qual=UserService::repo::find() nargs=0
+L30   mcall   find                         in calls qual=UserService::repo nargs=1
+L30   mread   repo                         in calls qual=UserService
+L31   mcall   send                         in calls qual=UserService::mailer
+L31   mread   extra                        in calls qual=UserService
+L31   mread   mailer                       in calls qual=UserService
+L32   call    log                          in calls qual=UserService nargs=1
+L33   call    log                          in calls qual=UserService nargs=1
+L34   mcall   boot                         in calls qual=^UserService nargs=0
+L35   call    query                        in calls qual=User nargs=0
+L35   mcall   first                        in calls qual=User::query()::where() nargs=0
+L35   mcall   where                        in calls qual=User::query() nargs=2
+L35   type    User                         in calls
+L36   call    find                         in calls qual=App\Models|User nargs=1
+L36   type    User                         in calls qual=App\Models
+L37   mcall   avatar                       in calls qual=P nargs=0
+L39   mcall   save                         in calls qual=User nargs=0
+L40   new     User                         in calls nargs=0
+L41   mcall   save                         in calls qual=User nargs=0
+L42   call    find                         in calls qual=User nargs=1
+L42   type    User                         in calls
+L43   mcall   save                         in calls qual=User::find() nargs=0
+L44   call    make_user                    in calls nargs=0
+L45   mcall   save                         in calls qual=make_user() nargs=0
+L46   mcall   find                         in calls qual=UserService::repo nargs=1
+L46   mread   repo                         in calls qual=UserService
+L47   mcall   delete                       in calls qual=UserService::repo::find() nargs=0
+L49   new     P                            in calls nargs=0
+L50   mcall   avatar                       in calls qual=P nargs=0
+L51   new     User                         in calls nargs=0
+L52   new     P                            in calls nargs=0
+L53   mcall   save                         in calls nargs=0
+L54   mcall   save                         in calls qual=User nargs=0
+L54   new     User                         in calls nargs=0
+L55   mcall   table                        in calls qual=User nargs=0
+L59   type    User                         in members
+L61   mwrite  name                         in members qual=User
+L62   mread   name                         in members qual=User
+L63   mwrite  count                        in members qual=User
+L64   mwrite  tags                         in members qual=User
+L65   mread   profile                      in members qual=User
+L65   mwrite  avatar                       in members qual=User::profile
+L66   mread   cache                        in members qual=UserService
+L66   mwrite  items                        in members qual=UserService::cache
+L67   type    User                         in members
+L67   mwrite  instances                    in members qual=User
+L68   type    User                         in members
+L68   mread   PREFIX                       in members qual=UserService
+L68   mread   TABLE                        in members qual=User
+L68   mread   shared                       in members qual=^UserService
+L69   mcall   color                        in members qual=Suit nargs=0
+L69   type    Suit                         in members
+L69   mread   Hearts                       in members qual=Suit
+L70   type    User                         in members
+L71   type    User                         in members
+L71   mread   create                       in members qual=User
+L74   type    A                            in types
+L74   type    B                            in types
+L74   type    Profile                      in types
+L76   type    Admin                        in types
+L77   mcall   grant                        in types qual=Profile nargs=0
+L82   call    risky                        in types nargs=0
+L83   type    NotFound                     in types
+L84   mcall   report                       in types nargs=0
+L85   type    Failure                      in types
+L86   mcall   retry                        in types qual=Failure nargs=0
+L88   type    User                         in types
+L89   mcall   save                         in types qual=User nargs=0
+L90   mcall   avatar                       in types qual=Profile nargs=0
+L92   mcall   save                         in types qual=User nargs=0
+L92   type    User                         in types
+L93   mread   transform                    in types qual=UserService
+L93   arg     transform                    in types qual=array_map
+L94   mread   compare                      in types qual=UserService
+L94   arg     compare                      in types qual=usort
+L95   call    register                     in types nargs=3
+L95   type    User                         in types
+L95   read    format_user                  in types
+L95   mread   create                       in types qual=User
+L95   mread   transform                    in types qual=UserService
+L95   arg     create                       in types qual=register
+L95   arg     format_user                  in types qual=register
+L95   arg     transform                    in types qual=register
+L96   mcall   all                          in types qual=UserService::repo nargs=0
+L96   mread   repo                         in types qual=UserService
+L97   mcall   save                         in types nargs=0
+L100  mcall   locate                       in types qual=UserService nargs=0
+L101  mcall   save                         in types qual=User nargs=0
+L103  call    make                         in types nargs=0
+L104  mcall   avatar                       in types qual=P nargs=0
+L107  annot   Route                        in attributed
+L113  read    LIMIT                        in attributed
+L113  read    LIMIT                        in attributed qual=App
+L114  mcall   name                         in attributed qual=UserService::user nargs=0
+L114  mread   user                         in attributed qual=UserService
+--- imports (3)
+L4    target=App\Models name=User alias=- flags=0
+L5    target=App\Models name=Profile alias=P flags=0
+L6    target=App\Repos name=UserRepo alias=- flags=0

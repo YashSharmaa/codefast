@@ -1,0 +1,21 @@
+lang=php ok=true lines=32 errors=0
+--- defs (9)
+  0 ns      Tests\Unit                   L2-2 parent=- type=- arity=0..0 flags=0x00 | namespace Tests\Unit
+  1 class   UserTest                     L8-27 parent=- type=- arity=0..0 flags=0x04 | class UserTest extends TestCase
+  2 method  setUp                        L10-13 parent=UserTest type=- arity=0..0 flags=0x00 | protected function setUp(): void
+  3 method  testSaves                    L15-18 parent=UserTest type=- arity=0..0 flags=0x0c | public function testSaves(): void
+  4 method  it_loads                     L21-21 parent=UserTest type=- arity=0..0 flags=0x0c | public function it_loads(): void
+  5 method  deletes                      L23-24 parent=UserTest type=- arity=0..0 flags=0x0c | public function deletes(): void
+  6 method  helper                       L26-26 parent=UserTest type=- arity=0..0 flags=0x04 | public function helper(): void
+  7 class   Fixture                      L29-32 parent=- type=- arity=0..0 flags=0x04 | class Fixture
+  8 method  testLooksLikeATest           L31-31 parent=Fixture type=- arity=0..0 flags=0x04 | public function testLooksLikeATest(): void
+--- refs (6)
+L4    import  TestCase                     in <file> qual=PHPUnit\Framework
+L5    import  Test                         in <file> qual=PHPUnit\Framework\Attributes
+L8    extends TestCase                     in UserTest
+L12   mcall   setUp                        in setUp qual=^UserTest nargs=0
+L17   mcall   assertTrue                   in testSaves qual=UserTest nargs=1
+L23   annot   Test                         in deletes
+--- imports (2)
+L4    target=PHPUnit\Framework name=TestCase alias=- flags=0
+L5    target=PHPUnit\Framework\Attributes name=Test alias=- flags=0

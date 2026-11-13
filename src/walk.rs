@@ -95,7 +95,7 @@ pub fn classify(rel: &str) -> u8 {
         || file.contains(".test.")
         || file.contains(".spec.")
         || file.contains("_spec.")
-        || (rel.ends_with("Test.java") || rel.ends_with("Tests.java") || rel.ends_with("Test.kt") || rel.ends_with("Tests.cs"))
+        || (rel.ends_with("Test.java") || rel.ends_with("Tests.java") || rel.ends_with("Test.kt") || rel.ends_with("Tests.cs") || rel.ends_with("Test.php"))
     {
         flags |= fflag::TEST;
     }

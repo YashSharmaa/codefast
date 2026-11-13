@@ -331,9 +331,9 @@ pub fn target_key(lang: Lang, from_path: &str, target: &str) -> Option<String> {
 }
 
 /// Languages where every file of a directory shares one namespace (unqualified names resolve
-/// across the files of the package).
+/// across the files of the package). PHP files share the namespace they declare instead.
 pub fn dir_is_package(lang: Lang) -> bool {
-    matches!(lang, Lang::Go | Lang::Java | Lang::Kotlin | Lang::Scala)
+    matches!(lang, Lang::Go | Lang::Java | Lang::Kotlin | Lang::Scala | Lang::Php)
 }
 
 pub fn same_dir(a: &str, b: &str) -> bool {

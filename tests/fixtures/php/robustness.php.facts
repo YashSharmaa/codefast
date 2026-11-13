@@ -1,0 +1,17 @@
+lang=php ok=true lines=34 errors=4
+--- defs (5)
+  0 ns      Broken                       L2-2 parent=- type=- arity=0..0 flags=0x00 | namespace Broken
+  1 class   Half                         L4-15 parent=- type=- arity=0..0 flags=0x04 | class Half
+  2 method  ok                           L6-9 parent=Half type=- arity=0..0 flags=0x04 | public function ok(): void
+  3 method  broken                       L11-14 parent=Half type=- arity=0..1 flags=0x05 | public function broken( { $x = ; call_me()
+  4 fn      after                        L18-34 parent=- type=- arity=0..0 flags=0x04 | function after(): void
+--- refs (8)
+L8    mcall   fine                         in ok qual=Half nargs=0
+L14   call    call_me                      in broken nargs=0
+L25   mcall   go                           in after nargs=0
+L28   mread   cb                           in after
+L29   new     Thing                        in after nargs=0
+L30   mcall   work                         in after qual=Thing nargs=0
+L31   call    pair                         in after nargs=0
+L33   mcall   go                           in after nargs=0
+--- imports (0)

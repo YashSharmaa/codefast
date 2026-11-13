@@ -1,0 +1,22 @@
+lang=php ok=true lines=32 errors=0
+--- defs (8)
+  0 ns      Lib\One                      L2-12 parent=- type=- arity=0..0 flags=0x00 | namespace Lib\One
+  1 class   Alpha                        L3-9 parent=- type=- arity=0..0 flags=0x04 | class Alpha
+  2 method  run                          L5-8 parent=Alpha type=Beta arity=0..0 flags=0x04 | public function run(): Beta
+  3 fn      one                          L11-11 parent=- type=- arity=0..0 flags=0x04 | function one(): void
+  4 ns      Lib\Two                      L14-25 parent=- type=- arity=0..0 flags=0x00 | namespace Lib\Two
+  5 class   Beta                         L17-24 parent=- type=- arity=0..0 flags=0x04 | class Beta extends Alpha
+  6 method  go                           L19-23 parent=Beta type=- arity=0..0 flags=0x04 | public function go(): void
+  7 fn      global_one                   L28-28 parent=- type=- arity=0..0 flags=0x04 | function global_one(): void
+--- refs (9)
+L5    type    Beta                         in run
+L7    new     Beta                         in run nargs=0
+L15   import  Alpha                        in <file> qual=Lib\One
+L17   extends Alpha                        in Beta
+L21   mcall   go                           in go qual=Beta::run() nargs=0
+L21   mcall   run                          in go qual=Beta nargs=0
+L22   call    one                          in go nargs=0
+L30   new     Alpha                        in <file> qual=Lib\One nargs=0
+L31   mcall   run                          in <file> qual=Lib\One|Alpha nargs=0
+--- imports (1)
+L15   target=Lib\One name=Alpha alias=- flags=0

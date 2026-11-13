@@ -317,7 +317,7 @@ pub fn scoped_language(lang: Lang) -> bool {
 /// Languages where a bare name must be defined in the file, imported, or (for package
 /// languages) defined in the same package: anything else is a builtin or an external symbol.
 fn strict_scoping(lang: Lang) -> bool {
-    matches!(lang, Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust | Lang::Java | Lang::Kotlin | Lang::Scala)
+    matches!(lang, Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust | Lang::Java | Lang::Kotlin | Lang::Scala | Lang::Php)
 }
 
 impl<'a> Resolver<'a> {
@@ -629,6 +629,11 @@ impl<'a> Resolver<'a> {
         let from_path = ix.path(from);
         let mut out: Vec<FileId> = Vec::new();
         if let Some(t) = std::str::from_utf8(target).ok().filter(|t| !t.is_empty()) {
+            if lang == Lang::Php {
+                // A PHP import names a namespace, which is not tied to a path: the files that
+                // declare it. An include names a file.
+                out = self.php_module_files(from, t);
+            }
             if lang == Lang::Rust {
                 // `crate`, `self`, `super`: named by position, not by a path to match.
                 for p in linkx::rust_anchor_files(from_path, t) {
@@ -652,6 +657,51 @@ impl<'a> Resolver<'a> {
         let rc = Rc::new(out);
         self.mod_files.borrow_mut().insert(key, rc.clone());
         rc
+    }
+
+    /// The files a PHP import target names: the files that declare namespace `target` (`\` is
+    /// the global namespace), or for an include (`lib/x.php`, `./x.php`) the file at that path
+    /// next to the including file, else the one file whose path ends with it.
+    fn php_module_files(&self, from: FileId, target: &str) -> Vec<FileId> {
+        let ix = self.ix;
+        if target.ends_with(".php") || target.contains('/') {
+            let from_path = ix.path(from);
+            let dir = from_path.rfind('/').map_or("", |i| &from_path[..i]);
+            if let Some(f) = ix.file_by_path(&linkx::norm_join(dir, target)) {
+                return vec![f];
+            }
+            let t = target.trim_start_matches("./").trim_start_matches('/');
+            let cands = self.files_with_suffix(t.as_bytes());
+            return if cands.len() == 1 { cands.to_vec() } else { Vec::new() };
+        }
+        let ns = if target == "\\" { "" } else { target.trim_start_matches('\\') };
+        match self.package_index().get(&format!("p:{ns}")) {
+            Some(files) => files.iter().copied().filter(|&f| ix.lang(f) == Lang::Php).collect(),
+            None => Vec::new(),
+        }
+    }
+
+    /// Functions and constants named `name` in PHP's global namespace, seen from a file of
+    /// another namespace.
+    fn php_global_defs(&self, from: FileId, name: &[u8], accept: &dyn Fn(&DefV) -> bool) -> Vec<DefId> {
+        let ix = self.ix;
+        if self.package_of(from).is_none_or(|p| p.is_empty()) {
+            return Vec::new();
+        }
+        let all = ix.defs_named(name);
+        if all.len() > 4096 {
+            return Vec::new();
+        }
+        all.into_iter()
+            .filter(|&d| {
+                let v = ix.def(d);
+                matches!(v.kind(), DefKind::Function | DefKind::Constant)
+                    && v.parent().is_none()
+                    && ix.lang(v.file()) == Lang::Php
+                    && self.package_of(v.file()).is_some_and(|p| p.is_empty())
+                    && accept(&v)
+            })
+            .collect()
     }
 
     /// Definitions named `name` that the module in file `m` provides: its own definitions outside
@@ -1027,11 +1077,16 @@ impl<'a> Resolver<'a> {
         }
         let ix = self.ix;
         let mut out = None;
-        if matches!(ix.lang(f), Lang::Java | Lang::Kotlin | Lang::Scala) {
+        if matches!(ix.lang(f), Lang::Java | Lang::Kotlin | Lang::Scala | Lang::Php) {
             if let Some(v) = ix.defs_of_file(f).next() {
                 if v.kind() == DefKind::Namespace && v.parent().is_none() {
                     out = Some(Rc::new(v.name().to_vec()));
                 }
+            }
+            // A PHP file without a namespace declaration is in the global namespace, which all
+            // such files share.
+            if out.is_none() && ix.lang(f) == Lang::Php {
+                out = Some(Rc::new(Vec::new()));
             }
         }
         self.packages.borrow_mut().insert(f, out.clone());
@@ -1045,7 +1100,8 @@ impl<'a> Resolver<'a> {
         if !linkx::dir_is_package(lang) || !same_family(lang, ix.lang(b)) {
             return false;
         }
-        if linkx::same_dir(ix.path(a), ix.path(b)) {
+        // A PHP namespace is what the file declares, wherever the file is.
+        if lang != Lang::Php && linkx::same_dir(ix.path(a), ix.path(b)) {
             return true;
         }
         match (self.package_of(a), self.package_of(b)) {
@@ -1785,6 +1841,11 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
+        if wild.is_empty() && lang == Lang::Php {
+            // A function or constant PHP does not find in the current namespace is looked up in
+            // the global one. Classes are not.
+            wild = self.php_global_defs(from, name, accept);
+        }
         if wild.is_empty() && matches!(lang, Lang::JavaScript | Lang::TypeScript | Lang::Tsx) {
             let all = ix.defs_named(name);
             if all.len() <= 4096 {
@@ -2015,6 +2076,7 @@ impl<'a> Resolver<'a> {
                 return;
             }
         }
+        let before = out.len();
         for a in self.supertypes(ty) {
             let before = out.len();
             self.member_tys(&a, name, call, out, depth + 1);
@@ -2022,6 +2084,27 @@ impl<'a> Resolver<'a> {
                 break;
             }
         }
+        if out.len() == before && depth == 0 {
+            for h in self.php_trait_hosts(ty) {
+                self.member_tys(&h, name, call, out, depth + 1);
+            }
+        }
+    }
+
+    /// `$this` inside a PHP trait is the class that uses the trait: for a member the trait does
+    /// not declare, the classes using it (directly or through another trait) are where it is.
+    fn php_trait_hosts(&self, ty: &Ty) -> Vec<Ty> {
+        let ix = self.ix;
+        let is_trait = ty.defs.iter().any(|&d| {
+            let v = ix.def(d);
+            v.kind() == DefKind::Trait && ix.lang(v.file()) == Lang::Php
+        });
+        if !is_trait {
+            return Vec::new();
+        }
+        let mut out = self.descendants(ty);
+        out.truncate(40);
+        out
     }
 
     /// Types of a non-local variable, or the container itself when a namespace, class or
@@ -2376,6 +2459,12 @@ impl<'a> Resolver<'a> {
                 }
                 if let Some(a) = self.ancestors(t).into_iter().find(|a| self.has_member(a, field)) {
                     push_ty(&mut out, a);
+                    continue;
+                }
+                for h in self.php_trait_hosts(t) {
+                    if self.has_member(&h, field) {
+                        push_ty(&mut out, h);
+                    }
                 }
             }
         }
@@ -2532,8 +2621,9 @@ impl<'a> Resolver<'a> {
                             Conf::Name
                         } else if types.iter().any(|x| x.same(owner)) {
                             Conf::Exact
-                        } else if types.iter().any(|x| owner_up.iter().any(|a| a.same(x))) {
-                            // A call on a supertype may dispatch to this override.
+                        } else if !r.qual().is_some_and(|q| q.starts_with(b"^")) && types.iter().any(|x| owner_up.iter().any(|a| a.same(x))) {
+                            // A call on a supertype may dispatch to this override. A `super` /
+                            // `parent::` call does not dispatch: it runs the ancestor's method.
                             Conf::Likely
                         } else {
                             return;
@@ -2602,7 +2692,7 @@ impl<'a> Resolver<'a> {
         });
         // A constructor under a fixed name (`__init__`, `constructor`) runs where its class is
         // instantiated.
-        if let Some(owner) = owner_canon.as_ref().filter(|_| matches!(t.name.as_slice(), b"__init__" | b"constructor" | b"__new__")) {
+        if let Some(owner) = owner_canon.as_ref().filter(|_| matches!(t.name.as_slice(), b"__init__" | b"constructor" | b"__new__" | b"__construct")) {
             if let Some(oid) = ix.name_id(&owner.name) {
                 ix.for_each_ref_named(oid, |r| {
                     if matches!(r.kind(), RefKind::New | RefKind::Call)
@@ -2749,7 +2839,7 @@ impl<'a> Resolver<'a> {
     /// The definitions a name used as a value denotes: bare, or after a module or type qualifier.
     fn named_defs(&self, name: &[u8], qual: Option<&[u8]>, from: FileId) -> Vec<DefId> {
         let ix = self.ix;
-        let bare_members = !matches!(ix.lang(from), Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust);
+        let bare_members = !matches!(ix.lang(from), Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust | Lang::Php);
         let Some(q) = qual else {
             return self.scoped_defs(name, None, from, &|v| bare_members || !type_member(v));
         };
@@ -2895,7 +2985,8 @@ impl<'a> Resolver<'a> {
         let lang = ix.lang(from);
         let strict = strict_scoping(lang);
         // Without implicit `this`, a bare `name()` never denotes a method of a type.
-        let no_bare_members = qual.is_none() && matches!(lang, Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust);
+        let no_bare_members =
+            qual.is_none() && matches!(lang, Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust | Lang::Php);
         if strict {
             let wanted = |v: &DefV| {
                 if no_bare_members && !want_type && type_member(v) {

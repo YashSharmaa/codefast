@@ -1,0 +1,65 @@
+lang=php ok=true lines=112 errors=0
+--- defs (43)
+  0 ns      App\Models                   L4-4 parent=- type=- arity=0..0 flags=0x00 | namespace App\Models
+  1 class   User                         L9-62 parent=- type=- arity=0..0 flags=0x44 | abstract class User extends Model implements HasName
+  2 field   TABLE                        L14-14 parent=User type=- arity=0..0 flags=0x04 | public const TABLE
+  3 field   SECRET                       L15-15 parent=User type=- arity=0..0 flags=0x02 | private const SECRET
+  4 field   profile                      L17-17 parent=User type=Profile arity=0..0 flags=0x04 | public ?Profile $profile
+  5 field   count                        L18-18 parent=User type=- arity=0..0 flags=0x00 | protected static int $count
+  6 field   tags                         L19-19 parent=User type=- arity=0..0 flags=0x02 | private array $tags
+  7 field   flags                        L19-19 parent=User type=- arity=0..0 flags=0x02 | private array $tags = [], $flags
+  8 field   legacy                       L20-20 parent=User type=- arity=0..0 flags=0x04 | var $legacy
+  9 field   repo                         L23-23 parent=User type=Repo arity=0..0 flags=0x00 | protected $repo
+ 10 field   onSave                       L26-26 parent=User type=- arity=0..0 flags=0x24 | public $onSave
+ 11 field   formatter                    L28-28 parent=User type=- arity=0..0 flags=0x24 | public \Closure $formatter
+ 12 method  __construct                  L30-33 parent=User type=- arity=1..3 flags=0x04 | public function __construct(private readonly Mailer $mailer, public int $level = 1, string $plain = 
+ 13 field   mailer                       L30-30 parent=User type=Mailer arity=0..0 flags=0x02 | private readonly Mailer $mailer
+ 14 field   level                        L30-30 parent=User type=- arity=0..0 flags=0x04 | public int $level
+ 15 method  build                        L35-35 parent=User type=User arity=1..255 flags=0x41 | abstract protected function build(int $a, ?string $b = null, string ...$rest): static
+ 16 method  profile                      L38-41 parent=User type=Profile arity=0..0 flags=0x04 | public function profile()
+ 17 method  make                         L43-46 parent=User type=User arity=0..0 flags=0x04 | final public static function make(): self
+ 18 method  secret                       L48-51 parent=User type=- arity=0..0 flags=0x02 | private function secret(): string|int
+ 19 method  rows                         L53-56 parent=User type=- arity=0..0 flags=0x84 | public function rows(): iterable
+ 20 method  lazy                         L58-61 parent=User type=App\Support|Lazy arity=0..0 flags=0x00 | protected function lazy(): ?\App\Support\Lazy
+ 21 iface   Shape                        L64-69 parent=- type=- arity=0..0 flags=0x04 | interface Shape extends HasName, \Countable
+ 22 field   SIDES                        L66-66 parent=Shape type=- arity=0..0 flags=0x04 | const SIDES
+ 23 method  area                         L68-68 parent=Shape type=- arity=0..0 flags=0x45 | public function area(): float
+ 24 trait   Greets                       L71-79 parent=- type=- arity=0..0 flags=0x04 | trait Greets
+ 25 method  hello                        L73-76 parent=Greets type=- arity=0..0 flags=0x00 | private function hello(): string
+ 26 method  name                         L78-78 parent=Greets type=- arity=0..0 flags=0x45 | abstract public function name(): string
+ 27 enum    Suit                         L81-92 parent=- type=- arity=0..0 flags=0x04 | enum Suit: string implements Shape
+ 28 enumval Hearts                       L83-83 parent=Suit type=Suit arity=0..0 flags=0x04 | case Hearts
+ 29 enumval Spades                       L84-84 parent=Suit type=Suit arity=0..0 flags=0x04 | case Spades
+ 30 field   Wild                         L86-86 parent=Suit type=- arity=0..0 flags=0x04 | const Wild
+ 31 method  color                        L88-91 parent=Suit type=- arity=0..0 flags=0x04 | public function color(): string
+ 32 class   Point                        L94-97 parent=- type=- arity=0..0 flags=0x04 | final readonly class Point
+ 33 method  __construct                  L96-96 parent=Point type=- arity=2..2 flags=0x04 | public function __construct(public float $x, public float $y)
+ 34 field   x                            L96-96 parent=Point type=- arity=0..0 flags=0x04 | public float $x
+ 35 field   y                            L96-96 parent=Point type=- arity=0..0 flags=0x04 | public float $y
+ 36 fn      helper                       L99-104 parent=- type=User arity=1..255 flags=0x04 | function helper(int $a, $b = 2, ...$rest): ?User
+ 37 fn      nested                       L101-101 parent=- type=- arity=0..0 flags=0x04 | function nested(): void
+ 38 fn      maybe                        L107-107 parent=- type=- arity=0..0 flags=0x04 | function maybe()
+ 39 const   VERSION                      L110-110 parent=- type=- arity=0..0 flags=0x04 | const VERSION
+ 40 const   BUILD                        L110-110 parent=- type=- arity=0..0 flags=0x04 | const VERSION = '1.0', BUILD
+ 41 const   LEGACY_FLAG                  L111-111 parent=- type=- arity=0..0 flags=0x04 | define('LEGACY_FLAG', true)
+ 42 const   NS_FLAG                      L112-112 parent=- type=- arity=0..0 flags=0x04 | define('App\Models\NS_FLAG', 1)
+--- refs (17)
+L6    import  HasName                      in <file> qual=App\Contracts
+L9    annot   Entity                       in User
+L10   extends Model                        in User
+L10   impl    HasName                      in User
+L12   extends SoftDeletes                  in User
+L17   type    Profile                      in profile
+L30   type    Mailer                       in mailer
+L32   mcall   __construct                  in __construct qual=^User nargs=0
+L40   mread   profile                      in profile qual=User
+L45   new     Mailer                       in make nargs=0
+L45   new     User                         in make nargs=1
+L50   mread   SECRET                       in secret qual=User
+L58   type    Lazy                         in lazy qual=App\Support
+L64   extends HasName                      in Shape
+L81   impl    Shape                        in Suit
+L86   mread   Spades                       in Wild qual=Suit
+L99   type    User                         in helper
+--- imports (1)
+L6    target=App\Contracts name=HasName alias=- flags=0
