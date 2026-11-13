@@ -86,6 +86,22 @@ const MAX_ENTITIES: usize = 8;
 /// short and right: two cards, and none for a name the index cannot pin down.
 const MAX_CARDS: usize = 2;
 const CARD_BYTES: usize = 380;
+/// A card hands over the thing itself when the thing is small: a location without the code
+/// costs the agent a read, and a count of call sites costs it a query. The longest definition
+/// a card prints whole, and the lines of source all cards of one prompt may print.
+const CARD_BODY_LINES: u32 = 25;
+const CARD_CODE_LINES: u32 = 50;
+/// The most places of use a card lists one by one, and the room their list may take. Beyond
+/// either, the card gives their number and the command that lists them.
+const CARD_SITES: usize = 12;
+const SITES_BYTES: usize = 700;
+/// Messages of a prompt that are traced to the line that writes them, and the files that may
+/// be read to find them. A prompt shorter than this quotes no message.
+const MAX_ORIGINS: usize = 2;
+const ORIGIN_READS: usize = 600;
+const ORIGIN_MIN_PROMPT: usize = 24;
+/// How long the search for them may take: a prompt is not held up for a card.
+const ORIGIN_TIME: Duration = Duration::from_millis(900);
 /// A prompt is answered once per turn and an edit check has files to read: both may take longer
 /// than a note after a search.
 const SLOW_DEADLINE: Duration = Duration::from_millis(2500);
@@ -930,7 +946,197 @@ fn spread(ix: &Index, rs: &Resolver, t: &Target) -> Option<String> {
     }
 }
 
-fn prompt_cards(place: Place, found: prompt::Mentions, session_id: Option<String>, cli: String, tx: mpsc::Sender<String>) {
+/// `path: function:line,line function:line; other/path: function:line` for references that
+/// are sorted by file. Nothing when the list does not fit `max` bytes.
+fn site_list(refs: &[crate::store::RefV], max: usize) -> Option<String> {
+    let mut out = String::new();
+    let mut i = 0;
+    while i < refs.len() {
+        let file = refs[i].file;
+        let mut parts: Vec<(String, Vec<u32>)> = Vec::new();
+        let mut j = i;
+        while j < refs.len() && refs[j].file == file {
+            let who = crate::query::refs::encl_name(&refs[j]);
+            let line = refs[j].line();
+            match parts.iter_mut().find(|(n, _)| *n == who) {
+                Some((_, lines)) if lines.contains(&line) => {}
+                Some((_, lines)) => lines.push(line),
+                None => parts.push((who, vec![line])),
+            }
+            j += 1;
+        }
+        if !out.is_empty() {
+            out.push_str("; ");
+        }
+        out.push_str(refs[i].path());
+        out.push(':');
+        for (who, lines) in &parts {
+            let lines: Vec<String> = lines.iter().map(u32::to_string).collect();
+            out.push_str(&format!(" {who}:{}", lines.join(",")));
+        }
+        if out.len() > max {
+            return None;
+        }
+        i = j;
+    }
+    Some(out)
+}
+
+/// What a card says about the use of a symbol. The places themselves when they are few: the
+/// list is no longer than the sentence that would send the agent to ask for it, and it is what
+/// the agent would ask for. Their number, and the command that lists them, when they are many.
+fn card_usage(ix: &Index, rs: &Resolver, t: &Target, name: &str, cli: &str) -> Option<String> {
+    use crate::query::refs::{Via, caller_edges, loose_is_likely, proximity_key};
+    let p = t.primary(ix);
+    if p.flags() & crate::facts::dflag::TEST != 0 || ix.is_test_file(p.file()) {
+        return None;
+    }
+    let files = ix.name_id(&t.name).map(|n| ix.files_with(n).count()).unwrap_or(0);
+    if files > USAGE_MAX_FILES {
+        return Some(format!("named in {} files", count(files)));
+    }
+    let def_path = p.path().to_string();
+    let callable = t.class == Class::Callable;
+    let (verb, lister) = if callable { ("called from", "callers") } else { ("used at", "refs") };
+    let mut dispatched: Vec<crate::store::RefV> = Vec::new();
+    let mut stored = false;
+    let mut by_name = 0;
+    let mut named: Vec<crate::store::RefV> = if callable {
+        let (edges, loose) = caller_edges(rs, t);
+        if loose_is_likely(rs, t, loose.len()) {
+            by_name = loose.iter().filter(|r| !ix.is_test_file(r.file)).count();
+        }
+        dispatched = edges.iter().filter(|e| matches!(e.via, Via::Slot(..))).map(|e| e.r).collect();
+        stored = edges.iter().any(|e| matches!(e.via, Via::Bind(_) | Via::Arg(_)));
+        // Where it is stored in a table or handed over as a callback has lines of its own.
+        edges.iter().filter(|e| matches!(e.via, Via::Call | Via::Value)).map(|e| e.r).collect()
+    } else {
+        let mut v = Vec::new();
+        rs.refs_to(t, |r, conf| {
+            if conf != crate::resolve::Conf::Name && !matches!(r.kind(), crate::facts::RefKind::Import) {
+                v.push(r);
+            }
+        });
+        v
+    };
+    named.sort_by_cached_key(|r| proximity_key(ix, &def_path, r));
+    dispatched.sort_by_cached_key(|r| proximity_key(ix, &def_path, r));
+    let sites = |n: usize| format!("{} site{}", count(n), if n == 1 { "" } else { "s" });
+    let mut lines: Vec<String> = Vec::new();
+    // A list is given where the agent can take it at a glance: for a name nothing else in the
+    // repository has, a search of its own finds the same places. Where other definitions share
+    // the name (a method several types have), sessions showed that an agent checks a list it
+    // was handed against a text search, which then finds every namesake. There the card gives
+    // the number and the command, whose answer shows each line and is taken as it is.
+    // `CODEFAST_CARD_USES` (count, list, both) forces one form, for experiments.
+    let style = std::env::var("CODEFAST_CARD_USES").unwrap_or_default();
+    let shared = ix.name_id(&t.name).is_some_and(|n| ix.defs_named_id(n).filter(|d| !t.defs.contains(d)).take(1).count() > 0);
+    let count_only = style == "count" || (shared && style != "list" && style != "both");
+    let listed = if named.is_empty() || named.len() > CARD_SITES || count_only { None } else { site_list(&named, SITES_BYTES) };
+    match listed {
+        Some(list) if style == "list" => lines.push(format!("{verb} {}: {list}", sites(named.len()))),
+        Some(list) => lines.push(format!("{verb} {} (`{cli} {lister} {name}` prints the line of each): {list}", sites(named.len()))),
+        None if named.is_empty() && dispatched.is_empty() && by_name == 0 && !stored => {
+            // No use found is said of a function, where it is a fact worth having (dead code,
+            // or reached in a way the index does not see). Of anything else it would be a guess.
+            return callable.then(|| "no call of it found in the indexed code".to_string());
+        }
+        None if named.is_empty() => {}
+        None => {
+            let (tests, code): (Vec<_>, Vec<_>) = named.iter().partition(|r| ix.is_test_file(r.file));
+            let nfiles = |v: &[&crate::store::RefV]| v.iter().map(|r| r.file).collect::<std::collections::HashSet<_>>().len();
+            let part = |v: &[&crate::store::RefV], what: &str| format!("{} in {} {what}file{}", sites(v.len()), count(nfiles(v)), if nfiles(v) == 1 { "" } else { "s" });
+            let both = match (code.is_empty(), tests.is_empty()) {
+                (false, true) => part(&code, ""),
+                (true, _) => part(&tests, "test "),
+                (false, false) => format!("{} and {}", part(&code, ""), part(&tests, "test ")),
+            };
+            lines.push(format!("{verb} {both} (`{cli} {lister} {name}` lists every one)"));
+        }
+    }
+    if callable {
+        // What no search for its calls finds.
+        for l in crate::query::search::usage_line(ix, rs, t, 0) {
+            if l.starts_with("registered") || l.starts_with("passed as a callback") {
+                lines.push(clip_bytes(l.split("; dispatched from").next().unwrap_or(&l), 260));
+            }
+        }
+        if !dispatched.is_empty() {
+            match if dispatched.len() > CARD_SITES { None } else { site_list(&dispatched, SITES_BYTES) } {
+                Some(list) => lines.push(format!("reached through that binding from {}: {list}", sites(dispatched.len()))),
+                None => lines.push(format!("reached through that binding from {} (`{cli} callers {name}` lists every one)", sites(dispatched.len()))),
+            }
+        }
+        if by_name > 0 {
+            lines.push(format!("{} more match by name only, on a receiver whose type is not written (`{cli} callers {name}`)", sites(by_name)));
+        }
+    }
+    if lines.is_empty() { None } else { Some(lines.join("\n  ")) }
+}
+
+/// The lines of a definition, numbered the way a read of the file numbers them, when it is
+/// short enough to hand over whole and `room` lines are left to this prompt.
+fn card_body(ix: &Index, def: &crate::store::DefV, room: u32) -> Option<(String, u32)> {
+    let (from, to) = (def.rec.line, def.rec.end_line);
+    if to <= from {
+        return None;
+    }
+    let n = to - from + 1;
+    if n > CARD_BODY_LINES.min(room) {
+        return None;
+    }
+    let src = ix.source(def.file())?;
+    let starts = crate::query::show::line_starts(&src);
+    let mut out = crate::output::Out::new(0);
+    crate::query::show::print_lines(&mut out, &src, &starts, from, to);
+    Some((out.finish().trim_end().to_string(), n))
+}
+
+/// Where a message the prompt quotes is written: an error text or a log line that stands in
+/// one string literal of the code and nowhere else. The card names the line, the function
+/// around it and who calls that function, which is where debugging from a message starts.
+fn origin_cards(ix: &Index, rs: &Resolver, session: &Session, text: &str, cli: &str, taken: &mut Vec<DefId>, tx: &mpsc::Sender<String>) {
+    let mut sent = 0;
+    for o in crate::query::locate::origins(ix, text, ORIGIN_READS, Some(Instant::now() + ORIGIN_TIME)) {
+        if sent >= MAX_ORIGINS {
+            break;
+        }
+        // Exact or silent, as for every card.
+        if !current(ix, o.file) {
+            continue;
+        }
+        let Some(src) = ix.source(o.file) else { continue };
+        let starts = crate::query::show::line_starts(&src);
+        let line = String::from_utf8_lossy(crate::query::show::line_text(&src, &starts, o.line)).trim().to_string();
+        let path = ix.path(o.file);
+        let Some(def) = ix.def_at(o.file, o.line).filter(|d| d.kind().is_callable()) else { continue };
+        if taken.contains(&def.id) {
+            continue;
+        }
+        let name = def.qualified();
+        let key = format!("o:{path}:{}", o.line);
+        if session.seen(&key) || session.seen(&format!("p:{name}")) {
+            continue;
+        }
+        let mut card = format!("this text of the prompt is written at {path}:{}, in {name} ({path}:{}-{}):\n{}\t{}", o.line, def.rec.line, def.rec.end_line, o.line, clip_bytes(&line, 160));
+        let all = ix.defs_named(def.name());
+        if let Some(target) = rs.entities(&all).into_iter().find(|t| t.defs.contains(&def.id)) {
+            if let Some(usage) = card_usage(ix, rs, &target, &name, cli) {
+                card.push_str(&format!("\n  {name} is {usage}"));
+            }
+        }
+        if !session.claim(&key) {
+            continue;
+        }
+        taken.push(def.id);
+        if tx.send(card).is_err() {
+            return;
+        }
+        sent += 1;
+    }
+}
+
+fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id: Option<String>, cli: String, tx: mpsc::Sender<String>) {
     let Some(ix) = open_index(&place) else { return };
     let Some(session) = Session::open(&place, session_id.as_deref()) else { return };
     let rs = Resolver::new(&ix);
@@ -938,11 +1144,13 @@ fn prompt_cards(place: Place, found: prompt::Mentions, session_id: Option<String
     // Names written as code first, tests last: a failing test is where the agent starts
     // anyway, the function it is about is what it has to find.
     let mut order: Vec<&Mention> = found.symbols.iter().collect();
-    order.sort_by_key(|m| (!m.explicit, m.name.starts_with("test") || m.name.starts_with("Test")));
+    order.sort_by_key(|m| (m.name.starts_with("test") || m.name.starts_with("Test"), !m.explicit));
     let mut sent = 0;
+    let mut tests_sent = 0;
+    let mut code_left = CARD_CODE_LINES;
     let mut seen: Vec<DefId> = Vec::new();
     for m in order {
-        if sent >= MAX_CARDS {
+        if sent >= MAX_CARDS && tests_sent > 0 {
             break;
         }
         let Some(target) = resolve_mention(&ix, &rs, m, &found.paths) else { continue };
@@ -956,9 +1164,19 @@ fn prompt_cards(place: Place, found: prompt::Mentions, session_id: Option<String
             continue;
         }
         seen.push(def.id);
-        // A test the prompt names together with its file: the agent knows where it is.
         let test = def.flags() & crate::facts::dflag::TEST != 0 || ix.is_test_file(def.file());
-        if test && found.paths.iter().any(|p| def.path().ends_with(p.as_str())) {
+        if if test { tests_sent > 0 } else { sent >= MAX_CARDS } {
+            continue;
+        }
+        // Of test code, a card is for the test a prompt is about. A helper class of a test
+        // file that shares its name with a word of the prompt is not what was meant.
+        if test && target.class != Class::Callable {
+            continue;
+        }
+        let body = if found.rename { None } else { card_body(&ix, &def, code_left) };
+        // A test the prompt names together with its file: the agent knows where it is. What
+        // it has not read is what the test checks, so the card is the test itself or nothing.
+        if test && body.is_none() && found.paths.iter().any(|p| def.path().ends_with(p.as_str())) {
             continue;
         }
         let name = def.qualified();
@@ -984,38 +1202,53 @@ fn prompt_cards(place: Place, found: prompt::Mentions, session_id: Option<String
             }
             return;
         }
-        let mut card = format!("{name} is defined at {}:{} {}", def.path(), def.rec.line, clip_bytes(&crate::query::sig_of(&def), 130));
-        if let Some(doc) = docs.line(&def, 100) {
-            card.push_str(&format!("\n  {doc}"));
-        }
-        if let Some(s) = spread(&ix, &rs, &target) {
-            let verb = if target.class == Class::Callable { "callers" } else { "refs" };
-            let all = if s.starts_with("no call") || s.starts_with("named in") { String::new() } else { format!(" (`{cli} {verb} {name}` lists every one)") };
-            card.push_str(&format!("\n  {s}{all}"));
+        let doc = docs.line(&def, 100);
+        let mut card = match &body {
+            // The definition itself: its lines say where it is, what it takes and what it does.
+            Some((text, _)) => {
+                let said = doc.as_deref().filter(|d| !text.contains(&d[..d.len().min(24)])).map(|d| format!("\n  {d}")).unwrap_or_default();
+                format!("{name} is defined at {}:{}-{}{said}\n{text}", def.path(), def.rec.line, def.rec.end_line)
+            }
+            None => {
+                let mut head = format!("{name} is defined at {}:{} {}", def.path(), def.rec.line, clip_bytes(&crate::query::sig_of(&def), 130));
+                if let Some(doc) = &doc {
+                    head.push_str(&format!("\n  {doc}"));
+                }
+                clip_bytes(&head, CARD_BYTES)
+            }
+        };
+        if let Some(usage) = card_usage(&ix, &rs, &target, &name, &cli) {
+            card.push_str(&format!("\n  {usage}"));
         }
         // The same symbol is not explained again when the agent greps for it.
         if !session.claim(&format!("p:{name}")) {
             continue;
         }
         session.claim(&format!("s:{}", String::from_utf8_lossy(&target.name)));
-        if tx.send(clip_bytes(&card, CARD_BYTES)).is_err() {
+        if tx.send(card).is_err() {
             return;
         }
-        sent += 1;
+        code_left -= body.map_or(0, |(_, n)| n);
+        if test { tests_sent += 1 } else { sent += 1 }
+    }
+    // Last, because it reads files: where a quoted message comes from.
+    if !found.rename && text.len() >= ORIGIN_MIN_PROMPT {
+        origin_cards(&ix, &rs, &session, &text, &cli, &mut seen, &tx);
     }
 }
 
 fn user_prompt(passed: &Path, payload: &Payload, started: Instant) -> String {
     let Some(text) = payload.prompt.as_deref() else { return String::new() };
     let found = prompt::mentions(text);
-    if found.symbols.is_empty() {
+    if found.symbols.is_empty() && text.len() < ORIGIN_MIN_PROMPT {
         return String::new();
     }
     let Some(place) = Place::find(passed, payload.cwd.as_deref()) else { return String::new() };
     let session_id = payload.audience();
     let (tx, rx) = mpsc::channel();
     let cli = cli();
-    let worker = std::thread::Builder::new().stack_size(16 << 20).spawn(move || prompt_cards(place, found, session_id, cli, tx));
+    let quoted = clip_bytes(text, 24 * 1024);
+    let worker = std::thread::Builder::new().stack_size(16 << 20).spawn(move || prompt_cards(place, found, quoted, session_id, cli, tx));
     if worker.is_err() {
         return String::new();
     }

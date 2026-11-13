@@ -43,7 +43,9 @@ fn edit(repo: &Repo, rel: &str, from: &str, to: &str) {
     std::fs::write(&path, text.replace(from, to)).unwrap();
 }
 
-const CARD: &str = "codefast: dev_read is defined at src/io.c:4 int dev_read(struct dev *d, char *buf, int count)\n  Read up to count bytes from the device\n  called from 1 site in 1 file (`codefast callers dev_read` lists every one)";
+/// A short function comes whole, and so does the one place that calls it: the card is what
+/// the agent would otherwise read and ask for.
+const CARD: &str = "codefast: dev_read is defined at src/io.c:4-9\n  Read up to count bytes from the device\n4\tint dev_read(struct dev *d, char *buf, int count)\n5\t{\n\t    if (!d)\n\t        return -1;\n\t    return d->ops->read(d, buf, count);\n\t}\n  called from 1 site (`codefast callers dev_read` prints the line of each): src/main.c: copy_all:7";
 
 #[test]
 fn a_prompt_that_names_a_symbol_gets_its_card_once() {
@@ -52,7 +54,6 @@ fn a_prompt_that_names_a_symbol_gets_its_card_once() {
     let ran = hook(&home, &repo.dir, "user-prompt-submit", input.as_bytes(), &[]);
     let card = ran.context("UserPromptSubmit");
     assert_eq!(card, CARD);
-    assert!(card.len() <= 420, "about 150 tokens at most: {} bytes", card.len());
     // Not again for the next prompt, and not again when the agent then greps for it.
     hook(&home, &repo.dir, "user-prompt-submit", input.as_bytes(), &[]).assert_quiet("the same symbol in a later prompt");
     hook(&home, &repo.dir, "post-tool-use", payload("claude-post-bash-grep", &repo.dir, &home).as_bytes(), &[]).assert_quiet("a grep for the symbol the card was about");
@@ -77,7 +78,7 @@ fn a_prompt_gets_no_card_for_what_the_index_cannot_pin_down() {
     // Two cards at most, in the order the prompt names them. A static function has the file it lives in.
     let two = ask("d", "`dev_write` and `copy_all` and `dev_read` all need a timeout parameter.").context("UserPromptSubmit");
     assert_eq!(two.matches(" is defined at ").count(), 2, "{two}");
-    assert!(two.starts_with("codefast: dev_write is defined at src/io.c:11 ") && two.contains("\ncopy_all is defined at src/main.c:3 "), "{two}");
+    assert!(two.starts_with("codefast: dev_write is defined at src/io.c:11-15\n") && two.contains("\ncopy_all is defined at src/main.c:3-10\n"), "{two}");
     // A member named in words, with the type it belongs to. The prompt asks for a rename, so
     // the card is the command that does it.
     let said = ask("e", "Rename the field read of dev_ops to read_bytes everywhere.");
@@ -86,6 +87,106 @@ fn a_prompt_gets_no_card_for_what_the_index_cannot_pin_down() {
         "{}",
         said.stdout
     );
+}
+
+#[test]
+fn a_card_carries_what_is_small_and_points_at_what_is_large() {
+    let repo = Repo::new("prompt-sizes");
+    // A function too long to hand over, called from more places than a card lists.
+    let mut long = String::from("#include \"io.h\"\n\n/* Send every pending block. */\nint flush_all(struct dev *d)\n{\n    int n = 0;\n");
+    for i in 0..50 {
+        long.push_str(&format!("    n += dev_write(d, \"{i}\", 1);\n"));
+    }
+    long.push_str("    return n;\n}\n");
+    for i in 0..14 {
+        long.push_str(&format!("\nint user_{i}(struct dev *d)\n{{\n    return flush_all(d);\n}}\n"));
+    }
+    write(&repo.path("src/flush.c"), &long);
+    // A test of it, in a test file.
+    write(&repo.path("tests/test_flush.c"), "#include \"../src/io.h\"\n\nint flush_all(struct dev *d);\n\nint test_flush_counts(void)\n{\n    struct dev d;\n    return flush_all(&d) == 50;\n}\n");
+    let home = scratch("home");
+    let (code, out, err) = run(&home, &repo.dir, &["index"], &[], None);
+    assert_eq!(code, 0, "codefast index: {out}{err}");
+    let ask = |session: &str, prompt: &str| {
+        let mut v: serde_json::Value = serde_json::from_str(&payload("claude-user-prompt", &repo.dir, &home)).unwrap();
+        v["prompt"] = prompt.into();
+        v["session_id"] = session.into();
+        hook(&home, &repo.dir, "user-prompt-submit", v.to_string().as_bytes(), &[])
+    };
+    // The long function: where it is, what it takes, what its author said, how widely it is
+    // used and the command that lists the uses. None of its 53 lines.
+    let card = ask("a", "`flush_all` returns the wrong count.").context("UserPromptSubmit");
+    assert_eq!(
+        card,
+        "codefast: flush_all is defined at src/flush.c:4 int flush_all(struct dev *d)\n  Send every pending block\n  called from 14 sites in 1 file and 1 site in 1 test file (`codefast callers flush_all` lists every one)"
+    );
+    // A failing test named with its file: the card is the test, which is what the agent
+    // reads first. The function it checks comes before it.
+    let both = ask("b", "The test test_flush_counts in tests/test_flush.c fails. `dev_write` is where I would look.").context("UserPromptSubmit");
+    assert!(both.starts_with("codefast: dev_write is defined at src/io.c:11-15\n11\tint dev_write("), "{both}");
+    assert!(both.contains("\ntest_flush_counts is defined at tests/test_flush.c:5-9\n5\tint test_flush_counts(void)\n"), "{both}");
+    assert!(both.ends_with("\treturn flush_all(&d) == 50;\n\t}") || both.ends_with("    return flush_all(&d) == 50;\n\t}"), "{both}");
+    // What stands in a table is said to stand there, and who reaches it through the table.
+    let bound = Repo::new("prompt-bound");
+    write(
+        &bound.path("src/file.c"),
+        "#include \"io.h\"\n\nstatic int file_read(struct dev *d, char *buf, int count)\n{\n    return count;\n}\n\nconst struct dev_ops file_ops = {\n    .read = file_read,\n};\n",
+    );
+    let (code, out, err) = run(&home, &bound.dir, &["index"], &[], None);
+    assert_eq!(code, 0, "codefast index: {out}{err}");
+    let mut v: serde_json::Value = serde_json::from_str(&payload("claude-user-prompt", &bound.dir, &home)).unwrap();
+    v["prompt"] = "Who ends up calling `file_read`?".into();
+    v["session_id"] = "c".into();
+    let said = hook(&home, &bound.dir, "user-prompt-submit", v.to_string().as_bytes(), &[]).context("UserPromptSubmit");
+    assert!(said.contains("\n  registered / bound: dev_ops.read in file_ops (src/file.c:9)\n  reached through that binding from 1 site: src/io.c: dev_read:8"), "{said}");
+    assert!(!said.contains("called from"), "a binding is not a call: {said}");
+    // A name that two definitions share: a list would be checked against a text search that
+    // finds both, so the card gives the number and the command whose answer shows each line.
+    let twins = Repo::new("prompt-twins");
+    write(
+        &twins.path("src/sets.go"),
+        "package sets\n\ntype Names struct{ m map[string]bool }\n\nfunc (n *Names) Add(s string) {\n\tn.m[s] = true\n}\n\ntype Sizes struct{ m map[int]bool }\n\nfunc (z *Sizes) Add(i int) {\n\tz.m[i] = true\n}\n\nfunc fill(n *Names, z *Sizes) {\n\tn.Add(\"a\")\n\tz.Add(1)\n}\n",
+    );
+    let (code, out, err) = run(&home, &twins.dir, &["index"], &[], None);
+    assert_eq!(code, 0, "codefast index: {out}{err}");
+    let mut v: serde_json::Value = serde_json::from_str(&payload("claude-user-prompt", &twins.dir, &home)).unwrap();
+    v["prompt"] = "Which functions call the method Add of *Names (defined in src/sets.go)?".into();
+    v["session_id"] = "d".into();
+    let said = hook(&home, &twins.dir, "user-prompt-submit", v.to_string().as_bytes(), &[]).context("UserPromptSubmit");
+    assert!(said.contains("\n  called from 1 site in 1 file (`codefast callers Names.Add` lists every one)"), "{said}");
+    assert!(!said.contains("fill:16"), "{said}");
+}
+
+#[test]
+fn a_message_quoted_in_a_prompt_is_traced_to_the_line_that_writes_it() {
+    let repo = Repo::new("prompt-origin");
+    write(
+        &repo.path("src/open.c"),
+        "#include \"io.h\"\n\nint dev_open(struct dev *d)\n{\n    if (!d) {\n        log_msg(\"device is not ready for reading yet\");\n        return -1;\n    }\n    return 0;\n}\n\nint start(struct dev *d)\n{\n    return dev_open(d);\n}\n",
+    );
+    // The same words in two files point at neither, and a message of a test is not the program's.
+    write(&repo.path("src/a.c"), "void log_msg(const char *fmt, ...);\nvoid a(void)\n{\n    log_msg(\"buffer was full when the write began\");\n}\n");
+    write(&repo.path("src/b.c"), "void log_msg(const char *fmt, ...);\nvoid b(void)\n{\n    log_msg(\"buffer was full when the write began\");\n}\n");
+    write(&repo.path("tests/test_open.c"), "void log_msg(const char *fmt, ...);\nint test_open(void)\n{\n    log_msg(\"expected the device to refuse a second open\");\n    return 0;\n}\n");
+    let home = scratch("home");
+    let (code, out, err) = run(&home, &repo.dir, &["index"], &[], None);
+    assert_eq!(code, 0, "codefast index: {out}{err}");
+    let ask = |session: &str, prompt: &str| {
+        let mut v: serde_json::Value = serde_json::from_str(&payload("claude-user-prompt", &repo.dir, &home)).unwrap();
+        v["prompt"] = prompt.into();
+        v["session_id"] = session.into();
+        hook(&home, &repo.dir, "user-prompt-submit", v.to_string().as_bytes(), &[])
+    };
+    let card = ask("a", "The tool stops with \"device is not ready for reading yet\" as soon as I start it. Why?").context("UserPromptSubmit");
+    assert_eq!(
+        card,
+        "codefast: this text of the prompt is written at src/open.c:6, in dev_open (src/open.c:3-10):\n6\tlog_msg(\"device is not ready for reading yet\");\n  dev_open is called from 1 site (`codefast callers dev_open` prints the line of each): src/open.c: start:14"
+    );
+    // Said once.
+    ask("a", "Again: \"device is not ready for reading yet\".").assert_quiet("the same message in a later prompt");
+    ask("b", "It printed \"buffer was full when the write began\" and stopped.").assert_quiet("a message two files write");
+    ask("c", "The log says \"expected the device to refuse a second open\".").assert_quiet("a message of a test");
+    ask("d", "Please make the device ready for reading and tell me when the tests pass again.").assert_quiet("words that no string literal holds");
 }
 
 #[test]

@@ -170,7 +170,12 @@ fn the_plugin_hooks_run_the_launcher_and_answer_under_the_event_they_are_registe
         let reply = fire(&w.command, &repo.dir, &home, &envs, &input);
         let said = context(&reply, &w.event, &w.command);
         // Inside the plugin the agent's shell has the launcher on PATH: the bare name is right.
-        assert!(said.contains("`codefast "), "{said}");
+        // The card for a prompt names no command where it lists the uses itself.
+        if w.event == "UserPromptSubmit" {
+            assert!(said.starts_with("codefast: dev_read is defined at src/io.c:4-9\n") && !said.contains(plugin.to_str().unwrap()), "{said}");
+        } else {
+            assert!(said.contains("`codefast "), "{said}");
+        }
         // Turned off, and with no binary to be found, the same line is silent and still succeeds.
         let off = fire(&w.command, &repo.dir, &home, &[envs[0], envs[1], envs[2], ("CODEFAST_HOOKS", "off")], &input);
         assert_eq!(off, (Some(0), String::new(), String::new()), "CODEFAST_HOOKS=off: {}", w.command);

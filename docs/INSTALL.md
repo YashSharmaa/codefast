@@ -45,7 +45,7 @@ replaces a codefast that works.
 
 ```sh
 sh install.sh --dry-run                 # print every action, download and write nothing
-sh install.sh --version 0.2.1           # a specific release instead of the latest
+sh install.sh --version 0.2.2           # a specific release instead of the latest
 sh install.sh --bin-dir /opt/tools/bin  # another directory
 ```
 
@@ -64,7 +64,7 @@ Windows, and the npm package below is not published yet.
 With Node.js, once the npm packages are published (`npm/` holds them, and nothing is published yet):
 
 ```sh
-npx -y @yashsharmaa/codefast@0.2.1 mcp        # or: npm install -g @yashsharmaa/codefast
+npx -y @yashsharmaa/codefast@0.2.2 mcp        # or: npm install -g @yashsharmaa/codefast
 ```
 
 ### The launcher
@@ -731,7 +731,15 @@ What they add, each said once per session:
 - At the start of a session, one line saying that the repository is indexed (the index is built
   in the background when there is none).
 - For a prompt that names a symbol the index can pin down: where it is defined, the sentence its
-  author wrote about it, and how widely it is used. At most two symbols.
+  author wrote about it, and how it is used. A definition of up to 25 lines comes whole, with
+  its line numbers. Where the function is stored in a table or handed over as a callback, the
+  card says where, and which calls reach it through that table. Its direct call sites are
+  listed when nothing else in the repository has its name, and counted otherwise, with the
+  command that prints each one. At most two symbols, and the failing test when the prompt
+  names one.
+- For a prompt that quotes a message (an error text, a log line): the line that writes it, the
+  function around that line and who calls it. Only when the words stand in one string literal
+  of the source and in no other file.
 - After a `grep`, `rg`, `find -name` or the harness's own search for one known symbol: where it
   is defined and how it is used. When the search itself printed the definition, only what it
   did not print (what the function is for, who calls it), and nothing when there is no such
@@ -747,6 +755,10 @@ What they add, each said once per session:
 Once a week per project, Claude Code also shows you (not the model) one line when plugins and
 skills that nothing in the project matches load more than about 1,500 tokens into every
 request.
+
+The index that hooks keep up to date is refreshed in the background on half of the machine's
+cores. `CODEFAST_THREADS=N` sets the number of threads for every codefast command, the
+background refresh included.
 
 ### What the harness itself loads
 

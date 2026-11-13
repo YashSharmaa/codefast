@@ -362,9 +362,48 @@ fn query_phrases(text: &str) -> Vec<(&str, Vec<&str>)> {
 
 /// Find the query's phrases in the repository: word-index intersection, then a literal check.
 fn phrase_hits(ix: &Index, text: &str) -> Vec<PhraseHit> {
+    phrase_hits_within(ix, text, PHRASE_MAX_READS, None)
+}
+
+/// A place in the code where a run of the text's words is written out in a string literal,
+/// and nowhere else: where a message the text quotes comes from.
+pub struct Origin {
+    pub file: FileId,
+    pub line: u32,
+    /// How many phrases of the text meet on that line: two are four words in a row.
+    pub phrases: usize,
+}
+
+/// Where the messages a text quotes are written, best first. Only what leaves no doubt: words
+/// in a row, inside a string literal of source code (not a test, not documentation, not
+/// generated or vendored code), that no other file has. Four words in a row, or three that
+/// make a phrase of some length. The search stops when `until` has passed.
+pub fn origins(ix: &Index, text: &str, max_reads: usize, until: Option<std::time::Instant>) -> Vec<Origin> {
+    let mut at: FxHashMap<(FileId, u32), (usize, bool, usize)> = FxHashMap::default();
+    for h in phrase_hits_within(ix, text, max_reads, until) {
+        let flags = ix.file(h.file).flags;
+        if !h.quoted || flags & (fflag::TEST | fflag::DOC | fflag::GENERATED | fflag::VENDOR | fflag::UNPARSED) != 0 {
+            continue;
+        }
+        let e = at.entry((h.file, h.line)).or_insert((0, false, 0));
+        e.0 += 1;
+        e.1 |= h.spread == 1;
+        e.2 = e.2.max(if h.spread == 1 { h.text.len() } else { 0 });
+    }
+    let mut out: Vec<Origin> =
+        at.into_iter().filter(|(_, (n, alone, longest))| *alone && (*n >= 2 || *longest >= 20)).map(|((file, line), (phrases, _, _))| Origin { file, line, phrases }).collect();
+    out.sort_by(|a, b| b.phrases.cmp(&a.phrases).then_with(|| ix.path(a.file).cmp(ix.path(b.file))).then_with(|| a.line.cmp(&b.line)));
+    out
+}
+
+fn phrase_hits_within(ix: &Index, text: &str, max_reads: usize, until: Option<std::time::Instant>) -> Vec<PhraseHit> {
+    let late = || until.is_some_and(|t| std::time::Instant::now() >= t);
     let mut cands: Vec<(usize, &str, Vec<u32>)> = Vec::new();
     let mut posting_cache: FxHashMap<&str, Option<FxHashSet<u32>>> = FxHashMap::default();
     for (raw, words) in query_phrases(text) {
+        if late() {
+            break;
+        }
         // Rarest word first: a phrase whose rarest word is everywhere is not worth the reads.
         let mut ids: Vec<(u32, &str, NameId)> = Vec::new();
         let mut ok = true;
@@ -407,7 +446,7 @@ fn phrase_hits(ix: &Index, text: &str) -> Vec<PhraseHit> {
     let mut reads = 0usize;
     let mut out: Vec<PhraseHit> = Vec::new();
     for (n, raw, files) in cands {
-        if reads + n > PHRASE_MAX_READS {
+        if reads + n > max_reads || late() {
             break;
         }
         reads += n;
