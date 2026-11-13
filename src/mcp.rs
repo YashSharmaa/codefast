@@ -60,7 +60,9 @@ const MAX_BUDGET: usize = 8000;
 
 const TOOL_NAMES: &[&str] = &["search", "show", "refs", "path", "grep"];
 
-const INSTRUCTIONS: &str = "codefast answers questions about a code repository from a prebuilt structural index: definitions, references, callers, callees, call paths (including dispatch through callback tables), and ranked localisation for bug reports. Prefer it to grep-and-read when you need a symbol's definition or body, who calls or uses something, what a function calls, how control gets from A to B, or where to start for an issue or stack trace. `search` is the entry point and accepts a symbol name, a path, or free text. Answers are compact, list `path:line` locations you can read or edit directly, and state when they are incomplete. `refs` and `grep` leave out test code unless `tests` is true. Plain grep remains right for exact strings in non-code files.";
+/// Sent with every request of a session, so every word is paid for on every request: what the
+/// server is, where to start, and the two things about its answers that are not obvious.
+const INSTRUCTIONS: &str = "codefast answers questions about this repository from a structural index. `search` is the entry point: give it a symbol name, a path or free text (a bug report, a stack trace) and it returns the definition with its body and every place that uses it, or the files the text points to. Use it before grep and file reads for anything about a symbol. Answers give `path:line` locations and say when they are incomplete. `refs` and `grep` leave out test code unless `tests` is true.";
 
 /// Appended to the instructions when the process was started outside a repository.
 const INSTRUCTIONS_NEED_ROOT: &str = " This server was started outside a repository: pass `root` (the absolute path of the repository) with every call.";
@@ -69,7 +71,7 @@ const INSTRUCTIONS_NEED_ROOT: &str = " This server was started outside a reposit
 const HOW_TO_NAME_A_ROOT: &str = "Pass `root` (the absolute path of the repository) with this call; or start the server with `--root DIR`, set CODEFAST_ROOT, or run it from inside a git work tree";
 
 fn tools() -> Value {
-    let root = json!({"type": "string", "description": "Absolute path of the repository, if the server runs outside it."});
+    let root = json!({"type": "string", "description": "Repository path, only when the server asks for it."});
     let budget = json!({"type": "integer", "description": "Answer size in tokens (default 1500, max 8000)."});
     let path = json!({"type": "string", "description": "Only paths containing this text, or a glob such as drivers/net/**."});
     let tests = json!({"type": "boolean", "description": "Include test code (skipped by default)."});
@@ -77,7 +79,7 @@ fn tools() -> Value {
     json!([
         {
             "name": "search",
-            "description": "Entry point for code questions. Give a symbol name (`vfs_read`, `Owner.method`), a file path or `path:line`, or free text (a bug report, an error message, a stack trace). Returns the definition with its body, who calls it and where it is bound, or a ranked list of files and functions for free text. Use this before grep or reading whole files.",
+            "description": "Entry point for code questions. Give a symbol name (`vfs_read`, `Owner.method`), a file path or `path:line`, or free text (a bug report, an error message, a stack trace). Returns the definition with its body and every place that calls or uses it, or for free text the files and functions it most likely means.",
             "inputSchema": {"type": "object", "properties": {
                 "queries": {"type": "array", "items": {"type": "string"}, "description": "One or more queries, answered in turn."},
                 "path": path, "budget": budget, "root": root

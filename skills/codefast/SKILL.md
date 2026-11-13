@@ -1,6 +1,6 @@
 ---
 name: codefast
-description: Find definitions, callers, callees, references and call paths in a code repository from a prebuilt index, in one call and few tokens. Use it when you need to know where a symbol is defined, read one function or struct instead of a whole file, see who calls or uses something (including calls through callback tables and function pointers), trace how execution gets from A to B, find which function prints a log or error message, or choose the files to open for a bug report or stack trace. Works on very large repositories. Runs the `codefast` command.
+description: Answers about the code of this repository from a prebuilt index, in one call. Use it to find where a symbol is defined, read one function instead of a whole file, list who calls or uses something (also through callback tables), see what breaks when a function changes, trace how execution gets from A to B, or pick the files for a bug report or stack trace. Runs the `codefast` command.
 license: MIT OR Apache-2.0
 ---
 

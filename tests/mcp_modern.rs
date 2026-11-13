@@ -481,5 +481,5 @@ fn the_instructions_say_what_the_tools_leave_out() {
     assert!(instructions.contains("leave out test code"), "{instructions}");
     // Codex keeps the first 512 characters: what the server is for must be complete within them.
     let head: String = instructions.chars().take(512).collect();
-    assert!(head.contains("Prefer it to grep-and-read") && head.contains("`search` is the entry point"), "{head}");
+    assert!(head.contains("Use it before grep and file reads") && head.contains("`search` is the entry point"), "{head}");
 }
