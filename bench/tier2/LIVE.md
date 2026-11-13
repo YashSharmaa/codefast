@@ -103,8 +103,9 @@ arm, the `tag` field says which batch a run is from):
   rename request was reworded once. With the first wording the agent ran the command in 4 of 8
   sessions (0.56 of the control), with the second in 8 of 8.
 
-N, L and R of the development tasks were also run with Sonnet 5.5, both arms:
-`bench/results/live-sonnet.jsonl`.
+The held-out tasks that gain (N, L, E and R) were run again with Sonnet 5.5, both arms, one run
+per task and arm: `bench/results/live-heldout-sonnet.jsonl`. N, L and R of the development
+tasks were run with Sonnet too, at version 0.2.0: `bench/results/live-sonnet.jsonl`.
 
 `bench/results/rename-offline.jsonl` and `rename-offline-go-git.jsonl` are the checks of the
 rename command without a model (`rename_offline.py`), `rename-sample*.jsonl` the random samples

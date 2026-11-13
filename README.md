@@ -231,6 +231,10 @@ tasks, kept for development, came out at 0.98, so read that family as no gain in
 rather than as a cost. The agent reached for codefast in 52 of 55 sessions about structure and 4
 of 30 bug-fix sessions, with no word about it in the prompt.
 
+The same held-out tasks with Sonnet 5.5, one run per task and arm: a caller question 0.29, a
+session of four 0.23, an error traced to its origin 0.70 and a rename 0.74. The session with
+codefast was the cheaper one in 34 of 37 pairs (`bench/results/live-heldout-sonnet.jsonl`).
+
 <details>
 <summary>The tasks the hooks were developed on</summary>
 
