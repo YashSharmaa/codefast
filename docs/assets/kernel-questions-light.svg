@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="366" viewBox="0 0 880 366" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
   <title id="t">72 verified questions about the Linux kernel</title>
-  <desc id="d">Mean score for correct answers, from 0 to 1, and median tokens per answer, one direct query per question. codefast 0.96 and 149 tokens, ripgrep best case 0.89 and 384, ripwire 0.66 and 889, cscope 0.44 and 120, GNU Global 0.27 and 54, codebase-memory-mcp 0.26 and 158, universal-ctags 0.13 and 12.</desc>
+  <desc id="d">Mean score for correct answers, from 0 to 1, and median tokens per answer, one direct query per question. codefast 0.96 and 155 tokens, ripgrep best case 0.89 and 384, ripwire 0.66 and 889, cscope 0.44 and 120, GNU Global 0.27 and 54, codebase-memory-mcp 0.26 and 158, universal-ctags 0.13 and 12.</desc>
   <rect x="0.5" y="0.5" width="879" height="365" rx="12" fill="#f6f8fa" stroke="#d1d9e0"/>
 
   <text x="28" y="42" font-size="20" font-weight="600" fill="#1f2328">72 verified questions about the Linux kernel</text>
@@ -16,8 +16,8 @@
   <text x="220" y="131.5" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">codefast</text>
   <path fill="#2a78d6" d="M237 118h226.64a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-226.64z"/>
   <text x="475.64" y="131.5" font-size="16" font-weight="600" fill="#1f2328">0.96</text>
-  <path fill="#2a78d6" d="M569 118h32.63a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-32.63z"/>
-  <text x="613.63" y="131.5" font-size="16" font-weight="600" fill="#1f2328">149</text>
+  <path fill="#2a78d6" d="M569 118h34.36a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-34.36z"/>
+  <text x="615.36" y="131.5" font-size="16" font-weight="600" fill="#1f2328">155</text>
   <text x="220" y="161.5" font-size="16" fill="#1f2328" text-anchor="end">ripgrep, best case</text>
   <path fill="#9aa4ae" d="M237 148h209.6a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-209.6z"/>
   <text x="458.6" y="161.5" font-size="16" fill="#1f2328">0.89</text>
