@@ -111,12 +111,9 @@ impl Ty {
 fn push_ty(out: &mut Vec<Ty>, t: Ty) {
     match out.iter_mut().find(|o| o.name == t.name && (o.defs.is_empty() == t.defs.is_empty())) {
         Some(o) => {
-            for d in t.defs {
-                if !o.defs.contains(&d) {
-                    o.defs.push(d);
-                }
-            }
+            o.defs.extend(t.defs);
             o.defs.sort();
+            o.defs.dedup();
         }
         None => out.push(t),
     }
@@ -186,7 +183,8 @@ fn kind_compatible(class: Class, k: RefKind) -> bool {
         ),
         Class::Value => matches!(k, RefKind::Read | RefKind::Write | RefKind::Call | RefKind::Bind | RefKind::Arg | RefKind::Import | RefKind::Type),
         Class::Member => matches!(k, RefKind::MemberRead | RefKind::MemberWrite | RefKind::MemberCall),
-        Class::Module => matches!(k, RefKind::Import | RefKind::Read | RefKind::Type),
+        // `include M` (Ruby) names a module as a supertype.
+        Class::Module => matches!(k, RefKind::Import | RefKind::Read | RefKind::Type | RefKind::Extends | RefKind::Implements),
     }
 }
 
@@ -226,6 +224,7 @@ pub struct Resolver<'a> {
     subs: RefCell<FxHashMap<Vec<u8>, Rc<Vec<Vec<u8>>>>>,
     global_usings: RefCell<Option<Rc<Vec<Imp>>>>,
     ext_recv: RefCell<FxHashMap<DefId, Option<Vec<u8>>>>,
+    reopen: RefCell<FxHashMap<DefId, Rc<Vec<DefId>>>>,
 }
 
 /// Calls that only exist after macro expansion, as the Linux kernel writes them: a static call
@@ -335,6 +334,41 @@ fn strict_scoping(lang: Lang) -> bool {
     )
 }
 
+/// Can the definition have supertypes of its own: a type, an impl block, or a Ruby module
+/// (which includes other modules)?
+fn has_supers(ix: &Index, v: &DefV) -> bool {
+    v.kind().is_type() || v.kind() == DefKind::Impl || (v.kind() == DefKind::Module && ix.lang(v.file()) == Lang::Ruby)
+}
+
+/// A type, or a Ruby module: Ruby mixes modules into classes, so they own members the way
+/// types do.
+fn type_like(ix: &Index, v: &DefV) -> bool {
+    v.kind().is_type() || (v.kind() == DefKind::Module && ix.lang(v.file()) == Lang::Ruby)
+}
+
+/// Is the definition visible in its own file only? A Ruby `private` method is not: `private`
+/// means "called without a receiver", from any file that reopens or inherits the class.
+fn file_local(ix: &Index, v: &DefV) -> bool {
+    v.is_local() && !(v.kind() == DefKind::Method && ix.lang(v.file()) == Lang::Ruby)
+}
+
+/// `$A::B::C...` -> `$B::C...`: the path without its root namespace, when the next segment is a
+/// constant too. Ruby looks a constant up in the namespaces around it and then at the top level,
+/// so when the root is not in the repository (a gem, or a module Rails autoloading makes from a
+/// directory) the inner constant is looked up by its own name.
+fn ruby_inner_path(path: &[u8]) -> Option<Vec<u8>> {
+    let rest = path.strip_prefix(b"$")?;
+    let i = rest.windows(2).position(|w| w == b"::")?;
+    let tail = &rest[i + 2..];
+    if !tail.first().is_some_and(|c| c.is_ascii_uppercase()) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(tail.len() + 1);
+    out.push(b'$');
+    out.extend_from_slice(tail);
+    Some(out)
+}
+
 impl<'a> Resolver<'a> {
     pub fn new(ix: &'a Index) -> Self {
         Resolver {
@@ -373,6 +407,7 @@ impl<'a> Resolver<'a> {
             subs: RefCell::new(FxHashMap::default()),
             global_usings: RefCell::new(None),
             ext_recv: RefCell::new(FxHashMap::default()),
+            reopen: RefCell::new(FxHashMap::default()),
         }
     }
 
@@ -1377,7 +1412,7 @@ impl<'a> Resolver<'a> {
         let mut out: Vec<Vec<u8>> = Vec::new();
         for d in ix.defs_named(name) {
             let v = ix.def(d);
-            if !(v.kind().is_type() || v.kind() == DefKind::Impl) {
+            if !has_supers(ix, &v) {
                 continue;
             }
             for r in ix.refs_of_file(v.file()) {
@@ -1420,7 +1455,25 @@ impl<'a> Resolver<'a> {
 
     /// The types a type-like reference (`extends B`, `: T`, `new T`) names, from where it is written.
     pub fn types_of_ref(&self, r: &RefV) -> Vec<Ty> {
+        if self.ix.lang(r.file) == Lang::Ruby {
+            return self.ruby_const_types(r.name(), r.qual(), r.file);
+        }
         self.types_named(r.name(), r.qual(), Some(r.file))
+    }
+
+    /// The classes and modules a Ruby constant `name` written in namespace `ns` (`A::B` is `B`
+    /// in `A`) stands for: the constant path walked as a value, which reaches classes, modules
+    /// and constants that alias them.
+    fn ruby_const_types(&self, name: &[u8], ns: Option<&[u8]>, from: FileId) -> Vec<Ty> {
+        let ix = self.ix;
+        let mut p: Vec<u8> = Vec::with_capacity(name.len() + 16);
+        p.push(b'$');
+        if let Some(q) = ns {
+            p.extend_from_slice(q);
+            p.extend_from_slice(b"::");
+        }
+        p.extend_from_slice(name);
+        self.type_path_from(&p, Some(from)).iter().filter(|t| t.defs.iter().any(|&d| type_like(ix, &ix.def(d)))).cloned().collect()
     }
 
     fn supers_of_def(&self, d: DefId) -> Rc<Vec<Ty>> {
@@ -1430,7 +1483,7 @@ impl<'a> Resolver<'a> {
         let ix = self.ix;
         let v = ix.def(d);
         let mut out: Vec<Ty> = Vec::new();
-        if v.kind().is_type() || v.kind() == DefKind::Impl {
+        if has_supers(ix, &v) {
             for r in ix.refs_of_file(v.file()) {
                 if matches!(r.kind(), RefKind::Extends | RefKind::Implements) && r.encl().is_some_and(|e| e.id == d) {
                     for t in self.types_of_ref(&r) {
@@ -1812,7 +1865,7 @@ impl<'a> Resolver<'a> {
         for &d in defs {
             let v = ix.def(d);
             let class = class_of(&v);
-            let local = if v.is_local() { Some(v.file()) } else { None };
+            let local = if file_local(ix, &v) { Some(v.file()) } else { None };
             // Methods are members of their container as far as identity goes.
             let member = class == Class::Member
                 || (class == Class::Callable && v.kind() == DefKind::Method)
@@ -1827,7 +1880,25 @@ impl<'a> Resolver<'a> {
         for ((class, local_file, owner, scope), defs) in groups {
             let name = ix.def(defs[0]).name().to_vec();
             let global = local_file.is_none() && owner.is_none() && matches!(class, Class::Callable | Class::Value | Class::Type);
-            if global {
+            if local_file.is_none()
+                && owner.is_none()
+                && matches!(class, Class::Type | Class::Module)
+                && defs.iter().all(|&d| ix.lang(ix.def(d).file()) == Lang::Ruby)
+            {
+                // A Ruby class or module is one entity across the files that reopen it, and
+                // a different one in each namespace.
+                let mut parts: Vec<(Option<Vec<u8>>, Vec<DefId>)> = Vec::new();
+                for d in defs {
+                    let ns = ix.def(d).parent_name().map(|p| p.to_vec());
+                    match parts.iter_mut().find(|p| p.0 == ns) {
+                        Some(p) => p.1.push(d),
+                        None => parts.push((ns, vec![d])),
+                    }
+                }
+                for (_, part) in parts {
+                    out.push(Target { name: name.clone(), defs: part, class, local_file, owner: None, scope: Vec::new() });
+                }
+            } else if global {
                 for part in self.split_domains(defs) {
                     out.push(Target { name: name.clone(), defs: part, class, local_file, owner: owner.clone(), scope: Vec::new() });
                 }
@@ -1921,6 +1992,18 @@ impl<'a> Resolver<'a> {
         let from_path = ix.path(from);
         let ok = |d: &DefId| accept(&ix.def(*d));
         let mut here: Vec<DefId> = self.defs_in_file(from, name).into_iter().filter(ok).collect();
+        if lang == Lang::Ruby {
+            // Ruby imports name files, not symbols: a constant or method is visible everywhere
+            // once its file is loaded (Rails autoloading loads them all). The file's own first.
+            let all = ix.defs_named(name);
+            if all.len() <= 4096 {
+                here.extend(all.into_iter().filter(|&d| {
+                    let v = ix.def(d);
+                    v.file() != from && ix.lang(v.file()) == Lang::Ruby && accept(&v)
+                }));
+            }
+            return here;
+        }
         if !here.is_empty() {
             if lang == Lang::CSharp && here.iter().all(|&d| ix.def(d).kind().is_type()) {
                 // The other parts of a partial type live in other files of the namespace.
@@ -2108,11 +2191,38 @@ impl<'a> Resolver<'a> {
             }
             return out.into_iter().find(|t| t.name == v.name()).unwrap_or_else(|| Ty { name: v.name().to_vec(), defs: vec![v.id] });
         }
+        if ix.lang(v.file()) == Lang::Ruby && type_like(ix, v) {
+            return Ty { name: v.name().to_vec(), defs: self.reopenings(v).to_vec() };
+        }
         let mut defs = vec![v.id];
         defs.extend(self.impls_of(v.id).iter().copied());
         defs.sort();
         defs.dedup();
         Ty { name: v.name().to_vec(), defs }
+    }
+
+    /// Every definition of a Ruby class or module: a class reopened in another file (or
+    /// another `class Foo` block) is the same class when it sits in a namespace of the same
+    /// name.
+    fn reopenings(&self, v: &DefV) -> Rc<Vec<DefId>> {
+        if let Some(hit) = self.reopen.borrow().get(&v.id) {
+            return hit.clone();
+        }
+        let ix = self.ix;
+        let mut out: Vec<DefId> = ix
+            .defs_named(v.name())
+            .into_iter()
+            .filter(|&d| {
+                let o = ix.def(d);
+                d == v.id || (ix.lang(o.file()) == Lang::Ruby && type_like(ix, &o) && o.parent_name() == v.parent_name())
+            })
+            .collect();
+        out.sort();
+        let rc = Rc::new(out);
+        for &d in rc.iter() {
+            self.reopen.borrow_mut().insert(d, rc.clone());
+        }
+        rc
     }
 
     /// The type that owns a member definition.
@@ -2131,7 +2241,7 @@ impl<'a> Resolver<'a> {
                 // The container is known by name (a Go receiver type, an out-of-line definition):
                 // it is the type of that name visible from the member's file.
                 let mut out = Vec::new();
-                for d in self.scoped_defs(pname, None, v.file(), &|x| x.kind().is_type()) {
+                for d in self.scoped_defs(pname, None, v.file(), &|x| type_like(ix, x)) {
                     self.add_type_def(d, 0, &mut out);
                 }
                 out.into_iter().find(|t| t.name == pname).unwrap_or_else(|| Ty::named(pname))
@@ -2284,6 +2394,10 @@ impl<'a> Resolver<'a> {
                 }
             } else if scope.is_some() {
                 // A namespace, module or class used as a value: members are looked up on it.
+                // (A reopened Ruby class brings all its definitions at once.)
+                if out.iter().any(|t| t.name.as_slice() == var && t.defs.contains(&d)) {
+                    continue;
+                }
                 push_ty(out, self.ty_of_def(&v));
             } else {
                 container = true;
@@ -2322,6 +2436,9 @@ impl<'a> Resolver<'a> {
         if let Some(hit) = self.type_paths.borrow().get(&key) {
             return hit.clone();
         }
+        // A path whose walk leads back to itself (a constant aliasing a path through its own
+        // name) ends at this placeholder.
+        self.type_paths.borrow_mut().insert(key.clone(), Rc::new(Vec::new()));
         let (module, rest) = split_module(path);
         let mut parts = split_path(rest);
         let root = parts.remove(0);
@@ -2380,13 +2497,15 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
-        for (i, seg) in parts.into_iter().enumerate() {
+        // Where the walk lost its way: the segment to look up again by its own name.
+        let mut lost: Option<usize> = if cur.is_empty() { Some(0) } else { None };
+        for (i, seg) in parts.iter().enumerate() {
             if cur.is_empty() {
                 break;
             }
             let (name, call) = match seg.strip_suffix(b"()") {
                 Some(n) => (n, true),
-                None => (seg, false),
+                None => (*seg, false),
             };
             let mut next = Vec::new();
             for t in &cur {
@@ -2417,6 +2536,24 @@ impl<'a> Resolver<'a> {
             }
             cur = next;
             cur.truncate(4);
+            if cur.is_empty() {
+                lost = Some(i);
+            }
+        }
+        if cur.is_empty() && module.is_none() && root.starts_with(b"$") && scope.is_some_and(|f| ix.lang(f) == Lang::Ruby) {
+            // Ruby: a constant that its namespace does not hold here (the namespace is a gem's,
+            // or a module Rails autoloading makes from a directory) is looked up by its own
+            // name, the way Ruby falls back to the namespaces around it and the top level.
+            if let Some(i) = lost.filter(|&i| parts.get(i).is_some_and(|s| s.first().is_some_and(|c| c.is_ascii_uppercase()))) {
+                let mut again: Vec<u8> = b"$".to_vec();
+                for (j, seg) in parts[i..].iter().enumerate() {
+                    if j > 0 {
+                        again.extend_from_slice(b"::");
+                    }
+                    again.extend_from_slice(seg);
+                }
+                cur = self.type_path_from(&again, from).to_vec();
+            }
         }
         let rc = Rc::new(cur);
         self.type_paths.borrow_mut().insert(key, rc.clone());
@@ -2485,7 +2622,16 @@ impl<'a> Resolver<'a> {
             None if is_type => self.scoped_defs(name, None, from, &|v| v.kind().is_type() || v.kind().is_container()).is_empty(),
             // A variable nothing visible declares (`Buffer`, `window`) belongs to the platform.
             None => {
-                root.starts_with(b"$") && self.scoped_defs(name, None, from, &|_| true).is_empty() && self.scoped_defs(root, None, from, &|_| true).is_empty()
+                let missing = root.starts_with(b"$")
+                    && self.scoped_defs(name, None, from, &|_| true).is_empty()
+                    && self.scoped_defs(root, None, from, &|_| true).is_empty();
+                if missing && self.ix.lang(from) == Lang::Ruby {
+                    // `A::B` with `A` outside the repository: `B` may still be ours.
+                    if let Some(inner) = ruby_inner_path(path) {
+                        return self.root_external(&inner, from);
+                    }
+                }
+                missing
             }
         }
     }
@@ -2659,6 +2805,15 @@ impl<'a> Resolver<'a> {
                         push_ty(&mut out, h);
                     }
                 }
+                // Ruby: `self` in a method of a module is an object of a class that includes the
+                // module, which may define what the module calls.
+                if !strict_up && t.defs.iter().any(|&d| self.ix.def(d).kind() == DefKind::Module && self.ix.lang(self.ix.def(d).file()) == Lang::Ruby) {
+                    for s in self.descendants(t).iter().take(64) {
+                        if self.has_member(s, field) {
+                            push_ty(&mut out, s.clone());
+                        }
+                    }
+                }
             }
         }
         if out.is_empty() && unique_ok && !qual.is_some_and(|q| q.starts_with(b"^")) {
@@ -2709,7 +2864,7 @@ impl<'a> Resolver<'a> {
         if t.local_file.is_none() && t.class != Class::Member {
             for d in ix.defs_named_id(nid) {
                 let v = ix.def(d);
-                if v.is_local() && class_of(&v) == t.class {
+                if file_local(ix, &v) && class_of(&v) == t.class {
                     shadow.insert(v.file());
                 }
             }
@@ -2885,8 +3040,18 @@ impl<'a> Resolver<'a> {
                             && r.kind() != RefKind::Arg
                             && r.kind() != RefKind::Import
                         {
-                            let fits = t.defs.iter().any(|&d| self.link_bonus(r.file, &t.name, Some(q), &ix.def(d)) > 0)
-                                || t.defs.iter().any(|&d| ix.def(d).file() == r.file);
+                            let fits = if ix.lang(r.file) == Lang::Ruby {
+                                // A Ruby qualifier is the namespace a constant is written in.
+                                if matches!(r.kind(), RefKind::Type | RefKind::Extends | RefKind::Implements | RefKind::New) {
+                                    self.types_of_ref(&r).iter().any(|x| x.defs.iter().any(|d| t.defs.contains(d)))
+                                } else {
+                                    t.defs.iter().any(|&d| self.link_bonus(r.file, &t.name, Some(q), &ix.def(d)) > 0)
+                                        || self.qualifier_types(r.file, q).is_empty()
+                                }
+                            } else {
+                                t.defs.iter().any(|&d| self.link_bonus(r.file, &t.name, Some(q), &ix.def(d)) > 0)
+                                    || t.defs.iter().any(|&d| ix.def(d).file() == r.file)
+                            };
                             if !fits {
                                 return;
                             }
@@ -2899,12 +3064,22 @@ impl<'a> Resolver<'a> {
         });
         // A constructor under a fixed name (`__init__`, `constructor`) runs where its class is
         // instantiated.
-        if let Some(owner) = owner_canon.as_ref().filter(|_| matches!(t.name.as_slice(), b"__init__" | b"constructor" | b"__new__" | b"__construct")) {
+        if let Some(owner) =
+            owner_canon.as_ref().filter(|_| matches!(t.name.as_slice(), b"__init__" | b"constructor" | b"__new__" | b"__construct" | b"initialize"))
+        {
             if let Some(oid) = ix.name_id(&owner.name) {
                 ix.for_each_ref_named(oid, |r| {
-                    if matches!(r.kind(), RefKind::New | RefKind::Call)
-                        && strict_scoping(ix.lang(r.file))
-                        && self.denotes(&r).iter().any(|d| owner.defs.contains(d))
+                    let lang = ix.lang(r.file);
+                    // Ruby: `T.new(..)` runs `T#initialize`.
+                    let ruby_new = lang == Lang::Ruby
+                        && t.name.as_slice() == b"initialize"
+                        && r.kind() == RefKind::New
+                        && self.types_of_ref(&r).iter().any(|x| x.same(owner));
+                    if ruby_new
+                        || (matches!(r.kind(), RefKind::New | RefKind::Call)
+                            && t.name.as_slice() != b"initialize"
+                            && strict_scoping(lang)
+                            && self.denotes(&r).iter().any(|d| owner.defs.contains(d)))
                     {
                         emit(r, Conf::Exact);
                     }
@@ -3312,6 +3487,20 @@ impl<'a> Resolver<'a> {
 
     /// The type (class, struct, ...) a reference names: `new T()`, a call of a class.
     pub fn resolve_type(&self, name: &[u8], qual: Option<&[u8]>, from: FileId) -> Vec<DefId> {
+        let ix = self.ix;
+        if ix.lang(from) == Lang::Ruby {
+            // A constant written in a namespace (`A::B.new`) is looked up through it.
+            let mut out: Vec<DefId> = Vec::new();
+            for t in self.ruby_const_types(name, qual, from) {
+                for d in t.defs {
+                    if ix.def(d).kind().is_type() && !out.contains(&d) {
+                        out.push(d);
+                    }
+                }
+            }
+            out.sort_by_key(|&d| (std::cmp::Reverse(def_rank(ix, &ix.def(d))), d));
+            return out;
+        }
         self.resolve_want(name, qual, from, 255, true)
     }
 
@@ -3556,7 +3745,7 @@ impl<'a> Resolver<'a> {
         let v = ix.def(d);
         let mut out = None;
         if matches!(v.kind(), DefKind::Variable | DefKind::Constant | DefKind::Field)
-            && matches!(ix.lang(v.file()), Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Python)
+            && matches!(ix.lang(v.file()), Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Python | Lang::Ruby)
         {
             let name = v.name();
             let into_slot = |q: &[u8]| q.len() > name.len() && q.ends_with(name) && q[q.len() - name.len() - 1] == b'.';

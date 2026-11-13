@@ -1,0 +1,71 @@
+lang=ruby ok=true lines=52 errors=0
+--- defs (12)
+  0 mod     Trackable                    L2-22 parent=- type=- arity=0..0 flags=0x00 | module Trackable
+  1 mod     ClassMethods                 L9-13 parent=Trackable type=- arity=0..0 flags=0x00 | module ClassMethods
+  2 method  tracked                      L10-12 parent=ClassMethods type=- arity=0..0 flags=0x00 | def tracked
+  3 method  included                     L15-17 parent=Trackable type=- arity=1..1 flags=0x00 | def self.included(base)
+  4 method  track                        L19-21 parent=Trackable type=- arity=0..0 flags=0x00 | def track
+  5 class   Post                         L24-52 parent=- type=- arity=0..255 flags=0x00 | class Post < ApplicationRecord
+  6 method  recent                       L36-36 parent=Post type=- arity=0..255 flags=0x00 | scope :recent
+  7 method  name                         L37-37 parent=Post type=- arity=0..255 flags=0x00 | delegate :name, :email, to: :author
+  8 method  email                        L37-37 parent=Post type=- arity=0..255 flags=0x00 | delegate :name, :email, to: :author
+  9 method  comments_size                L38-38 parent=Post type=- arity=0..255 flags=0x00 | delegate :size, to: :comments, prefix: true
+ 10 method  title_is_short               L40-42 parent=Post type=- arity=0..0 flags=0x00 | def title_is_short
+ 11 method  publish                      L44-51 parent=Post type=- arity=0..0 flags=0x00 | def publish
+--- refs (55)
+L3    type    ActiveSupport                in Trackable
+L3    impl    Concern                      in Trackable qual=ActiveSupport
+L6    mcall   before_save                  in Trackable qual=$Trackable nargs=1
+L6    mread   track                        in Trackable qual=$Trackable
+L6    arg     track                        in Trackable qual=before_save
+L9    impl    ClassMethods                 in Trackable qual=Trackable
+L11   mcall   where                        in tracked qual=$Trackable::ClassMethods nargs=1
+L16   type    Helpers                      in included
+L16   impl    Helpers                      in Trackable
+L20   mcall   now                          in track qual=$Time nargs=0
+L20   mwrite  tracked_at                   in track qual=$Trackable
+L24   extends ApplicationRecord            in Post
+L25   impl    Trackable                    in Post
+L26   impl    Searchable                   in Post
+L27   impl    Audited                      in Post
+L29   mcall   belongs_to                   in Post qual=$Post nargs=1
+L30   mcall   validates                    in Post qual=$Post nargs=2
+L30   mread   published?                   in Post qual=$Post
+L30   arg     published?                   in Post qual=validates
+L31   mcall   validate                     in Post qual=$Post nargs=1
+L31   mread   title_is_short               in Post qual=$Post
+L31   arg     title_is_short               in Post qual=validate
+L32   mcall   after_commit                 in Post qual=$Post nargs=2
+L32   mread   draft?                       in Post qual=$Post
+L32   mread   notify                       in Post qual=$Post
+L32   mread   silent?                      in Post qual=$Post
+L32   arg     draft?                       in Post qual=after_commit
+L32   arg     notify                       in Post qual=after_commit
+L32   arg     silent?                      in Post qual=after_commit
+L33   mcall   skip_before_action           in Post qual=$Post nargs=1
+L33   mread   login                        in Post qual=$Post
+L34   mcall   rescue_from                  in Post qual=$Post nargs=2
+L34   type    NotFound                     in Post
+L34   mread   not_found                    in Post qual=$Post
+L34   arg     not_found                    in Post qual=rescue_from
+L36   mcall   limit                        in recent nargs=1
+L36   mcall   order                        in recent qual=$Post nargs=1
+L37   mcall   author                       in name qual=$Post nargs=0
+L37   mcall   author                       in email qual=$Post nargs=0
+L38   mcall   comments                     in comments_size qual=$Post nargs=0
+L41   mcall   add                          in title_is_short qual=$Post::errors nargs=1
+L41   mcall   errors                       in title_is_short qual=$Post nargs=0
+L41   mcall   length                       in title_is_short qual=$Post::title nargs=0
+L41   mcall   title                        in title_is_short qual=$Post nargs=0
+L45   mcall   notify                       in publish qual=$Post nargs=1
+L46   mcall   touch                        in publish qual=$Post nargs=0
+L47   mread   notify                       in publish qual=$Post
+L48   mcall   body                         in publish nargs=0
+L48   mcall   comments                     in publish qual=$Post nargs=0
+L48   mcall   map                          in publish qual=$Post::comments nargs=0
+L49   mcall   comments                     in publish qual=$Post nargs=0
+L49   mcall   each                         in publish qual=$Post::comments nargs=0
+L49   mread   render                       in publish qual=$Post
+L50   mcall   author                       in publish qual=$Post nargs=0
+L50   mcall   greet                        in publish qual=$Post::author nargs=0
+--- imports (0)

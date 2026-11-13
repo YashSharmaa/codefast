@@ -1,0 +1,29 @@
+lang=ruby ok=true lines=41 errors=0
+--- defs (2)
+  0 class   Locals                       L2-41 parent=- type=- arity=0..255 flags=0x00 | class Locals
+  1 method  run                          L3-40 parent=Locals type=- arity=3..255 flags=0x00 | def run(a, (b, c), *d, e:, **f, &g)
+--- refs (23)
+L7    mcall   before                       in run qual=$Locals nargs=0
+L10   mcall   list                         in run qual=$Locals nargs=0
+L13   mcall   each                         in run qual=$Locals::items nargs=0
+L13   mcall   it                           in run qual=$Locals nargs=0
+L13   mcall   items                        in run qual=$Locals nargs=0
+L14   mcall   each                         in run qual=$Locals::items nargs=0
+L14   mcall   go                           in run nargs=0
+L14   mcall   items                        in run qual=$Locals nargs=0
+L15   mcall   each                         in run qual=$Locals::items nargs=0
+L15   mcall   go                           in run nargs=0
+L15   mcall   items                        in run qual=$Locals nargs=0
+L16   mcall   each                         in run qual=$Locals::items nargs=0
+L16   mcall   items                        in run qual=$Locals nargs=0
+L19   mcall   q                            in run qual=$Locals nargs=0
+L20   mcall   go                           in run nargs=0
+L20   mcall   rows                         in run qual=$Locals nargs=0
+L23   mcall   work                         in run qual=$Locals nargs=0
+L24   type    Error                        in run
+L25   mcall   message                      in run nargs=0
+L27   mcall   value                        in run qual=$Locals nargs=0
+L32   mcall   value                        in run qual=$Locals nargs=0
+L34   mcall   u                            in run qual=$Locals nargs=0
+L39   mcall   missing                      in run qual=$Locals nargs=0
+--- imports (0)

@@ -1,0 +1,52 @@
+lang=ruby ok=true lines=81 errors=0
+--- defs (35)
+  0 mod     Shop                         L2-77 parent=- type=- arity=0..0 flags=0x00 | module Shop
+  1 const   VERSION                      L3-3 parent=Shop type=String arity=0..0 flags=0x00 | VERSION =
+  2 struct  Money                        L4-8 parent=Shop type=- arity=0..2 flags=0x00 | Money =
+  3 field   cents                        L4-4 parent=Money type=- arity=0..0 flags=0x00 | :cents
+  4 field   currency                     L4-4 parent=Money type=- arity=0..0 flags=0x00 | :currency
+  5 method  to_s                         L5-7 parent=Money type=- arity=0..0 flags=0x00 | def to_s
+  6 struct  Point                        L9-9 parent=Shop type=- arity=0..2 flags=0x00 | Point =
+  7 field   x                            L9-9 parent=Point type=- arity=0..0 flags=0x00 | :x
+  8 field   y                            L9-9 parent=Point type=- arity=0..0 flags=0x00 | :y
+  9 class   Order                        L11-67 parent=Shop type=- arity=2..255 flags=0x00 | class Order < Base
+ 10 prop    total                        L12-12 parent=Order type=- arity=0..0 flags=0x00 | attr_reader :total
+ 11 prop    note                         L13-13 parent=Order type=- arity=0..0 flags=0x00 | attr_writer :note
+ 12 prop    status                       L14-14 parent=Order type=- arity=0..0 flags=0x00 | attr_accessor :status
+ 13 prop    owner                        L14-14 parent=Order type=- arity=0..0 flags=0x00 | attr_accessor :status, :owner
+ 14 const   LIMIT                        L16-16 parent=Order type=Integer arity=0..0 flags=0x00 | LIMIT =
+ 15 method  initialize                   L18-21 parent=Order type=- arity=2..255 flags=0x00 | def initialize(total, note = nil, *rest, rush:, gift: false, **opts, &block)
+ 16 field   @total                       L19-19 parent=Order type=- arity=0..0 flags=0x00 | @total =
+ 17 field   @items                       L20-20 parent=Order type=Items arity=0..0 flags=0x00 | @items =
+ 18 method  build                        L23-23 parent=Order type=- arity=1..1 flags=0x00 | def self.build(total)
+ 19 method  empty                        L26-28 parent=Order type=- arity=0..0 flags=0x00 | def empty
+ 20 method  name=                        L31-33 parent=Order type=- arity=1..1 flags=0x00 | def name=(value)
+ 21 field   @name                        L32-32 parent=Order type=- arity=0..0 flags=0x00 | @name =
+ 22 method  ready?                       L35-37 parent=Order type=- arity=0..0 flags=0x00 | def ready?
+ 23 method  check!                       L39-41 parent=Order type=- arity=0..0 flags=0x40 | def check!
+ 24 field   summary                      L43-43 parent=Order type=- arity=0..0 flags=0x20 | alias summary to_s
+ 25 field   finish!                      L44-44 parent=Order type=- arity=0..0 flags=0x20 | alias_method :finish!, :check!
+ 26 method  twice                        L45-45 parent=Order type=- arity=1..1 flags=0x00 | define_method(:twice)
+ 27 method  hidden                       L49-51 parent=Order type=- arity=0..0 flags=0x02 | def hidden
+ 28 method  visible                      L55-57 parent=Order type=- arity=0..0 flags=0x00 | def visible
+ 29 method  secret                       L59-61 parent=Order type=- arity=0..0 flags=0x02 | def secret
+ 30 method  other                        L63-65 parent=Order type=- arity=0..0 flags=0x02 | def other
+ 31 class   Order                        L69-73 parent=Shop type=- arity=0..255 flags=0x00 | class Order
+ 32 method  reopened                     L70-72 parent=Order type=- arity=0..0 flags=0x00 | def reopened
+ 33 class   Report                       L75-76 parent=~Admin type=- arity=0..255 flags=0x00 | class Admin::Report < ::Shop::Order
+ 34 fn      top_level                    L79-81 parent=- type=- arity=2..2 flags=0x00 | def top_level(a, b)
+--- refs (13)
+L6    mcall   cents                        in to_s qual=$Shop::Money nargs=0
+L6    mcall   currency                     in to_s qual=$Shop::Money nargs=0
+L11   extends Base                         in Order
+L20   new     Items                        in initialize nargs=0
+L23   new     Order                        in build nargs=1
+L27   mcall   build                        in empty qual=$Shop::Order nargs=1
+L43   mread   to_s                         in summary qual=$Shop::Order
+L43   bind    to_s                         in summary qual=$Shop::Order.summary
+L44   mread   check!                       in finish! qual=$Shop::Order
+L44   bind    check!                       in finish! qual=$Shop::Order.finish!
+L75   type    Admin                        in Shop
+L75   type    Shop                         in Report
+L75   extends Order                        in Report qual=Shop
+--- imports (0)

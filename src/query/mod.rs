@@ -173,14 +173,14 @@ pub fn parse_spec(ix: &Index, s: &str) -> Spec {
             return Spec::File(file);
         }
     }
-    // Owner.name / Owner::name / Owner#name / Owner->name
-    for sep in ["::", "->", "#", "."] {
-        if let Some(i) = s.rfind(sep) {
-            let (owner, name) = (&s[..i], &s[i + sep.len()..]);
-            if !owner.is_empty() && !name.is_empty() {
-                let owner = owner.rsplit(|c: char| !(c.is_alphanumeric() || c == '_')).next().unwrap_or(owner);
-                return Spec::Sym { owner: Some(owner.to_string()), name: name.to_string(), kinds };
-            }
+    // Owner.name / Owner::name / Owner#name / Owner->name, split at the last separator so that
+    // a namespaced owner (`Shop::Order.total`, `Shop::Order#total`) keeps its member name.
+    let last = ["::", "->", "#", "."].iter().filter_map(|sep| s.rfind(sep).map(|i| (i, sep.len()))).filter(|&(i, l)| i > 0 && i + l < s.len()).max();
+    if let Some((i, l)) = last {
+        let (owner, name) = (&s[..i], &s[i + l..]);
+        let owner = owner.rsplit(|c: char| !(c.is_alphanumeric() || c == '_')).next().unwrap_or(owner);
+        if !owner.is_empty() {
+            return Spec::Sym { owner: Some(owner.to_string()), name: name.to_string(), kinds };
         }
     }
     Spec::Sym { owner: None, name: s.to_string(), kinds }

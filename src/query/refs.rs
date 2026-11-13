@@ -977,9 +977,10 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
                     out.line(&format!("  registered with {}() at {}:{}", String::from_utf8_lossy(reg), e.r.path(), e.r.line()));
                     continue;
                 }
-                let (owners, field) = rs.slot(q);
+                // Resolved as the binding's own file sees it: its type names may be scoped.
+                let (owners, field) = rs.slot_from(q, Some(e.r.file));
                 let slot = match owners.first() {
-                    Some(o) => format!("{}.{}", String::from_utf8_lossy(o).trim_start_matches('%'), String::from_utf8_lossy(&field)),
+                    Some(o) => format!("{}.{}", String::from_utf8_lossy(&o.name).trim_start_matches('%'), String::from_utf8_lossy(&field)),
                     None => String::from_utf8_lossy(q).into_owned(),
                 };
                 out.line(&format!("  {} in {} {}:{}", slot, encl_name(&e.r), e.r.path(), e.r.line()));

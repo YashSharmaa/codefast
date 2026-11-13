@@ -1,0 +1,19 @@
+lang=ruby ok=true lines=18 errors=0
+--- defs (4)
+  0 class   OrderTest                    L4-18 parent=- type=- arity=0..255 flags=0x08 | class OrderTest < ActiveSupport::TestCase
+  1 method  test_ships_an_order          L7-10 parent=OrderTest type=- arity=0..0 flags=0x08 | test "ships an order"
+  2 method  test_total                   L12-14 parent=OrderTest type=- arity=0..0 flags=0x08 | def test_total
+  3 method  prepare                      L16-17 parent=OrderTest type=- arity=0..0 flags=0x08 | def prepare
+--- refs (10)
+L4    type    ActiveSupport                in OrderTest
+L4    extends TestCase                     in OrderTest qual=ActiveSupport
+L5    mcall   setup                        in OrderTest qual=$OrderTest nargs=1
+L5    mread   prepare                      in OrderTest qual=$OrderTest
+L5    arg     prepare                      in OrderTest qual=setup
+L8    new     Order                        in test_ships_an_order nargs=1
+L9    mcall   ship                         in test_ships_an_order qual=$Order nargs=0
+L13   mcall   assert_equal                 in test_total qual=$OrderTest nargs=2
+L13   mcall   total                        in test_total qual=$Order nargs=0
+L13   new     Order                        in test_total nargs=1
+--- imports (1)
+L2    target=test_helper name=- alias=- flags=0

@@ -1,0 +1,49 @@
+lang=ruby ok=true lines=46 errors=0
+--- defs (6)
+  0 class   Cart                         L7-44 parent=- type=- arity=1..1 flags=0x00 | class Cart < Shop::Basket
+  1 method  initialize                   L8-12 parent=Cart type=- arity=1..1 flags=0x00 | def initialize(items)
+  2 field   @items                       L10-10 parent=Cart type=- arity=0..0 flags=0x00 | @items =
+  3 field   @parser                      L11-11 parent=Cart type=$Shop::Parser arity=0..0 flags=0x00 | @parser =
+  4 method  add                          L14-25 parent=Cart type=- arity=1..2 flags=0x00 | def add(item, qty = 1)
+  5 method  receivers                    L27-43 parent=Cart type=- arity=0..0 flags=0x00 | def receivers
+--- refs (35)
+L5    import  Parser                       in <file> qual=shop/parser
+L7    type    Shop                         in Cart
+L7    extends Basket                       in Cart qual=Shop
+L9    mcall   initialize                   in initialize qual=^$Cart
+L11   type    Shop                         in initialize
+L11   new     Parser                       in initialize qual=Shop nargs=0
+L15   mcall   add                          in add qual=^$Cart nargs=1
+L16   mcall   validate                     in add qual=$Cart nargs=1
+L17   mcall   validate                     in add qual=$Cart nargs=1
+L18   mcall   log                          in add qual=$Cart nargs=0
+L19   mwrite  count                        in add qual=$Cart
+L20   mread   @items                       in add qual=$Cart
+L21   mcall   parse                        in add qual=$Cart::@parser nargs=1
+L21   mread   @parser                      in add qual=$Cart
+L22   mcall   price                        in add qual=$Shop::Pricing nargs=1
+L22   type    Pricing                      in add qual=Shop
+L22   type    Shop                         in add
+L23   type    Pricing                      in add qual=Shop
+L23   type    Shop                         in add
+L23   read    TAX                          in add qual=Shop::Pricing
+L24   new     Logger                       in add nargs=0
+L28   new     Cart                         in receivers nargs=1
+L29   mcall   add                          in receivers qual=$Cart nargs=1
+L31   mcall   add                          in receivers qual=$Cart nargs=1
+L33   new     Order                        in receivers nargs=0
+L34   mcall   ship                         in receivers qual=$Order nargs=0
+L36   mcall   shout                        in receivers qual=String nargs=0
+L37   mcall   first                        in receivers qual=Array nargs=0
+L38   mcall   make                         in receivers qual=$Cart nargs=0
+L39   mcall   round                        in receivers qual=$Cart::total nargs=0
+L39   mcall   total                        in receivers qual=$Cart nargs=0
+L39   new     Cart                         in receivers nargs=0
+L41   new     Order                        in receivers nargs=0
+L42   mcall   ship                         in receivers nargs=0
+L46   call    top_level                    in <file> nargs=2
+--- imports (4)
+L2    target=json name=- alias=- flags=0
+L3    target=support/helpers name=- alias=- flags=0
+L4    target=tasks.rb name=- alias=- flags=0
+L5    target=shop/parser name=Parser alias=- flags=0
