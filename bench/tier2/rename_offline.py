@@ -2,9 +2,10 @@
 is applied to a fresh copy of syft and judged by the task's own check (`go build` and `go vet`).
 No model is involved.
 
-usage: python3 bench/tier2/rename_offline.py [--out FILE]
+usage: python3 bench/tier2/rename_offline.py [--tasks r] [--out FILE]
 Needs bench/repos/syft, target/ab/r/tasks.json (make_r_tasks.py) and Go. CODEFAST_BIN names the
-binary (default target/release/codefast).
+binary (default target/release/codefast). `--tasks r2` takes the tasks of another repository
+(`make_r_tasks.py --out r2`), which name their checkout themselves.
 """
 import argparse, json, os, subprocess, tempfile, time
 from pathlib import Path
@@ -15,15 +16,17 @@ SYFT = ROOT / "bench/repos/syft"
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--tasks", default="r", help="directory under target/ab")
     ap.add_argument("--out", default=str(ROOT / "bench/results/rename-offline.jsonl"))
     a = ap.parse_args()
     binary = os.environ.get("CODEFAST_BIN", str(ROOT / "target/release/codefast"))
-    tasks = json.load(open(ROOT / "target/ab/r/tasks.json"))
+    tasks = json.load(open(ROOT / "target/ab" / a.tasks / "tasks.json"))
     work = Path(tempfile.mkdtemp(prefix="codefast-rename-", dir=ROOT / "target"))
     rows = []
     for t in tasks:
         repo = work / t["id"]
-        subprocess.run(["rsync", "-a", "--exclude", ".git", "--exclude", ".codefast", f"{SYFT}/", f"{repo}/"], check=True)
+        src = t.get("repo_dir") or SYFT
+        subprocess.run(["rsync", "-a", "--exclude", ".git", "--exclude", ".codefast", f"{src}/", f"{repo}/"], check=True)
         owner = t["receiver"].lstrip("*")
         env = dict(os.environ, CODEFAST_INDEX_DIR=str(work / f"index-{t['id']}"))
         t0 = time.time()

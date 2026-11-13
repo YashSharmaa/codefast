@@ -109,6 +109,17 @@ uv run bench/tier2/live.py score --tag T --out bench/results/live-T.jsonl
 uv run bench/tier2/live.py show --tag T --id N-Collection-Add --arm plugin   # one session, step by step
 ```
 
+The tasks held out until a build is final are listed in `bench/tier2/tasks.json` and run by
+name:
+
+```
+uv run bench/tier2/make_n_tasks.py --repo go-git --repo-name go-git/go-git --out n2
+uv run bench/tier2/make_r_tasks.py --repo go-git --repo-name go-git/go-git --out r2 --vet "go vet ./..."
+uv run bench/tier2/make_e_tasks.py           # from an error message to the function that raises it
+uv run bench/tier2/make_i_tasks.py           # the bug-fix tasks without their tests
+uv run bench/tier2/live.py run --tag H --held K,N,E,R,D,I,L --arms control,plugin --model haiku --jobs 2 --reps 2
+```
+
 `tier2/LIVE.md` is the protocol: the arms, the five kinds of task and how each answer is
 checked, what is measured, and why the tables report a cost priced from the size of every
 request instead of the billed cost. `--resume` continues a batch that was interrupted, and a
@@ -125,8 +136,9 @@ the repository before any rename is subtracted.
 
 ```
 python3 bench/tier2/rename_offline.py
+python3 bench/tier2/rename_offline.py --tasks r2 --out bench/results/rename-offline-go-git.jsonl
 python3 bench/tier2/rename_sample.py --repo syft --per-kind 10
-python3 bench/tier2/rename_sample.py --repo gitleaks --per-kind 8 --out bench/results/rename-sample-gitleaks.jsonl
+python3 bench/tier2/rename_sample.py --repo go-git --per-kind 8 --out bench/results/rename-sample-go-git.jsonl
 ```
 
 ## Agent pilot (`tier2`)

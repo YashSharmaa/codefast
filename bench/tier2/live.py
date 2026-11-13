@@ -100,9 +100,12 @@ def choose(a):
     k = k_tasks() + k_tasks("kernel_questions_held_out")
     n, long = n_tasks()
     n2 = load("n2")
+    # Sessions of four on the second repository, from its held-out caller questions.
+    held_n = [t for t in n2 if t["id"] in held_out("N")]
+    long2 = [dict(id=f"L-gogit-{j // 4 + 1}", family="L", repo_name="go-git/go-git", parts=held_n[j : j + 4]) for j in range(0, len(held_n) - 3, 4)]
     if a.ids or a.held:
         want = a.ids.split(",") if a.ids else [x for fam in a.held.split(",") for x in held_out(fam)]
-        by = {t["id"]: t for t in d + r + k + n + long + i + n2 + e}
+        by = {t["id"]: t for t in d + r + k + n + long + i + n2 + e + long2}
         return [by[x] for x in want]
     order = lambda ts: sorted(ts, key=lambda t: hashlib.sha256(t["id"].encode()).hexdigest())
     if a.dev:

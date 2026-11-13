@@ -225,6 +225,11 @@
    "E-syft-NewFromContainerImageAll-27",
    "E-syft-SBOMWriter-105",
    "E-syft-safeCopy-16"
+  ],
+  "L": [
+   "L-gogit-1",
+   "L-gogit-2",
+   "L-gogit-3"
   ]
  }
 }

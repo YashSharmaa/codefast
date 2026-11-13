@@ -33,17 +33,25 @@ when it debugs, changes code, writes new code or maintains a very large codebase
 
 Measured so far (the tables are under [Results](#results)):
 
-- **Cheaper sessions.** In real headless Claude Code sessions a question about who calls a method costs 0.30 of the same session without codefast, four such questions in one session 0.17 and a rename across the repository 0.29, with the results as good (checked against the Go type checker and compiler). With Sonnet 5.5: 0.32, 0.25 and 0.46.
-- **Right in one call.** 0.96 out of 1 on 72 verified questions about the Linux kernel, at a median of 155 tokens per answer. Best-case ripgrep: 0.89, two calls, 384 tokens.
-- **Fast and exact.** The whole Linux kernel indexes in 8 s. The call graph agrees with
-  compilers at a precision of 0.982 to 1.000 on four repositories.
-- **No gain where the agent already has the short path.** A bug fix with the failing tests given costs the same with and without it (0.99), and a question about the Linux kernel, which the model largely knows, nearly the same (0.94).
+- **Cheaper sessions where the work is finding things.** In headless Claude Code sessions on tasks
+  held out until the build was final, a question about who calls a method costs 0.28 of the same
+  session without codefast, four such questions in one session 0.15, tracing an error message to
+  the function that raises it 0.63, a rename across the repository 0.51 and a question about the
+  Linux kernel 0.86. The answers are as good, checked against the Go type checker, the compiler
+  and verified answers.
+- **Right in one call.** 0.96 out of 1 on 72 verified questions about the Linux kernel, at a
+  median of 155 tokens per answer. Best-case ripgrep: 0.89, two calls, 384 tokens.
+- **Fast and exact.** The whole Linux kernel indexes in 8 s. The call graph agrees with compilers
+  at a precision of 0.982 to 1.000 on five repositories.
+- **No gain on the fix itself.** Fixing a bug costs 0.99 of the control with the failing tests
+  given and 1.11 from the issue text alone. Reproducing, editing and running the tests again is
+  the model's own work, and an index does not shorten it.
 
 ## What it is for
 
 | When the agent is | codefast answers |
 |---|---|
-| **Debugging** | Which files a bug report or stack trace points to (`codefast locate "<paste the report>"`), which function prints a message (`codefast grep -F "Busy inodes after unmount"`) and how execution gets from A to B (`codefast path sys_read ext4_file_read_iter`). |
+| **Debugging** | Which files a bug report or stack trace points to (`codefast locate "<paste the report>"`), which function prints a message (`codefast grep -F "Busy inodes after unmount"`, and unasked when a prompt quotes the message) and how execution gets from A to B (`codefast path sys_read ext4_file_read_iter`). |
 | **Changing code** | Before the edit, in one answer: the body, its type, the signatures of what it calls, its call sites and its tests (`codefast context vfs_read`). A rename of a function, method, type or field in one command, at the definition and at every reference the index is sure of (`codefast rename Set.Add Insert`). After any edit: what still uses a name the edit removed, renamed or gave another signature (`codefast check`). |
 | **Writing new code** | One function or struct to build on instead of a whole file (`codefast show vfs_read`), the API of an installed dependency (`codefast dep requests Session`), and a warning when new code calls a method that does not exist (`codefast check`). |
 | **Working in a very large codebase** | Where a symbol is defined and who reaches it, also through ops tables and callbacks (`codefast search vfs_read`, `codefast callers ext4_file_read_iter`). |
@@ -55,13 +63,17 @@ Measured so far (the tables are under [Results](#results)):
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/in-a-session-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/in-a-session-light.svg">
-    <img alt="Four moments of a session at which codefast adds facts through hooks. A prompt names a symbol: where it is defined and how widely it is used. The agent runs a search: what the search did not print, such as who calls the function. The agent edits a file: the places that still use a name the edit removed. The context is compacted: which definitions the uncommitted changes added, removed and altered." src="docs/assets/in-a-session-light.svg" width="880">
+    <img alt="Five moments of a session at which codefast adds facts through hooks. A prompt names a symbol: its definition, whole when it is short, and how widely it is used. A prompt quotes an error message: the line that writes it and who calls the function around it. The agent runs a search: what the search did not print, such as who calls the function. The agent edits a file: the places that still use a name the edit removed. The context is compacted: which definitions the uncommitted changes added, removed and altered." src="docs/assets/in-a-session-light.svg" width="880">
   </picture>
 </p>
 
 Agents seldom reach for an optional tool, so the Claude Code plugin and the Codex setup register
 hooks. They state facts and never tell the agent what to do. A hook with nothing new to say
-prints nothing, and none of them blocks or rewrites a tool call.
+prints nothing, and none of them blocks or rewrites a tool call. What a card says was settled
+in sessions and not at a desk: a short definition comes whole, a table binding that no search
+finds is spelled out, and the call sites of a name that other things share are counted and
+not listed, because agents re-check such a list with grep
+([`bench/tier2/LIVE.md`](bench/tier2/LIVE.md)).
 
 ## Get started
 
@@ -148,10 +160,10 @@ last column is our own number, or says that we have none yet.
 
 | What studies of coding agents found | What codefast does about it | What we measured |
 |---|---|---|
-| **Reading dominates.** 76.1% of an agent's tokens on SWE-bench Verified went to read operations ([SWE-Pruner](https://arxiv.org/abs/2601.16746)), and agents viewed 7.8 to 9.5 files per task where 1.4 mattered ([Coherence Collapse](https://arxiv.org/abs/2603.24631)). | `show` returns one function instead of a file. `context` returns the body, its type, the signatures of what it calls, its call sites and its tests in one answer. | A median answer of 155 tokens on 72 kernel questions (best-case ripgrep 384). In live sessions the tool output read for a caller question fell from 26.9k to 2.6k characters. |
-| **Every extra turn sends the conversation again.** The median model call in 13 million GitHub Copilot sessions carried a 68K token prompt ([Agentic Coding in the Wild](https://arxiv.org/abs/2608.00101)). | One call answers a structural question. | Requests per caller question fell from 6.8 to 3.5, and in sessions of four questions from 10.0 to 4.3. |
-| **Agents seldom reach for an extra tool.** Of 1,996,558 real tool calls 1.4% went to MCP tools and 0.4% to skills ([SWE-chat](https://arxiv.org/abs/2604.20779)). An agent with a memory tool made 0 calls to it in 114 turns, and the same task took 95 and 102 turns when hooks delivered the content ([arXiv 2607.20972](https://arxiv.org/abs/2607.20972), a small study). | Hooks deliver the facts at the cue: a prompt that names a symbol, a search, an edit, a compaction. One MCP tool is always loaded, the other four are deferred. | With the plugin installed and no word about it in the prompt, the agent used codefast in 42 of 42 sessions on structural tasks, and in 1 of 12 bug-fix sessions. |
-| **A push must be precise, or it costs.** File candidates pushed at a precision of 0.375 cost 21% more tokens for no gain, and the break-even lay between 0.45 and 0.68 ([arXiv 2608.05886](https://arxiv.org/abs/2608.05886)). | A hook speaks only about a symbol the index resolves without doubt, about at most two per prompt, and only says what the agent's own output did not show. | On 12 bug-fix tasks, where the agent hardly uses the tool, sessions with the hooks cost 0.99 of those without. Before the hooks checked what a search had already printed, the same tasks cost 1.09. |
+| **Reading dominates.** 76.1% of an agent's tokens on SWE-bench Verified went to read operations ([SWE-Pruner](https://arxiv.org/abs/2601.16746)), and agents viewed 7.8 to 9.5 files per task where 1.4 mattered ([Coherence Collapse](https://arxiv.org/abs/2603.24631)). | `show` returns one function instead of a file. `context` returns the body, its type, the signatures of what it calls, its call sites and its tests in one answer. | A median answer of 155 tokens on 72 kernel questions (best-case ripgrep 384). In held-out sessions the tool output read for a caller question fell from 32.6k to 4.6k characters. |
+| **Every extra turn sends the conversation again.** The median model call in 13 million GitHub Copilot sessions carried a 68K token prompt ([Agentic Coding in the Wild](https://arxiv.org/abs/2608.00101)). | One call answers a structural question. | On held-out tasks, requests per caller question fell from 7.2 to 3.5, and per error traced to its origin from 5.8 to 3.4. |
+| **Agents seldom reach for an extra tool.** Of 1,996,558 real tool calls 1.4% went to MCP tools and 0.4% to skills ([SWE-chat](https://arxiv.org/abs/2604.20779)). An agent with a memory tool made 0 calls to it in 114 turns, and the same task took 95 and 102 turns when hooks delivered the content ([arXiv 2607.20972](https://arxiv.org/abs/2607.20972), a small study). | Hooks deliver the facts at the cue: a prompt that names a symbol, a search, an edit, a compaction. One MCP tool is always loaded, the other four are deferred. | With the plugin installed and no word about it in the prompt, the agent used codefast in 52 of 55 held-out tasks about structure, and in 4 of 30 bug-fix tasks. |
+| **A push must be precise, or it costs.** File candidates pushed at a precision of 0.375 cost 21% more tokens for no gain, and the break-even lay between 0.45 and 0.68 ([arXiv 2608.05886](https://arxiv.org/abs/2608.05886)). | A hook speaks only about a symbol the index resolves without doubt, about at most two per prompt, and only says what the agent's own output did not show. | Agents re-check what they are handed: a card that listed the call sites of a method whose name other types share made a caller question cost 0.64 of the control, against 0.37 for a card with their number and the command. On 15 held-out bug-fix tasks, where the agent does not use the tool, sessions with the hooks cost 0.99 of those without. |
 | **A check after every edit beats one at the end.** Static analysis after each edit raised the solve rate from 28.5% to 34.1% ([Meta](https://arxiv.org/abs/2507.18755)), and a deterministic check that a called API exists reached a precision of 100% ([arXiv 2601.19106](https://arxiv.org/abs/2601.19106)). | After an edit: the places that still use what the edit removed, renamed or re-signatured, and calls of a member that nothing defines. Each finding is said once. | Run over working code as if it were new, the member check reports nothing in kubernetes (550,224 member uses), syft, gitleaks, zod, redis, sqlglot and pandas, and 8 of 48,562 in django. Effect on an agent's success: not measured yet. |
 | **A compaction loses exact names.** Summaries kept 17% of injected constraints, and over 90% when a registry was added again after the summary ([COMPINT](https://arxiv.org/abs/2608.11242)). | After a compaction a hook lists the definitions the uncommitted work added, removed and altered, from the working tree and not from memory. | Not measured yet. |
 | **What is always loaded is paid on every request.** With 20 skills loaded up front a small model succeeded in 0.42 of tasks, and in 0.96 with the same skills loaded on demand, at 74% to 82% fewer tokens ([arXiv 2609.35692](https://arxiv.org/abs/2609.35692)). | `codefast doctor context` prices every plugin, skill, MCP server and instruction file of the harness and names the ones the project has no use for. codefast itself adds about 670 tokens to a request. | On the one configuration we compared (7 plugins, 43 skills), its total was 4% above Claude Code's own `/context`. |
@@ -163,7 +175,7 @@ last column is our own number, or says that we have none yet.
 |---|---|---|
 | **A location without the code costs more reads.** When a language server tool returned source lines with its locations, its score on multi-file renames rose from 0.67 to 0.83 and follow-up reads fell from 15.2 to 3.2 ([arXiv 2608.13568](https://arxiv.org/abs/2608.13568), a small study). | Every reference and call site comes with its source line and the function it sits in. | 1.0 tool calls per kernel question (best-case ripgrep 2.0). |
 | **Text search loses accuracy across files.** On blast-radius tasks in a repository of 400k lines grep scored 0.71 at 12,596 tokens, structural tools 0.84 to 0.93 at 748 to 1,368 ([936 runs](https://dev.to/neko1313_4/how-much-does-context-cost-an-ai-coding-agent-grep-vs-graph-vs-lsp-measured-across-936-runs-33m8)). | `callers` follows ops tables, callbacks and function pointers. `path A B` returns the call chain. | 0.96 on 72 kernel questions (best-case ripgrep 0.89). |
-| **A better file ranking alone does not save tokens.** An index with the right file in its top 5 for 81% of queries (grep 39%) saved none in a live trial ([InventiveHQ](https://inventivehq.com/blog/code-index-vs-grep-ai-coding-agents-tokens)). | `locate` ranks the files for a bug report without a model. We report it as a ranking, not as a saving. | The right file is ranked first for 0.344 of 250 kernel bugs (best published 0.228). No token saving on bug fixes in our sessions. |
+| **A better file ranking alone does not save tokens.** An index with the right file in its top 5 for 81% of queries (grep 39%) saved none in a live trial ([InventiveHQ](https://inventivehq.com/blog/code-index-vs-grep-ai-coding-agents-tokens)). | `locate` ranks the files for a bug report without a model. We report it as a ranking, not as a saving. | The right file is ranked first for 0.344 of 250 kernel bugs (best published 0.228). In sessions a bug fix costs 0.99 of the control with the failing tests given and 1.11 without them. |
 
 </details>
 
@@ -180,50 +192,80 @@ raw results are in `bench/results/`.
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/live-sessions-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/live-sessions-light.svg">
-    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it. Who calls this method: 0.30. Four such questions in one session: 0.17. Rename a Go method everywhere: 0.29. A question about the Linux kernel: 0.94. Fix a bug with the failing tests given: 0.99." src="docs/assets/live-sessions-light.svg" width="880">
+    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Who calls this method: 0.28. Four such questions in one session: 0.15. Where does this error come from: 0.63. Rename a Go method everywhere: 0.51. A question about the Linux kernel: 0.86. Fix a bug, failing tests given: 0.99. Fix a bug from the issue text alone: 1.11." src="docs/assets/live-sessions-light.svg" width="880">
   </picture>
 </p>
 
-Headless Claude Code sessions (`claude -p`, version 2.1.323, Haiku 5.5). Every task runs twice
-with the same prompt: once with nothing loaded, once with the plugin as `claude plugin install`
+Headless Claude Code sessions (`claude -p`, version 2.1.323, Haiku 5.5). Every task runs with
+the same prompt in two arms: with nothing loaded, and with the plugin as `claude plugin install`
 gives it. The prompt never mentions the tool. Cost is the session priced from the size of every
 request (a cached token 0.1, a new one 1.25, an output token 5), which does not depend on what
 happened to be cached when a run started. [`bench/tier2/LIVE.md`](bench/tier2/LIVE.md) is the
-protocol, and `bench/results/live-haiku.jsonl` has every run.
+protocol.
 
-| Task | Sessions per arm | Right, without and with | Requests | Tool output read, characters | Cost with codefast | Cheaper in |
+**Held-out tasks.** These were set aside while version 0.2.2 was built and run once it was
+final: questions and renames in go-git, a repository codefast had never been run on, error
+messages of go-git and syft, kernel questions that no session had used, and the bug-fix tasks
+not used before. Two runs per task and arm (`bench/results/live-heldout-haiku.jsonl`).
+
+| Task | Tasks | Right, without and with | Requests | Tool output read, characters | Cost with codefast | Cheaper in |
 |---|---:|---|---|---|---:|---:|
-| **Who calls this method?**<br>13 methods of syft (Go) whose name several types share. Answers checked against the type checker's call graph | 13 | 0.99 and 0.99 | 6.8 and 3.5 | 26.9k and 2.6k | **0.30** | 13 of 13 |
+| **Who calls this method?**<br>12 methods of go-git whose name several types share. Answers checked against the type checker's call graph | 12 | 1.00 and 0.98 | 7.2 and 3.5 | 32.6k and 4.6k | **0.28** | 12 of 12 |
+| **Four such questions in one session**<br>The same questions, four to a session | 3 | 0.99 and 0.98 | 19.5 and 5.3 | 96.3k and 11.1k | **0.15** | 3 of 3 |
+| **Where does this error come from?**<br>An error text of go-git or syft: which function creates it, and who calls that function. Checked against the type checker's call graph | 12 | 0.99 and 1.00 | 5.8 and 3.4 | 4.4k and 4.2k | **0.63** | 11 of 12 |
+| **Rename a Go method everywhere**<br>In go-git, where other types have a method of the same name. Checked by the compiler and by what was renamed | 10 | 10 of 10 in each arm | 9.3 and 5.4 | 19.7k and 8.2k | **0.51** | 9 of 10 |
+| **A question about the Linux kernel**<br>18 of the 72 verified questions, none used in a session before | 18 | 0.93 and 0.96 | 4.1 and 3.1 | 4.6k and 4.8k | **0.86** | 12 of 18 |
+| **Fix a bug, failing tests given**<br>Issues of Django and sqlglot. Checked by running the tests of the real fix | 15 | 15 of 15 in each arm | 6.1 and 6.0 | 12.6k and 10.8k | **0.99** | 9 of 15 |
+| **Fix a bug from the issue text alone**<br>The same issues without their tests. Checked afterwards against the tests of the real fix | 15 | 7.5 of 15 in each arm | 6.9 and 7.5 | 9.6k and 10.1k | **1.11** | 4 of 15 |
+
+What this says. Where the work is finding things, a session costs a third to two thirds of what
+it did, and the longer the session runs the more it saves, because what an agent reads early is
+sent again with every later request. The gain is largest where a text search gives the wrong
+answer: a method whose name several types share, a message that could be written anywhere in
+the tree, a rename that has to find every call. Where a failing test already points at the
+line, or the code is in the model's memory as the kernel is, the agent takes the same steps
+with or without codefast. Fixing the bug is the model's own work, and an index does not shorten
+it: with the tests given a fix costs 0.99 of the control, and from the issue text alone
+1.11. The agent reached for codefast in 52 of 55 sessions about
+structure and 4 of 30 bug-fix sessions, with no word about it in the prompt.
+
+<details>
+<summary>The tasks the hooks were developed on</summary>
+
+These are the runs of version 0.2.0, one per task and arm. The hooks were shaped while reading
+sessions of these tasks, so the table above is the one to go by
+(`bench/results/live-haiku.jsonl`).
+
+| Task | Tasks | Right, without and with | Requests | Tool output read, characters | Cost with codefast | Cheaper in |
+|---|---:|---|---|---|---:|---:|
+| **Who calls this method?**<br>13 methods of syft | 13 | 0.99 and 0.99 | 6.8 and 3.5 | 26.9k and 2.6k | **0.30** | 13 of 13 |
 | **Four such questions in one session**<br>The same questions, four to a session | 3 | 0.94 and 0.99 | 10.0 and 4.3 | 96.6k and 12.9k | **0.17** | 3 of 3 |
-| **Rename a Go method everywhere**<br>Other types have a method of the same name. Checked by the compiler and by what was renamed | 8 | 8 and 8 of 8 solved | 10.4 and 4.1 | 12.6k and 2.6k | **0.29** | 8 of 8 |
-| **A question about the Linux kernel**<br>18 of the 72 verified questions | 18 | 1.00 and 1.00 | 3.8 and 3.0 | 3.8k and 4.9k | **0.94** | 12 of 18 |
-| **Fix a bug or add a feature**<br>Issues of Django and sqlglot with the failing tests given. Checked by running the tests of the real fix | 12 | 12 and 12 of 12 solved | 5.2 and 4.8 | 7.6k and 6.9k | **0.99** | 8 of 12 |
+| **Rename a Go method everywhere**<br>8 renames in syft | 8 | 8 of 8 in each arm | 10.4 and 4.1 | 12.6k and 2.6k | **0.29** | 8 of 8 |
+| **A question about the Linux kernel**<br>18 questions | 18 | 1.00 and 1.00 | 3.8 and 3.0 | 3.8k and 4.9k | **0.94** | 12 of 18 |
+| **Fix a bug, failing tests given**<br>12 issues of Django and sqlglot | 12 | 12 of 12 in each arm | 5.2 and 4.8 | 7.6k and 6.9k | **0.99** | 8 of 12 |
 
-What this says. Where the task is about structure, a session costs a third of what it did, and
-less the longer it runs, because what an agent reads early is sent again with every later
-request. A rename is one command in place of a search, a read of every hit and an edit per
-file. Where a failing test already points the way, or the code is in the model's memory as the
-kernel is, the agent takes the same steps with or without codefast, and the hooks cost nothing
-that shows. One run per task and arm, so read the totals and not single rows.
+Three of these figures were worse a day earlier. The first build listed, next to the calls it was
+sure of, the calls whose receiver it could not type, as possibly another type's. Agents answered
+that hedge by going back to grep and to the compiler: a caller question cost 0.49 of the control
+and a rename 1.11. Typing those receivers took the matches by name in syft from 399 to 19, with
+the type checker's call graph as the judge. The rename became a command, and its card was reworded
+once after reading the eight rename sessions.With Sonnet 5.5, a stronger model that needs fewer
+steps to begin with, a caller question costs 0.32 of the control (6.1 requests down to 2.9), a
+session of four costs 0.25 of the control (10.3 requests down to 3.3) and a rename costs 0.46 of
+the control (6.1 requests down to 3.5), and the session with codefast was the cheaper one in 24 of
+24 pairs (`bench/results/live-sonnet.jsonl`).
 
-Three of these figures were worse a day earlier, and why is worth knowing. The first build
-listed, next to the calls it was sure of, the calls whose receiver it could not type, as
-possibly another type's. Agents answered that hedge by going back to grep and to the compiler:
-a caller question cost 0.49 of the control and a rename 1.11. Typing those receivers (the later
-results of a call, the rows of a table-driven test, values that come from another package) took
-the matches by name in syft from 399 to 19, with the type checker's call graph as the judge,
-and the caller questions to 0.30. The rename became a command.
+</details>
 
-The three kinds of task that gain were run again with Sonnet 5.5, a stronger model that needs fewer steps to begin with: a caller question costs 0.32 of the control (6.1 requests down to 2.9), a session of four costs 0.25 of the control (10.3 requests down to 3.3) and a rename costs 0.46 of the control (6.1 requests down to 3.5). The session with codefast was the cheaper one in 24 of 24 pairs, and the answers were as accurate in both arms (`bench/results/live-sonnet.jsonl`).
+The rename command was also checked without any model, by the compiler. On go-git, a repository
+nothing here had been run on, `go build` and `go vet` pass after the one command in 7 of the 10
+rename tasks: it refuses two that it cannot prove are safe (one of them would have been), and
+on one it changes too few call sites and says which it left. On syft, where the command was
+developed, 10 of 11 pass. On a random sample of types, struct fields and methods, 53 of 54
+renames in syft and gitleaks and 23 of 24 in go-git changed 2,907 references and left no
+compiler error outside the lines the command itself had listed, and 42 more were refused
+(`bench/results/rename-offline-go-git.jsonl`, `rename-sample*.jsonl`).
 
-The rename command was also checked without any model, by the compiler. In 10 of the 11 rename
-tasks `go build` and `go vet` pass after the one command, and the eleventh leaves one call
-through a function-typed variable, which the command lists as not changed. On a random sample
-of types, struct fields and methods of syft and gitleaks, 53 of 54 renames changed 2,478
-references and left no compiler error outside the lines the command itself had listed. It
-refused 25 more, most of them methods that an interface ties to their name. The one failure is
-a method of a type that is handed to another package as that package's interface, which no
-index of the source can see (`bench/results/rename-sample.jsonl`).
 
 ### Index a huge repository
 
@@ -306,17 +348,20 @@ definitions).
 ### Call graphs checked against compilers
 
 The call graph codefast reports was compared with what a compiler or type checker resolves for the
-same code ([`bench/oracles`](bench/oracles)). Precision is the share of reported edges the compiler
-agrees with. Recall is the share of the compiler's direct call edges that were reported.
+same code ([`bench/oracles`](bench/oracles)). Precision is the share of reported edges the
+compiler agrees with. Recall is the share of the compiler's direct call edges that were reported.
 
 | Repository | Language | Precision | Recall |
 |---|---|---:|---:|
 | redis | C | 0.982 | 0.974 |
 | gitleaks | Go | 1.000 | 1.000 |
 | syft | Go | 1.000 | 0.998 |
+| go-git | Go | 0.999 | 0.989 |
 | zod | TypeScript | 1.000 | 0.969 |
 
-On the Go and TypeScript repositories no reported edge is contradicted by the compiler. Calls
+go-git was scored once, on the first index codefast ever built of it: nothing had been tuned
+on that repository. Three of its 4,261 reported edges are contradicted by the type checker. On
+the other Go repositories and on zod none is. Calls
 through interfaces are a separate list of candidates (`export-edges --dynamic`). With them, recall
 over every edge in syft, dynamic ones included, is 0.885 at a precision of 0.883.
 
@@ -389,7 +434,7 @@ workspace. Files in other languages are covered by the word index and text searc
 | Language | Checked against | Result |
 |---|---|---|
 | C | a compiler's call graph of redis, and 72 verified kernel questions | precision 0.982, recall 0.974 |
-| Go | the type checker's call graph of gitleaks and syft | precision 1.000, recall 0.998 to 1.000 |
+| Go | the type checker's call graph of gitleaks, syft and go-git | precision 0.999 to 1.000, recall 0.989 to 1.000 |
 | TypeScript | the type checker's call graph of zod | precision 1.000, recall 0.969 |
 | Kotlin | 16 functions of ktor, by hand | 411 of 411 listed callers right, 411 of 414 found |
 | Swift | 16 targets of swift-nio, by hand | 207 of 207 listed call sites right, 207 of 231 found |
@@ -413,12 +458,16 @@ hand are small, and the five languages added in 0.2.0 are the youngest.
   calls and tables filled through a name-pasting macro are followed. Tables generated by including
   a list file several times (the LSM hooks, for one) are not.
 * It does not run builds, so code that is generated at build time is not indexed.
-* It does not save tokens everywhere. A bug fix with the failing tests given costs the same with and without it. Every live figure is one run per task and arm on one harness, and the rename figure is tuned on its own eight tasks (`bench/tier2/LIVE.md` says how).
+* It does not save tokens everywhere. Fixing a bug costs the same with and without it. Every
+  live figure is from one harness and one model family, and single pairs of sessions vary
+  widely (`bench/tier2/LIVE.md`).
 * A rename changes what the index is sure of and lists the rest. It refuses a method that an
   interface ties to its name where it can see the tie (a declared implementation, an interface
   of the repository, the method names of Go's standard library). A Go type handed to another
   package as that package's interface, with nothing in the code saying so, it cannot see. The
-  compiler can.
+  compiler can. It is also cautious: on go-git, which it had not seen, it refused two of ten
+  methods that could safely be renamed, and left alone the lines on which two different
+  methods of the same name are called.
 * The hooks were measured in Claude Code only. The Codex hooks pass their tests against recorded
   payloads and have not been measured in live sessions.
 
