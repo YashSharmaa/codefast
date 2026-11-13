@@ -1418,8 +1418,15 @@ fn pick<'a>(ix: &Index, rs: &Resolver<'a>, id: &Ident, scope: Option<&str>) -> O
     if ents.is_empty() || ents.len() > MAX_ENTITIES {
         return None;
     }
+    // The one thing the name stands for, or nothing. Picking the first of several things that
+    // share a common word (`context`, `config`, `parse`) answers a question nobody asked: in a
+    // session it explained DecimalField.context to an agent grepping Django's test client.
     let strong: Vec<&Target> = ents.iter().filter(|t| matches!(t.class, Class::Callable | Class::Type | Class::Value)).collect();
-    let main = if strong.len() == 1 { strong[0] } else { &ents[0] };
+    let main = match (&ents[..], &strong[..]) {
+        ([one], _) => one,
+        (_, [one]) => *one,
+        _ => return None,
+    };
     Some((main.clone(), ents.len() - 1))
 }
 

@@ -309,6 +309,24 @@ question goes from 8,477 output tokens to 2,731, four of them in one session fro
 output does not shrink: 4,536 to 4,335 with the failing tests given, 4,510 to 4,805 without
 them. An index shortens the finding, and finding is not what a bug fix spends.
 
+## One meaning or nothing
+
+The note after a search picked the first of several things a name stands for when none of them
+stood out. In a held-out session an agent grepping Django's test client for `context` was told
+about `DecimalField.context`, and that session ran to 19 requests where the control took 10.
+The note now says nothing unless the name means one thing in this repository.
+
+| | Cost | Median task | Right |
+|---|---:|---:|---:|
+| 15 held-out tasks with their tests, before | 1.04 | 0.95 | all fixed |
+| the same, after | 1.02 | 0.97 | all fixed |
+| 12 held-out caller questions, before | 0.28 | 0.28 | 0.98 |
+| the same, after | 0.30 | 0.34 | 0.99 |
+
+Two runs per arm, so the cost columns say the same thing twice: nothing moved outside the
+noise. What moved is what the tool says, and the answers got slightly better rather than
+worse, which is the trade the project's own rule asks for.
+
 ## What a card should say
 
 The prompt card of version 0.2.2 was settled by three small experiments on development tasks
