@@ -8,16 +8,26 @@ use tree_sitter::Parser;
 pub mod c;
 #[cfg(feature = "lang-cpp")]
 pub mod cpp;
+#[cfg(feature = "lang-csharp")]
+pub mod csharp;
 #[cfg(feature = "lang-go")]
 pub mod go;
 #[cfg(feature = "lang-java")]
 pub mod java;
 #[cfg(feature = "lang-js")]
 pub mod js;
+#[cfg(feature = "lang-kotlin")]
+pub mod kotlin;
+#[cfg(feature = "lang-php")]
+pub mod php;
 #[cfg(feature = "lang-python")]
 pub mod python;
+#[cfg(feature = "lang-ruby")]
+pub mod ruby;
 #[cfg(feature = "lang-rust")]
 pub mod rust;
+#[cfg(feature = "lang-swift")]
+pub mod swift;
 
 /// Languages known to the index. Values are stored on disk: only append.
 #[repr(u8)]
@@ -164,6 +174,16 @@ impl Lang {
             Lang::Rust => Some(tree_sitter_rust::LANGUAGE.into()),
             #[cfg(feature = "lang-java")]
             Lang::Java => Some(tree_sitter_java::LANGUAGE.into()),
+            #[cfg(feature = "lang-csharp")]
+            Lang::CSharp => Some(tree_sitter_c_sharp::LANGUAGE.into()),
+            #[cfg(feature = "lang-kotlin")]
+            Lang::Kotlin => Some(tree_sitter_kotlin_ng::LANGUAGE.into()),
+            #[cfg(feature = "lang-php")]
+            Lang::Php => Some(tree_sitter_php::LANGUAGE_PHP.into()),
+            #[cfg(feature = "lang-ruby")]
+            Lang::Ruby => Some(tree_sitter_ruby::LANGUAGE.into()),
+            #[cfg(feature = "lang-swift")]
+            Lang::Swift => Some(tree_sitter_swift::LANGUAGE.into()),
             _ => None,
         }
     }
@@ -229,6 +249,16 @@ pub fn extract(lang: Lang, src: &[u8], path: &str, parsers: &mut Parsers, facts:
         Lang::Rust => rust::extract(lang, src, &tree, path, facts, scratch),
         #[cfg(feature = "lang-java")]
         Lang::Java => java::extract(lang, src, &tree, path, facts, scratch),
+        #[cfg(feature = "lang-csharp")]
+        Lang::CSharp => csharp::extract(lang, src, &tree, path, facts, scratch),
+        #[cfg(feature = "lang-kotlin")]
+        Lang::Kotlin => kotlin::extract(lang, src, &tree, path, facts, scratch),
+        #[cfg(feature = "lang-php")]
+        Lang::Php => php::extract(lang, src, &tree, path, facts, scratch),
+        #[cfg(feature = "lang-ruby")]
+        Lang::Ruby => ruby::extract(lang, src, &tree, path, facts, scratch),
+        #[cfg(feature = "lang-swift")]
+        Lang::Swift => swift::extract(lang, src, &tree, path, facts, scratch),
         _ => return false,
     }
     true

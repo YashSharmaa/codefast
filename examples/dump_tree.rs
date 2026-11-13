@@ -1,4 +1,6 @@
-// Debug helper: print the tree-sitter tree of a C file (optionally a line range) with field names.
+// Debug helper: print the tree-sitter tree of a source file (optionally a line range) with field
+// names. The grammar is chosen by the file name, the way the indexer chooses it.
+// usage: dump_tree FILE [FIRST_LINE [LAST_LINE [MAX_DEPTH]]]
 use std::fs;
 
 fn main() {
@@ -9,7 +11,9 @@ fn main() {
     let maxdepth: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(99);
     let src = fs::read(path).unwrap();
     let mut p = tree_sitter::Parser::new();
-    p.set_language(&tree_sitter_c::LANGUAGE.into()).unwrap();
+    let lang = codefast::lang::detect(path, &src);
+    let grammar = lang.grammar().unwrap_or_else(|| panic!("no grammar is compiled in for {path}"));
+    p.set_language(&grammar).unwrap();
     let tree = p.parse(&src, None).unwrap();
     let mut c = tree.walk();
     let mut depth = 0usize;
