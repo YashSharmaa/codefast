@@ -940,7 +940,6 @@ fn prompt_cards(place: Place, found: prompt::Mentions, session_id: Option<String
     let mut order: Vec<&Mention> = found.symbols.iter().collect();
     order.sort_by_key(|m| (!m.explicit, m.name.starts_with("test") || m.name.starts_with("Test")));
     let mut sent = 0;
-    let mut renamed = false;
     let mut seen: Vec<DefId> = Vec::new();
     for m in order {
         if sent >= MAX_CARDS {
@@ -966,32 +965,40 @@ fn prompt_cards(place: Place, found: prompt::Mentions, session_id: Option<String
         if session.seen(&format!("p:{name}")) {
             continue;
         }
+        // A prompt that asks for a rename and names a function gets one card, and the card
+        // starts with the command that does the rename: where the definition is and how widely
+        // it is called are what the command takes care of.
+        if found.rename {
+            if target.class != Class::Callable {
+                continue;
+            }
+            let calls = spread(&ix, &rs, &target).filter(|s| s.starts_with("called from")).map(|s| format!(" ({s})")).unwrap_or_default();
+            let card = format!(
+                "`{cli} rename {name} NEW_NAME` renames {name} in one step: the definition at {}:{} and every call the index is sure of{calls}. It lists what it leaves alone.",
+                def.path(),
+                def.rec.line
+            );
+            if session.claim(&format!("p:{name}")) {
+                session.claim(&format!("s:{}", String::from_utf8_lossy(&target.name)));
+                let _ = tx.send(card);
+            }
+            return;
+        }
         let mut card = format!("{name} is defined at {}:{} {}", def.path(), def.rec.line, clip_bytes(&crate::query::sig_of(&def), 130));
         if let Some(doc) = docs.line(&def, 100) {
             card.push_str(&format!("\n  {doc}"));
         }
-        // A prompt that asks for a rename of a function gets the command that does it, once,
-        // in the place of the pointer to the list of callers.
-        let rename = found.rename && target.class == Class::Callable && !renamed;
         if let Some(s) = spread(&ix, &rs, &target) {
             let verb = if target.class == Class::Callable { "callers" } else { "refs" };
-            let all = if rename || s.starts_with("no call") || s.starts_with("named in") { String::new() } else { format!(" (`{cli} {verb} {name}` lists every one)") };
+            let all = if s.starts_with("no call") || s.starts_with("named in") { String::new() } else { format!(" (`{cli} {verb} {name}` lists every one)") };
             card.push_str(&format!("\n  {s}{all}"));
-        }
-        let mut room = CARD_BYTES;
-        if rename {
-            renamed = true;
-            let line = format!("\n  `{cli} rename {name} NEW_NAME` renames it at its definition and at every call the index is sure of, and lists the rest");
-            card = clip_bytes(&card, CARD_BYTES);
-            room += line.len();
-            card.push_str(&line);
         }
         // The same symbol is not explained again when the agent greps for it.
         if !session.claim(&format!("p:{name}")) {
             continue;
         }
         session.claim(&format!("s:{}", String::from_utf8_lossy(&target.name)));
-        if tx.send(clip_bytes(&card, room)).is_err() {
+        if tx.send(clip_bytes(&card, CARD_BYTES)).is_err() {
             return;
         }
         sent += 1;

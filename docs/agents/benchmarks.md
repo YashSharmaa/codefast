@@ -18,6 +18,9 @@ Rules for numbers:
 
 - A change to name linking must not lower precision or recall on any oracle. Run all four
   (redis, gitleaks, syft, zod) before and after.
+- A change to how receivers are typed is also counted on the matches by name
+  (`codefast export-edges --loose --tests`, then `bench/scripts/oracles/by_name.py`): fewer
+  candidates, and none of the confirmed ones lost.
 - A number in the README comes from a file in `bench/results/`. Change the file first, then
   the README.
 - Other tools are timed in the same session, with the same thread limit, on the same tree.

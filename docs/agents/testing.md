@@ -9,6 +9,7 @@
 | the MCP server (`src/mcp.rs`) | `cargo test --test mcp_modern --test mcp_legacy --test mcp_malformed --test mcp_roots` |
 | hooks (`src/setup/hook.rs`, `hooks/`) | `cargo test --test hooks_claude --test hooks_codex --test hooks_hostile --test hooks_manifests --test hooks_push` |
 | the check after an edit (`src/query/changed.rs`) | `cargo test --test hooks_push`, then `codefast check --false-alarms` in two or three large repositories: it must stay silent on working code |
+| the rename command (`src/query/rename.rs`) | `cargo test --test rename_cli`, then `python3 bench/tier2/rename_offline.py`: the compiler has to pass after the one command |
 | the context audit (`src/setup/audit.rs`) | `cargo test --test doctor_context`, then compare `codefast doctor context` with `/context` in a real session |
 | setup or doctor (`src/setup/`) | `cargo test --test setup_cli --test setup_doctor --test setup_harnesses --test setup_native` |
 | a manifest, `bin/codefast`, `install.sh` or `npm/` | see `packaging.md` |

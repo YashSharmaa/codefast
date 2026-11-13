@@ -51,6 +51,24 @@ cache when a run started. In one batch the same arm cost 30% more or less for th
 alone. The warm cost is what a session costs for anyone who started another one within the
 hour, and it is the same formula for every arm.
 
+## The runs behind the table in the README
+
+The table is put together from runs of one line of builds, all version 0.2.0, on Haiku 5.5:
+
+* Bug fixes (D) and kernel questions (K): one batch of both arms.
+* Caller questions (N), sessions of four (L) and the control arm of the renames (R): a second
+  batch of both arms, run after the receivers of Go calls were typed further. The first batch
+  had these at 0.49, 0.30 and 1.11 of the control.
+* The plugin arm of the renames: a later run with `codefast rename`, after the card for a
+  rename request was reworded once. With the first wording the agent ran the command in 4 of 8
+  sessions (0.56 of the control), with the second in 8 of 8. The second wording was chosen
+  after reading those eight sessions, so this one figure is tuned on its own tasks.
+
+`bench/results/live-haiku.jsonl` holds every run of the table, and its `tag` field says which
+batch a run is from. `bench/results/rename-offline.jsonl` is the check of the rename command
+without a model (`rename_offline.py`), and `bench/results/by-name.jsonl` the count of matches
+by name against the type checker.
+
 ## Limits
 
 * One harness (Claude Code 2.1.323) and, unless a table says otherwise, one model (Haiku 5.5).

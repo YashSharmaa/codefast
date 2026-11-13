@@ -175,3 +175,16 @@ fn a_call_of_a_method_nobody_defines_is_named_with_what_the_type_does_have() {
     edit(&repo, "shop/checkout.py", "cart.add_item(n)", "cart.extend_all(n)");
     hook(&home, &repo.dir, "post-tool-use", in_session(&input, "library-base").as_bytes(), &[]).assert_quiet("a member that may come from a library class");
 }
+
+#[test]
+fn a_prompt_that_asks_for_a_rename_gets_the_command_that_does_it() {
+    let (repo, home) = committed("prompt-rename");
+    let input = payload("claude-user-prompt", &repo.dir, &home).replace("dev_read returns -1 for a device that is open. Find out why and fix it.", "Rename `dev_read` to `dev_fetch` everywhere, tests included.");
+    assert!(input.contains("Rename `dev_read`"), "{input}");
+    let said = hook(&home, &repo.dir, "user-prompt-submit", input.as_bytes(), &[]).context("UserPromptSubmit");
+    // One card, led by the command. The usual card about the symbol is not sent with it.
+    assert_eq!(
+        said,
+        "codefast: `codefast rename dev_read NEW_NAME` renames dev_read in one step: the definition at src/io.c:4 and every call the index is sure of (called from 1 site in 1 file). It lists what it leaves alone."
+    );
+}

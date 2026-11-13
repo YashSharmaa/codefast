@@ -1,0 +1,3 @@
+{"repo": "syft", "language": "Go", "build": "0.1.1 to 0.2.0 before the receiver typing", "candidates_by_name": 399, "call_sites": 300, "confirmed_by_type_checker": 6, "recall_static": 0.9978}
+{"repo": "syft", "language": "Go", "build": "0.2.0", "candidates_by_name": 19, "call_sites": 8, "confirmed_by_type_checker": 1, "recall_static": 0.9994}
+{"repo": "gitleaks", "language": "Go", "build": "0.2.0", "candidates_by_name": 0, "call_sites": 0, "confirmed_by_type_checker": 0, "recall_static": 1.0}
