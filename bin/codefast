@@ -29,7 +29,7 @@
 # session it runs in. When no binary is available yet, `hook session-start` starts the download
 # in the background and returns.
 
-version=0.2.8
+version=0.2.9
 release_base=${CODEFAST_RELEASE_BASE:-https://github.com/YashSharmaa/codefast/releases}
 install_url=https://raw.githubusercontent.com/YashSharmaa/codefast/main/install.sh
 retry_after=600

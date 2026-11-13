@@ -43,11 +43,12 @@ Measured so far (the tables are under [Results](#results)):
   median of 155 tokens per answer. Best-case ripgrep: 0.89, two calls, 384 tokens.
 - **Fast and exact.** The whole Linux kernel indexes in 8 s. The call graph agrees with compilers
   at a precision of 0.982 to 1.000 on five repositories.
-- **Fixing a bug costs what it costs.** On the held-out bug-fix tasks codefast is neutral: 1.02
-  with the failing tests given and 0.96 from the issue text alone. Handing the agent the body of
-  the right function would be worth 14%, and a card that guesses it from the report won 0.95 on
-  the tasks it was developed on and did not reproduce on the held-out ones. That is in the README
-  because it is what happened.
+- **A bug fix costs nothing extra, now that the guessing is out.** 0.93 of the control with the
+  failing tests given, every one still fixed, and 0.92 from the issue text alone, each over four
+  runs per task and arm. The median task of either family is level with its control, so read those
+  as no cost rather than as a saving: finding the code is not what a bug fix spends. A card that
+  guessed where the fix belonged, from the words of the report, made both families worse and was
+  removed.
 
 ## What it is for
 
@@ -65,19 +66,16 @@ Measured so far (the tables are under [Results](#results)):
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/in-a-session-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/in-a-session-light.svg">
-    <img alt="Six moments of a session at which codefast adds facts through hooks. A prompt names a symbol: its definition, whole when it is short, and how widely it is used. A prompt quotes an error message: the line that writes it and who calls the function around it. A report of a problem is pasted: the files whose text its words match, ranked. The agent runs a search: what the search did not print, such as who calls the function. The agent edits a file: the places that still use a name the edit removed. The context is compacted: which definitions the uncommitted changes added, removed and altered." src="docs/assets/in-a-session-light.svg" width="880">
+    <img alt="Five moments of a session at which codefast adds facts through hooks. A prompt names a symbol: its definition, whole when it is short, and how widely it is used. A prompt quotes an error message: the line that writes it and who calls the function around it. The agent runs a search: what the search did not print, such as who calls the function. The agent edits a file: the places that still use a name the edit removed. The context is compacted: which definitions the uncommitted changes added, removed and altered." src="docs/assets/in-a-session-light.svg" width="880">
   </picture>
 </p>
 
 Agents seldom reach for an optional tool, so the Claude Code plugin and the Codex setup register
 hooks. They state facts and never tell the agent what to do. A hook with nothing new to say prints
-nothing, and none of them blocks or rewrites a tool call. A prompt that is a report of a problem
-rather than a question about a symbol gets the one thing an index can say about a symptom: the
-files whose text its words match, ranked, each with the symbol of it that matches best. What a
-card says was settled in sessions and not at a desk: a short definition comes whole, a table
-binding that no search finds is spelled out, and the call sites of a name that other things share
-are counted and not listed, because agents re-check such a list with grep
-([`bench/tier2/LIVE.md`](bench/tier2/LIVE.md)).
+nothing, and none of them blocks or rewrites a tool call. What a card says was settled in sessions
+and not at a desk: a short definition comes whole, a table binding that no search finds is spelled
+out, and the call sites of a name that other things share are counted and not listed, because
+agents re-check such a list with grep ([`bench/tier2/LIVE.md`](bench/tier2/LIVE.md)).
 
 ## Get started
 
@@ -166,7 +164,7 @@ last column is our own number, or says that we have none yet.
 |---|---|---|
 | **Reading dominates.** 76.1% of an agent's tokens on SWE-bench Verified went to read operations ([SWE-Pruner](https://arxiv.org/abs/2601.16746)), and agents viewed 7.8 to 9.5 files per task where 1.4 mattered ([Coherence Collapse](https://arxiv.org/abs/2603.24631)). | `show` returns one function instead of a file. `context` returns the body, its type, the signatures of what it calls, its call sites and its tests in one answer. | A median answer of 155 tokens on 72 kernel questions (best-case ripgrep 384). In held-out sessions the tool output read for a caller question fell from 32.6k to 5.2k characters. |
 | **Every extra turn sends the conversation again.** The median model call in 13 million GitHub Copilot sessions carried a 68K token prompt ([Agentic Coding in the Wild](https://arxiv.org/abs/2608.00101)). | One call answers a structural question. | On held-out tasks, requests per caller question fell from 7.2 to 3.7, and per error traced to its origin from 5.8 to 3.4. |
-| **Agents seldom reach for an extra tool.** Of 1,996,558 real tool calls 1.4% went to MCP tools and 0.4% to skills ([SWE-chat](https://arxiv.org/abs/2604.20779)). An agent with a memory tool made 0 calls to it in 114 turns, and the same task took 95 and 102 turns when hooks delivered the content ([arXiv 2607.20972](https://arxiv.org/abs/2607.20972), a small study). | Hooks deliver the facts at the cue: a prompt that names a symbol, a search, an edit, a compaction. One MCP tool is always loaded, the other four are deferred. | With the plugin installed and no word about it in the prompt, the agent used codefast in 60 of 63 held-out tasks about structure, and in 2 of 30 bug-fix tasks. |
+| **Agents seldom reach for an extra tool.** Of 1,996,558 real tool calls 1.4% went to MCP tools and 0.4% to skills ([SWE-chat](https://arxiv.org/abs/2604.20779)). An agent with a memory tool made 0 calls to it in 114 turns, and the same task took 95 and 102 turns when hooks delivered the content ([arXiv 2607.20972](https://arxiv.org/abs/2607.20972), a small study). | Hooks deliver the facts at the cue: a prompt that names a symbol, a search, an edit, a compaction. One MCP tool is always loaded, the other four are deferred. | With the plugin installed and no word about it in the prompt, the agent used codefast in 60 of 63 held-out tasks about structure, and in 3 of 30 bug-fix tasks. |
 | **A push must be precise, or it costs.** File candidates pushed at a precision of 0.375 cost 21% more tokens for no gain, and the break-even lay between 0.45 and 0.68 ([arXiv 2608.05886](https://arxiv.org/abs/2608.05886)). | A hook speaks only about a symbol the index resolves without doubt, about at most two per prompt, and only says what the agent's own output did not show. | Agents re-check what they are handed: a card that listed the call sites of a method whose name other types share made a caller question cost 0.64 of the control, against 0.37 for a card with their number and the command. Making the notes fire more often (on alternation greps and on reading part of a file) took 14 bug-fix tasks from 0.98 of the control to 1.23, and was reverted. |
 | **A check after every edit beats one at the end.** Static analysis after each edit raised the solve rate from 28.5% to 34.1% ([Meta](https://arxiv.org/abs/2507.18755)), and a deterministic check that a called API exists reached a precision of 100% ([arXiv 2601.19106](https://arxiv.org/abs/2601.19106)). | After an edit: the places that still use what the edit removed, renamed or re-signatured, and calls of a member that nothing defines. Each finding is said once. | Run over working code as if it were new, the member check reports nothing in kubernetes (550,224 member uses), syft, gitleaks, zod, redis, sqlglot and pandas, and 8 of 48,562 in django. Effect on an agent's success: not measured yet. |
 | **A compaction loses exact names.** Summaries kept 17% of injected constraints, and over 90% when a registry was added again after the summary ([COMPINT](https://arxiv.org/abs/2608.11242)). | After a compaction a hook lists the definitions the uncommitted work added, removed and altered, from the working tree and not from memory. | Not measured yet. |
@@ -179,7 +177,7 @@ last column is our own number, or says that we have none yet.
 |---|---|---|
 | **A location without the code costs more reads.** When a language server tool returned source lines with its locations, its score on multi-file renames rose from 0.67 to 0.83 and follow-up reads fell from 15.2 to 3.2 ([arXiv 2608.13568](https://arxiv.org/abs/2608.13568), a small study). | Every reference and call site comes with its source line and the function it sits in. | 1.0 tool calls per kernel question (best-case ripgrep 2.0). |
 | **Text search loses accuracy across files.** On blast-radius tasks in a repository of 400k lines grep scored 0.71 at 12,596 tokens, structural tools 0.84 to 0.93 at 748 to 1,368 ([936 runs](https://dev.to/neko1313_4/how-much-does-context-cost-an-ai-coding-agent-grep-vs-graph-vs-lsp-measured-across-936-runs-33m8)). | `callers` follows ops tables, callbacks and function pointers. `path A B` returns the call chain. | 0.96 on 72 kernel questions (best-case ripgrep 0.89). |
-| **A better file ranking alone does not save tokens.** An index with the right file in its top 5 for 81% of queries (grep 39%) saved none in a live trial ([InventiveHQ](https://inventivehq.com/blog/code-index-vs-grep-ai-coding-agents-tokens)). | A hook hands the ranking over when a report is pasted, with the body of the best function of each file it names, and says nothing at all when the report already names a failing test. | Confirmed twice over. The ranking alone leaves a bug fix at 1.00 of the control. The bodies won 0.95 on the reports they were developed on and 1.03 on the held-out ones. Handing over the gold function with its body costs 0.86, so the prize is real and the ranking is not yet good enough to collect it. |
+| **A better file ranking alone does not save tokens.** An index with the right file in its top 5 for 81% of queries (grep 39%) saved none in a live trial ([InventiveHQ](https://inventivehq.com/blog/code-index-vs-grep-ai-coding-agents-tokens)). | `locate` ranks the files for a bug report without a model, as a command. A hook used to push that ranking at a pasted report, and no longer does. | Confirmed, and then acted on. The ranking pushed into a session left a bug fix at 1.00 of the control and the bodies of its best functions at 1.03 held out. With the push removed the same tasks cost 0.92 and one more is fixed. Handing over the gold function with its body costs 0.86, so a push that lands is worth something and a push that guesses is not. |
 
 </details>
 
@@ -202,7 +200,7 @@ raw results are in `bench/results/`.
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/live-sessions-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/live-sessions-light.svg">
-    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Who calls this method: 0.30. The same question in TypeScript: 0.53. Four such questions in one session: 0.15. Where does this error come from: 0.63. Rename a Go method everywhere: 0.51. A question about the Linux kernel: 0.86. Fix a bug, failing tests given: 1.02. Fix a bug from the issue text alone: 0.96." src="docs/assets/live-sessions-light.svg" width="880">
+    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Who calls this method: 0.30. The same question in TypeScript: 0.53. Four such questions in one session: 0.15. Where does this error come from: 0.63. Rename a Go method everywhere: 0.51. A question about the Linux kernel: 0.86. Fix a bug, failing tests given: 0.93. Fix a bug from the issue text alone: 0.92." src="docs/assets/live-sessions-light.svg" width="880">
   </picture>
 </p>
 
@@ -214,11 +212,11 @@ happened to be cached when a run started. [`bench/tier2/LIVE.md`](bench/tier2/LI
 protocol.
 
 **Held-out tasks.** These were set aside while the build was made and run once it was final:
-questions and renames in go-git, a repository codefast had never been run on, error messages
-of go-git and syft, kernel questions that no session had used, and the bug-fix tasks not used
-before. Two runs per task and arm (`bench/results/live-heldout-haiku.jsonl`). The two
-bug-fix rows were measured again on the released 0.2.6, the rest on 0.2.2, whose hooks answer
-those prompts in exactly the same way.
+questions and renames in go-git, a repository codefast had never been run on, error messages of
+go-git and syft, kernel questions that no session had used, and the bug-fix tasks not used before.
+Two runs per task and arm, and four on the two bug-fix families (`bench/results/live-heldout-
+haiku.jsonl`). The two bug-fix rows were measured again on the build released here, the rest on
+0.2.2, whose hooks answer those shorter prompts in exactly the same way.
 
 | Task | Tasks | Right, without and with | Requests | Tool output read, characters | Cost with codefast | Cheaper in |
 |---|---:|---|---|---|---:|---:|
@@ -228,20 +226,23 @@ those prompts in exactly the same way.
 | **Where does this error come from?**<br>An error text of go-git or syft: which function creates it, and who calls that function. Checked against the type checker's call graph | 12 | 0.99 and 1.00 | 5.8 and 3.4 | 4.4k and 4.2k | **0.63** | 11 of 12 |
 | **Rename a Go method everywhere**<br>In go-git, where other types have a method of the same name. Checked by the compiler and by what was renamed | 10 | 10 of 10 in each arm | 9.3 and 5.4 | 19.7k and 8.2k | **0.51** | 9 of 10 |
 | **A question about the Linux kernel**<br>18 of the 72 verified questions, none used in a session before | 18 | 0.93 and 0.96 | 4.1 and 3.1 | 4.6k and 4.8k | **0.86** | 12 of 18 |
-| **Fix a bug, failing tests given**<br>Issues of Django and sqlglot. Checked by running the tests of the real fix | 15 | 15 of 15 in each arm | 6.1 and 6.3 | 12.6k and 10.6k | **1.02** | 9 of 15 |
-| **Fix a bug from the issue text alone**<br>The same issues without their tests. Checked afterwards against the tests of the real fix | 15 | 7.5 and 6.5 of 15 solved | 6.9 and 6.4 | 9.6k and 8.8k | **0.96** | 9 of 15 |
+| **Fix a bug, failing tests given**<br>Issues of Django and sqlglot. Checked by running the tests of the real fix | 15 | 15 of 15 in each arm | 6.3 and 5.8 | 12.7k and 10.5k | **0.93** | 9 of 15 |
+| **Fix a bug from the issue text alone**<br>The same issues without their tests. Checked afterwards against the tests of the real fix | 15 | 7.5 and 7.2 of 15 solved | 7.1 and 6.5 | 9.9k and 9.1k | **0.92** | 6 of 15 |
 
-What this says. Where the work is finding things, a session costs a third to two thirds of what it
-did, and the longer the session runs the more it saves, because what an agent reads early is sent
-again with every later request. The gain is largest where a text search gives the wrong answer: a
-method whose name several types share, a message that could be written anywhere in the tree, a
-rename that has to find every call. Where a failing test already points at the line, or the code
-is in the model's memory as the kernel is, the agent takes the same steps with or without
-codefast. Fixing the bug is the model's own work, and an index does not shorten it: with the tests
-given a fix costs 1.02 of the control, and from the issue text alone 0.96. The other 14 issue-only
-tasks, kept for development, came out at 0.98, so read that family as no gain in either direction
-rather than as a cost. The agent reached for codefast in 60 of 63 sessions about structure and 2
-of 30 bug-fix sessions, with no word about it in the prompt.
+What this says. Where the work is finding things, a session costs a third to two thirds of what
+it did, and the longer the session runs the more it saves, because what an agent reads early is
+sent again with every later request. The gain is largest where a text search gives the wrong
+answer: a method whose name several types share, a message that could be written anywhere in the
+tree, a rename that has to find every call. Where a failing test already points at the line, or
+the code is in the model's memory as the kernel is, the agent takes the same steps with or
+without codefast. Fixing a bug is mostly the model's own work, and an index shortens the finding
+and not the fixing: with the tests given a fix costs 0.93 of the control and from the
+issue text alone 0.92, each pooled over four runs. The median task of either family is
+level with its control, so what the total saves comes from the long sessions, the ones where the
+agent would otherwise have gone looking. A card that guessed where the fix belonged from the
+words of the report made both families worse and was taken out. The agent reached for codefast
+of its own accord in 60 of the 63 held-out tasks about structure and in
+3 of the 30 bug-fix tasks, with no word about it in the prompt.
 
 The same held-out tasks with Sonnet 5.5, one run per task and arm: a caller question 0.29, a
 session of four 0.23, an error traced to its origin 0.70 and a rename 0.74. The session with
@@ -476,13 +477,13 @@ hand are small, and the five languages added in 0.2.0 are the youngest.
   calls and tables filled through a name-pasting macro are followed. Tables generated by including
   a list file several times (the LSM hooks, for one) are not.
 * It does not run builds, so code that is generated at build time is not indexed.
-* It saves nothing on a bug fix, and ten arms have been measured looking for it. The best of
-  them, a card carrying the body of the best function of each of the three files a report ranks
-  highest, won 0.95 on the fourteen reports it was developed on and 1.03 on the fifteen held
-  out. An arm told the file and function of the real fix for free costs 0.95, and one told that
-  function with its body, callers and tests 0.86: the whole prize is 14% and collecting it needs
-  a ranking better than the 0.36 first-file precision this one has on report text. Every live
-  figure is from one harness and one model family, and single tasks vary by a factor of two
+* What it saves on a bug fix is the small end of the range and took fourteen arms to find. The
+  ones that pushed a guess at where the fix belonged all failed, including the best of them
+  (0.95 on the reports it was developed on, 1.03 held out), and taking that card out again is
+  what left 0.92. An arm told the file and function of the real fix for free costs 0.95,
+  and one told that function with its body, callers and tests 0.86, so a push that lands is
+  worth 14% and this ranking lands on the first file 0.36 of the time. Every live figure is
+  from one harness and one model family, and single tasks vary by a factor of two
   (`bench/tier2/LIVE.md`).
 * A rename changes what the index is sure of and lists the rest. It refuses a method that an
   interface ties to its name where it can see the tie (a declared implementation, an interface
