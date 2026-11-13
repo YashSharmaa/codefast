@@ -836,14 +836,29 @@ fn spread(ix: &Index, rs: &Resolver, t: &Target) -> Option<String> {
     if files > USAGE_MAX_FILES {
         return Some(format!("named in {} files", count(files)));
     }
-    let (edges, _) = crate::query::refs::caller_edges(rs, t);
-    let named: Vec<_> = edges.iter().filter(|e| !matches!(e.via, crate::query::refs::Via::Slot(..))).map(|e| e.r).collect();
+    // A function is used where it is called or handed on. Anything else (a type, a variable,
+    // a macro) is used wherever it is named.
+    let named: Vec<crate::store::RefV> = if t.class == Class::Callable {
+        let (edges, _) = crate::query::refs::caller_edges(rs, t);
+        edges.iter().filter(|e| !matches!(e.via, crate::query::refs::Via::Slot(..))).map(|e| e.r).collect()
+    } else {
+        let mut v = Vec::new();
+        rs.refs_to(t, |r, conf| {
+            if conf != crate::resolve::Conf::Name && !matches!(r.kind(), crate::facts::RefKind::Import) {
+                v.push(r);
+            }
+        });
+        v
+    };
     let (tests, code): (Vec<_>, Vec<_>) = named.into_iter().partition(|r| ix.is_test_file(r.file));
     let nfiles = |v: &[crate::store::RefV]| v.iter().map(|r| r.file).collect::<std::collections::HashSet<_>>().len();
     let verb = if t.class == Class::Callable { "called from" } else { "used at" };
     let part = |v: &[crate::store::RefV], what: &str| format!("{} site{} in {} {what}file{}", count(v.len()), if v.len() == 1 { "" } else { "s" }, count(nfiles(v)), if nfiles(v) == 1 { "" } else { "s" });
     match (code.is_empty(), tests.is_empty()) {
-        (true, true) => Some(format!("{verb} nowhere in the indexed code")),
+        // No use found is said of a function, where it is a fact worth having (dead code, or
+        // reached in a way the index does not see). Of anything else it would be a guess.
+        (true, true) if t.class == Class::Callable => Some("no call of it found in the indexed code".to_string()),
+        (true, true) => None,
         (false, true) => Some(format!("{verb} {}", part(&code, ""))),
         (true, false) => Some(format!("{verb} {}", part(&tests, "test "))),
         (false, false) => Some(format!("{verb} {} and {}", part(&code, ""), part(&tests, "test "))),
@@ -886,7 +901,7 @@ fn prompt_cards(place: Place, found: prompt::Mentions, session_id: Option<String
         }
         if let Some(s) = spread(&ix, &rs, &target) {
             let verb = if target.class == Class::Callable { "callers" } else { "refs" };
-            let all = if s.contains("nowhere") || s.starts_with("named in") { String::new() } else { format!(" (`{cli} {verb} {name}` lists every one)") };
+            let all = if s.starts_with("no call") || s.starts_with("named in") { String::new() } else { format!(" (`{cli} {verb} {name}` lists every one)") };
             card.push_str(&format!("\n  {s}{all}"));
         }
         // The same symbol is not explained again when the agent greps for it.
