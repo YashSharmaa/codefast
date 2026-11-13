@@ -23,7 +23,8 @@ the right function and nothing at the 0.45 precision the ranker has on report te
 that claims to help this family has to raise that precision, and has to be measured over four
 runs per arm: two runs of the same build said 0.92 where four said 1.00.
 
-What has been tried on the file ranking and did not work, so that it is not tried again:
+What has been tried on the file ranking and did not work, so that it is not tried again (each
+measured on the development halves and on the 14 development bug reports):
 
 - **Scoring a query word that is also a part of a file's path** (this one reached a release:
   it went out in 0.2.3 by a careless `git add -A` and was taken out again in 0.2.4, which is
@@ -35,6 +36,10 @@ What has been tried on the file ranking and did not work, so that it is not trie
   from 0.684 to 0.474, Loc-Bench 60 from 0.519 to 0.519 with a worse top 5. Restricting it to
   components that name at most 64 files did not recover it (ContextBench 0.474, Loc-Bench 60
   0.444). A path word promotes files that have no other evidence, and there are many of them.
+- **Stronger length normalisation** (`B` from 0.4 to 0.75). The bug reports improve, from 0.29
+  to 0.36 for the right file first, and ContextBench falls from 0.684 to 0.474.
+- **Damping a file that no code-shaped word of the query matches.** No effect: every candidate
+  file already matches at least one.
 
 Rules for numbers:
 

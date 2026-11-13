@@ -206,6 +206,18 @@ experiment below was swept into a commit by a careless `git add -A` and went out
 0.57 of the reports instead of 0.79). Version 0.2.4 takes it out. The arms above are therefore
 a floor for what a card can do, not a ceiling.
 
+Version 0.2.4, with the ranking as it should be, was run on the same 14 reports twice: the
+median task costs 1.02 of the control and the batch 1.19, the second figure carried by five
+sessions where the agent wandered (9 requests became 16). The median is the honest reading of
+this family, and it says the same as everything else here.
+
+Three ways of raising the precision itself were tried and measured on the development reports
+and on the development halves of the localisation sets: scoring path components (the one that
+reached 0.2.3 by accident), stronger length normalisation (`B` 0.4 to 0.75, which lifts the
+reports from 0.29 to 0.36 at the first file and drops ContextBench from 0.684 to 0.474) and
+damping a file that no code-shaped word of the query matches (no effect: every candidate
+already matches one). None was kept.
+
 What that leaves is a number to beat rather than a wall: the push is worth 14% at a selection
 precision of 1.00 and nothing at 0.45, which is the break-even band the push study reports
 (0.45 to 0.68). Raising what `locate` does with the text of a report above that band is the
