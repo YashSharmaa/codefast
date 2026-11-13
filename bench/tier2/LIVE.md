@@ -128,6 +128,20 @@ So fixing a bug from an issue text is about as expensive either way, and which s
 set of 15 tasks lands on is the spread of the family. Taking the MCP tool out does not make
 the plugin cheaper there: what it saves on the tool's definition it loses in steps.
 
+A second attempt went the other way. The shell commands of these sessions were counted: 124
+greps printing 273,000 characters, 42 partial file reads printing 124,000, against 97,000 for
+the test runs. The after-search note answered 34 of the 124 greps, because it asks for one
+known name and these greps are alternations (`grep -n "A\|B\|C"`). So two notes were added:
+one for an alternation, which answers about the first branch the index pins down, and the
+outline of a file the agent reads a range of. Both fired (the note after a search went from 6
+to 18 over the 14 tasks, the new one before a read 7 times), and the same tasks went from 0.98
+of the control to 1.23, with the control arm within 3% of its earlier self. The agent did more
+work, not less: 4.1k characters of shell output became 5.6k. The change was reverted.
+
+That is the push-precision finding of the README met from the other side: a note that is right
+but not needed is not free, and the rule stays that a hook speaks about one symbol the index
+pins down and says what the agent's own output did not show.
+
 ## What a card should say
 
 The prompt card of version 0.2.2 was settled by three small experiments on development tasks
