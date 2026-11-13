@@ -31,6 +31,10 @@ Reach for it before `grep` + reading files whenever the question is about a symb
 
 Several targets can go in one call: `codefast show foo bar baz`.
 
+Before editing a function, start with `codefast context NAME`. It stands in for the usual
+opening moves (grep for the name, read the file, look for callers, look for tests) and often
+is all the reading the change needs.
+
 ## Trusting the answers
 
 The index holds every definition and every reference by name in the repository as it is on disk

@@ -24,6 +24,13 @@ AB = ROOT / "target/ab/r"
 REPO = ROOT / "bench/repos/syft"
 ORACLE = ROOT / "bench/oracles/syft"
 NEW = {"Add": "AddEntry", "add": "addEntry", "ToSlice": "ToSortedSlice", "Get": "GetValue", "Empty": "IsEmpty", "Remove": "RemoveEntry", "Contains": "ContainsEntry"}
+
+
+def new_name(old):
+    """The name a method is renamed to: a fixed one for the common names, else the name plus a suffix."""
+    return NEW.get(old) or old + "Value"
+
+
 SKIP = {"String", "Name", "ID", "Error", "Len", "Less", "Swap", "MarshalJSON", "UnmarshalJSON"}  # used through interfaces of the standard library
 
 
@@ -32,7 +39,7 @@ def sh(cmd, cwd, timeout=1800):
     return p.returncode, p.stdout + p.stderr
 
 
-def candidates():
+def candidates(a_rivals=1):
     E = [json.loads(l) for l in gzip.open(ORACLE / "edges.jsonl.gz", "rt")]
     F = [json.loads(l) for l in gzip.open(ORACLE / "functions.jsonl.gz", "rt")]
     byloc = {(f["file"], f["line"]): f for f in F}
@@ -49,7 +56,7 @@ def candidates():
     out = []
     for k, sites in calls.items():
         rivals = len(byname[k[1]]) - 1
-        if 6 <= len(sites) <= 30 and len(set(f for f, _ in sites)) >= 3 and rivals >= 2 and k[1] not in SKIP and k[1] in NEW:
+        if 6 <= len(sites) <= 30 and len(set(f for f, _ in sites)) >= 3 and rivals >= a_rivals and k[1] not in SKIP:
             out.append(dict(receiver=k[0], name=k[1], file=k[2], line=k[3], oracle_sites=len(sites), rivals=rivals))
     out.sort(key=lambda c: (c["file"], c["line"]))
     return out
@@ -63,7 +70,7 @@ def rename_definition(repo, c):
     m = re.match(r"^(func \([^)]*\b" + re.escape(recv) + r"(?:\[[^\]]*\])?\) )" + re.escape(c["name"]) + r"(\(|\[)", lines[i])
     if not m:
         return False
-    lines[i] = lines[i][: m.end(1)] + NEW[c["name"]] + lines[i][m.end(1) + len(c["name"]):]
+    lines[i] = lines[i][: m.end(1)] + new_name(c["name"]) + lines[i][m.end(1) + len(c["name"]):]
     p.write_text("\n".join(lines))
     return True
 
@@ -76,7 +83,7 @@ VET = "go vet -composites=false -unreachable=false ./..."
 
 def fix_by_compiler(repo, c):
     """Rename call sites the compiler points at until it is satisfied. Returns (ok, sites, files, log)."""
-    old, new = c["name"], NEW[c["name"]]
+    old, new = c["name"], new_name(c["name"])
     changed = set()
     for _ in range(14):
         rc, out = sh(f"go build ./... 2>&1 && {VET} 2>&1", repo)
@@ -115,13 +122,15 @@ def fix_by_compiler(repo, c):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=10)
+    ap.add_argument("--rivals", type=int, default=1, help="how many other types must have a method of the same name")
     a = ap.parse_args()
     AB.mkdir(parents=True, exist_ok=True)
     tasks = []
-    for i, c in enumerate(candidates()):
+    for i, c in enumerate(candidates(a.rivals)):
         if len(tasks) >= a.n:
             break
-        tid = f"R{len(tasks) + 1:02d}"
+        # A stable id, so that adding candidates never renumbers the tasks.
+        tid = "R-" + c["receiver"].lstrip("*") + "-" + c["name"]
         base, gold = AB / tid / "base", AB / tid / "gold"
         for d in (base, gold):
             if d.exists():
@@ -134,11 +143,11 @@ def main():
         shutil.copytree(base, gold, symlinks=True)
         ok, sites, files, log = fix_by_compiler(gold, c)
         shutil.rmtree(gold)
-        print(tid, c["receiver"], c["name"], "->", NEW[c["name"]], "valid" if ok else "INVALID", f"sites={sites} files={files} rivals={c['rivals']}", log[:300].replace("\n", " | "), flush=True)
+        print(tid, c["receiver"], c["name"], "->", new_name(c["name"]), "valid" if ok else "INVALID", f"sites={sites} files={files} rivals={c['rivals']}", log[:300].replace("\n", " | "), flush=True)
         if not ok or sites < 5:
             shutil.rmtree(base.parent)
             continue
-        tasks.append(dict(id=tid, family="R", repo_name="anchore/syft", base=str(base), receiver=c["receiver"], name=c["name"], new_name=NEW[c["name"]],
+        tasks.append(dict(id=tid, family="R", repo_name="anchore/syft", base=str(base), receiver=c["receiver"], name=c["name"], new_name=new_name(c["name"]),
                           file=c["file"], line=c["line"], sites=sites, files=files, rivals=c["rivals"],
                           check_cmd="cd {repo} && go build ./... && " + VET))
     json.dump(tasks, open(AB / "tasks.json", "w"), indent=1)

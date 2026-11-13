@@ -606,7 +606,7 @@ fn the_rules_block_is_added_updated_in_place_and_otherwise_left_alone() {
         assert!(!said.contains(shout), "{shout}");
     }
     let commands: Vec<&str> = block.split("`codefast ").skip(1).filter_map(|rest| rest.split([' ', '`']).next()).collect();
-    assert_eq!(commands, ["search", "show", "show", "context", "callers", "callees", "refs", "path", "grep", "locate"]);
+    assert_eq!(commands, ["context", "search", "show", "show", "callers", "callees", "refs", "path", "grep", "locate"]);
     for command in &commands {
         assert_eq!(sb.run(&[command, "--help"], &[]).code, 0, "codefast {command}");
     }
@@ -639,7 +639,7 @@ fn the_rules_block_is_added_updated_in_place_and_otherwise_left_alone() {
     assert_eq!(read(&sb.project("GEMINI.md")), "@AGENTS.md\n\nBe brief.\n");
 
     // A block from an older release, or one somebody edited, is replaced where it stands.
-    let older = block.replace("Plain grep is still the right tool", "Use grep");
+    let older = block.replace("Plain grep is still right", "Use grep");
     assert_ne!(older, block);
     write(&sb.project("AGENTS.md"), &format!("# Rules\n\n{older}\n## Style\n\nUse tabs.\n"));
     let out = sb.setup(&["agents-md", "--apply"]);

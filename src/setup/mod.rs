@@ -31,18 +31,18 @@ const SKILL: &str = include_str!("../../skills/codefast/SKILL.md");
 const RULES: &str = "<!-- codefast:begin -->
 ## Code navigation: codefast
 
-This repository is indexed by `codefast`. One shell command answers a structural question about the code, usually in fewer tokens than grep plus reading files:
+This repository is indexed by `codefast`. Use it first to find or understand code: one command usually replaces a grep and several file reads.
 
+- before changing a function, read it with its type, what it calls, who calls it and its tests: `codefast context NAME`
 - where a symbol is defined, with its body and callers: `codefast search NAME`
 - one function or type instead of a whole file: `codefast show NAME`; a file's outline: `codefast show PATH`
-- before changing a function, all of it in one answer (body, its type, what it calls, who calls it, its tests): `codefast context NAME`
-- who calls a function, also through callback tables and function pointers: `codefast callers NAME`
+- every call site with its source line (renames, signature changes): `codefast callers NAME`
 - what a function calls: `codefast callees NAME`; every use of a symbol: `codefast refs NAME`
 - how execution gets from one function to another: `codefast path FROM TO`
 - which function prints a message: `codefast grep -F \"text\"`
 - where to start for a bug report or stack trace: `codefast locate \"report text\"`
 
-Answers give `path:line` locations to open directly. Plain grep is still the right tool for exact strings in configuration, documentation and other non-code files.
+Answers give `path:line` locations to open directly. Plain grep is still right for exact strings in configuration and documentation.
 <!-- codefast:end -->
 ";
 

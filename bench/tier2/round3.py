@@ -29,7 +29,8 @@ AB = ROOT / "target/ab"
 OUT = AB / "r3"
 BIN = AB / "codefast-bin-r3"
 SYFT = ROOT / "bench/repos/syft"
-DEV = {"D": 2, "R": 1}
+# The development tasks: the tool and its guide were tried on these, so they are never reported.
+DEV_IDS = {"django__django-18850", "tobymao__sqlglot-4519", "R-Collection-Add"}
 W_READ, W_WRITE, W_OUT = 0.1, 1.25, 5.0
 
 
@@ -60,8 +61,9 @@ def split(tasks, fam, dev, n):
             for g in groups:
                 if g:
                     ordered.append(g.pop(0))
-    k = DEV[fam]
-    return ordered[:k] if dev else ordered[k:k + n]
+    if dev:
+        return [t for t in ordered if t["id"] in DEV_IDS]
+    return [t for t in ordered if t["id"] not in DEV_IDS][:n]
 
 
 def arms(a):
@@ -95,6 +97,13 @@ def arms(a):
                 row.update(receiver=t["receiver"], name=t["name"], new_name=t["new_name"], file=t["file"], line=t["line"], sites=t["sites"],
                            check_cmd=t["check_cmd"].replace("{repo}", str(dst)))
             rows.append(row)
+    if a.warm:
+        # Build every Go copy once before any run starts, so that no run pays for a cold
+        # compiler cache and the first check takes the same time in both arms.
+        for row in rows:
+            if row["family"] == "R":
+                p = subprocess.run(row["check_cmd"], shell=True, capture_output=True, text=True)
+                print("  warmed", row["id"], row["arm"], "ok" if p.returncode == 0 else "FAILED: " + (p.stdout + p.stderr)[-200:], flush=True)
     guide = (ROOT / "skills/codefast/SKILL.md").read_text().split("---", 2)[2].strip()
     # The rules block exactly as `codefast setup agents-md` writes it into a project.
     scratch = OUT / "rules-project"
@@ -171,7 +180,9 @@ def score(a):
             row["result_tokens"] = r["result_chars"] // 4
             row["answered"] = r["answer"] is not None
             banned = [k for k in r["tools"] if k in ("WebSearch", "WebFetch", "Agent", "Workflow")]
-            row["violations"] = banned + (["control arm used the tool"] if arm == "control" and any("codefast" in c.replace(t["repo"], "") for c in r["cmds"]) else [])
+            # The control arm has no wrapper: it may only stumble on the command by name.
+            used = lambda c: bool(re.search(r"(^|[\s;&|(])codefast(\s|$)", c)) or "/tools/" in c and "/r3/" in c or "codefast-bin" in c
+            row["violations"] = banned + (["control arm used the tool"] if arm == "control" and any(used(c) for c in r["cmds"]) else [])
             other_copies = [c for c in r["cmds"] if re.search(r"/r3/[^/]+/[^/]+/(?!%s/)\w+/repo" % re.escape(arm), c) or "/base" in c and "target/ab" in c]
             if other_copies:
                 row["violations"].append("looked outside its copy")
@@ -230,6 +241,7 @@ def main():
     p.add_argument("--d", type=int, default=16)
     p.add_argument("--r", type=int, default=8)
     p.add_argument("--refresh-bin", action="store_true")
+    p.add_argument("--warm", action="store_true", help="build the Go copies once before the runs")
     p = sub.add_parser("score")
     p.add_argument("dirs", nargs="+")
     p.add_argument("--tag", required=True)
