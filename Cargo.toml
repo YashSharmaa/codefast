@@ -1,6 +1,6 @@
 [package]
 name = "codefast"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "LLM-free code intelligence for AI coding harnesses: fast structural index, token-efficient answers"
