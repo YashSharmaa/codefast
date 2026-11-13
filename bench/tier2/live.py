@@ -54,6 +54,9 @@ ARMS = {
     # The ceiling of any tool that finds the place to change: the arm is told the file and the
     # function of the real fix, for nothing, by a hook of its own (see LIVE.md).
     "oracle": dict(plugin=False, oracle=True),
+    # The same, and the code of that function with its callers and its tests: everything a
+    # perfect push could hand over before the session starts.
+    "oracle-context": dict(plugin=False, oracle=True, oracle_context=True),
     # How a prompt card gives the uses of a symbol (an experiment, see LIVE.md).
     "uses-count": dict(plugin=True, env={"CODEFAST_CARD_USES": "count"}),
     "uses-list": dict(plugin=True, env={"CODEFAST_CARD_USES": "list"}),
@@ -277,14 +280,28 @@ def prepare(t, arm, rep, a, binary):
             f.write("\n" + rules_block(binary))
     if spec.get("oracle"):
         where = ", ".join(t.get("gold_files") or [])
-        which = ", ".join(f.rsplit("/", 1)[-1] for f in (t.get("gold_functions") or []))
+        which = ", ".join(f.rsplit(":", 1)[-1] for f in (t.get("gold_functions") or []))
         card = f"codefast: the change this asks for belongs in {where}" + (f", in {which}." if which else ".")
+        if spec.get("oracle_context"):
+            # And what codefast knows about each of those functions: its body, what it calls,
+            # who calls it and the tests that reach it.
+            e = dict(os.environ, CODEFAST_INDEX_DIR=str(run / "oracle-index"))
+            parts = []
+            for g in (t.get("gold_functions") or [])[:2]:
+                p = subprocess.run([str(binary), "--root", str(repo), "context", g.rsplit(":", 1)[-1], "--budget", "700"], capture_output=True, text=True, env=e)
+                if p.returncode == 0 and p.stdout.lstrip().startswith("no symbol"):
+                    continue
+                if p.returncode == 0 and p.stdout.strip():
+                    parts.append(p.stdout.strip())
+            if parts:
+                card += "\n\n" + "\n\n".join(parts)
         (repo / ".claude").mkdir(parents=True, exist_ok=True)
         hook = repo / ".claude/oracle.py"
         hook.write_text(
             "import json, sys\n"
             "sys.stdin.read()\n"
-            f"print(json.dumps({{'hookSpecificOutput': {{'hookEventName': 'UserPromptSubmit', 'additionalContext': {card!r}}}}}))\n"
+            f"card = {card!r}\n"
+            "print(json.dumps({'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', 'additionalContext': card}}))\n"
         )
         json.dump(
             {"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": f"python3 {hook}"}]}]}},

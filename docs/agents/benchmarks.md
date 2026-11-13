@@ -16,10 +16,12 @@ export CODEFAST_BIN=$PWD/target/release/codefast
 | The same on tasks no build has been looked at on | `uv run bench/tier2/live.py run --tag H --held K,N,E,R,D,I,L --arms control,plugin --reps 2 --jobs 2` | the same, plus the go-git checkout and its oracle |
 
 What a bug fix can save at best: the `oracle` arm of `live.py` tells a session the file and
-function of the real fix before it starts, by a hook of its own, for nothing. It costs 0.95 of
-the control from the issue text alone and 0.97 with the failing tests given, against 0.98 for
-the plugin. Perfect localisation is worth less than the spread between two runs of one arm, so
-a change that claims to help this family has to clear that bar before it is believed.
+function of the real fix before it starts, for nothing (0.95 of the control from the issue text
+alone, 0.97 with the failing tests given), and `oracle-context` adds that function's body, its
+callers and its tests (0.86). The plugin is at 1.00. So the push is worth 14% when it lands on
+the right function and nothing at the 0.45 precision the ranker has on report text. A change
+that claims to help this family has to raise that precision, and has to be measured over four
+runs per arm: two runs of the same build said 0.92 where four said 1.00.
 
 What has been tried on the file ranking and did not work, so that it is not tried again:
 

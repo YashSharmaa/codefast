@@ -17,6 +17,7 @@ tool is installed. An arm differs only in what the harness loads.
 | `nohooks` | the plugin with `CODEFAST_HOOKS=off` |
 | `uses-count`, `uses-list` | the plugin, with one form of the line about a symbol's uses forced (see "What a card should say") |
 | `oracle` | nothing of codefast, and a hook of the task's own that states the file and function of the real fix (see "What a bug fix can save at best") |
+| `oracle-context` | the same, and what `codefast context` knows about that function |
 
 Every session runs with the project's settings only (no user plugins, no cloud connectors), in
 bypass-permissions mode inside a private copy of the repository, with the web tools and
@@ -180,7 +181,31 @@ Averaged over two or three control runs per task, because a single run of one ar
 its own average by 4 to 6%. Perfect localisation, handed over at no cost, is worth less than
 that noise, and the plugin already reaches it.
 
-The reason is in what the cost is made of. Output tokens weigh five times an input token, and
+A second oracle says where the 5% is not the whole story. Told the gold function **and what
+`codefast context` knows about it** (its body, what it calls, who calls it, the tests that
+reach it), a session costs **0.86** of the control, against 0.95 for the location alone. So
+there is 14% in a bug fix for a push that lands on the right function with its code.
+
+Trying to collect it showed why it stays there. The card was given the body of the
+best-ranked function, which the ranker picks right (a file of the real fix) 0.45 of the time:
+
+| What the card carried | Cost, issue text alone | Requests |
+|---|---:|---|
+| the ranking only (version 0.2.3) | 1.01 | 7.0 and 6.6 |
+| the ranking and the body of the best-ranked function of the first file | 1.00 | 7.0 and 6.2 |
+| the ranking and the body of the best-ranked function of the repository (right 0.55) | 1.00 | 7.0 and 6.5 |
+| the gold function and its body | 0.86 | 6.9 and 5.8 |
+
+Four runs per arm against four control runs. Two runs had said 0.92 for the second row, which
+is what this family's spread does to two runs. The body takes requests out and leaves the cost
+alone, so it was not kept.
+
+What that leaves is a number to beat rather than a wall: the push is worth 14% at a selection
+precision of 1.00 and nothing at 0.45, which is the break-even band the push study reports
+(0.45 to 0.68). Raising what `locate` does with the text of a report above that band is the
+work that would make a bug fix cheaper.
+
+The reason the rest of the session does not move is in what the cost is made of. Output tokens weigh five times an input token, and
 they are 28 to 60% of a session in every family. Where codefast saves, it saves there: a caller
 question goes from 8,477 output tokens to 2,731, four of them in one session from 42,942 to
 7,860, a rename from 5,100 to 2,823. A bug fix writes the fix and runs the tests, and that
