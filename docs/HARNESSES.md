@@ -63,8 +63,10 @@ What "tested in a sandbox" covered, exactly:
   `claude mcp list` connecting to the plugin's server through the launcher, once with the binary
   named by `CODEFAST_BIN` and once with the launcher fetching it from a local directory. The
   three hook command lines run by hand from the plugin cache.
-  `claude mcp add ... -- codefast mcp` followed by `claude mcp list`. No session was started, so
-  no hook was fired by Claude Code itself.
+  `claude mcp add ... -- codefast mcp` followed by `claude mcp list`. No session was started in the
+  sandbox. In a logged-in headless session of 2.1.323 on 2026-11-13, with the plugin loaded by
+  `--plugin-dir`, the session-start hook and the hook after a search fired and the model received
+  their text.
 - **Codex CLI 0.164.0**: `codex plugin marketplace add URL`, `codex plugin add codefast@codefast`,
   `codex plugin list`, `codex mcp list`. Then the app server's `skills/list` (the skill is there),
   `mcpServerStatus/list` (the server started through the launcher, with `codefast` on `PATH`, and

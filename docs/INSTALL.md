@@ -555,7 +555,9 @@ Each is said once per session.
 | Codex, with or without the plugin | `codefast setup codex --hooks --apply`, or merge `hooks/codex.json` into `~/.codex/hooks.json` by hand. Then trust them in `/hooks`. **Tested in a sandbox** (see the Codex section). |
 | Others | Setup registers no hooks. `codefast hook` also understands the payloads of Cursor (`sessionStart`, `postToolUse`) and Gemini CLI (`SessionStart`, `AfterTool`), built from their documentation. Nothing in this repository registers those, and neither harness was run. |
 
-No hook has yet been fired by a harness itself: that takes a live session.
+In a real session of Claude Code 2.1.323 (headless, the plugin loaded with `--plugin-dir`, 2026-11-13)
+the session-start hook and the hook after a search fired, and their text reached the model. No
+hook has yet been fired by Codex itself.
 
 ## 5. Release assets
 

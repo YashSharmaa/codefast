@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="366" viewBox="0 0 880 366" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
+  <title id="t">72 verified questions about the Linux kernel</title>
+  <desc id="d">Mean score for correct answers, from 0 to 1, and median tokens per answer, one direct query per question. codefast 0.96 and 149 tokens, ripgrep best case 0.89 and 384, ripwire 0.66 and 889, cscope 0.44 and 120, GNU Global 0.27 and 54, codebase-memory-mcp 0.26 and 158, universal-ctags 0.13 and 12.</desc>
+  <rect x="0.5" y="0.5" width="879" height="365" rx="12" fill="#161b22" stroke="#30363d"/>
+
+  <text x="28" y="42" font-size="20" font-weight="600" fill="#e6edf3">72 verified questions about the Linux kernel</text>
+  <text x="28" y="66" font-size="15" fill="#9198a1">One direct query per question, scored against verified answers.</text>
+
+  <text x="236" y="100" font-size="15" font-weight="600" fill="#e6edf3">Correct<tspan dx="5" font-weight="400" fill="#9198a1">(mean score, 0 to 1)</tspan></text>
+  <text x="568" y="100" font-size="15" font-weight="600" fill="#e6edf3">Tokens per answer<tspan dx="5" font-weight="400" fill="#9198a1">(median)</tspan></text>
+
+  <!-- the numbers of the README table "Answer 72 kernel questions in one call" (bench/results/k3*.jsonl).
+       the codefast bar is drawn at 0.961 and labelled 0.96.
+       left bars start at x=237, 240 px stand for 1.0. right bars start at x=569, 220 px stand for 889 tokens (0.2475 px per token) -->
+  <path d="M236.5 112V320M568.5 112V320" stroke="#484f58"/>
+  <text x="220" y="131.5" font-size="16" font-weight="600" fill="#e6edf3" text-anchor="end">codefast</text>
+  <path fill="#3987e5" d="M237 118h226.64a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-226.64z"/>
+  <text x="475.64" y="131.5" font-size="16" font-weight="600" fill="#e6edf3">0.96</text>
+  <path fill="#3987e5" d="M569 118h32.63a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-32.63z"/>
+  <text x="613.63" y="131.5" font-size="16" font-weight="600" fill="#e6edf3">149</text>
+  <text x="220" y="161.5" font-size="16" fill="#e6edf3" text-anchor="end">ripgrep, best case</text>
+  <path fill="#6e7681" d="M237 148h209.6a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-209.6z"/>
+  <text x="458.6" y="161.5" font-size="16" fill="#e6edf3">0.89</text>
+  <path fill="#6e7681" d="M569 148h91.03a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-91.03z"/>
+  <text x="672.03" y="161.5" font-size="16" fill="#e6edf3">384</text>
+  <text x="220" y="191.5" font-size="16" fill="#e6edf3" text-anchor="end">ripwire</text>
+  <path fill="#6e7681" d="M237 178h154.4a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-154.4z"/>
+  <text x="403.4" y="191.5" font-size="16" fill="#e6edf3">0.66</text>
+  <path fill="#6e7681" d="M569 178h216a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-216z"/>
+  <text x="797" y="191.5" font-size="16" fill="#e6edf3">889</text>
+  <text x="220" y="221.5" font-size="16" fill="#e6edf3" text-anchor="end">cscope</text>
+  <path fill="#6e7681" d="M237 208h101.6a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-101.6z"/>
+  <text x="350.6" y="221.5" font-size="16" fill="#e6edf3">0.44</text>
+  <path fill="#6e7681" d="M569 208h25.7a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-25.7z"/>
+  <text x="606.7" y="221.5" font-size="16" fill="#e6edf3">120</text>
+  <text x="220" y="251.5" font-size="16" fill="#e6edf3" text-anchor="end">GNU Global</text>
+  <path fill="#6e7681" d="M237 238h60.8a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-60.8z"/>
+  <text x="309.8" y="251.5" font-size="16" fill="#e6edf3">0.27</text>
+  <path fill="#6e7681" d="M569 238h9.36a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-9.36z"/>
+  <text x="590.36" y="251.5" font-size="16" fill="#e6edf3">54</text>
+  <text x="220" y="281.5" font-size="16" fill="#e6edf3" text-anchor="end">codebase-memory-mcp</text>
+  <path fill="#6e7681" d="M237 268h58.4a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-58.4z"/>
+  <text x="307.4" y="281.5" font-size="16" fill="#e6edf3">0.26</text>
+  <path fill="#6e7681" d="M569 268h35.1a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-35.1z"/>
+  <text x="616.1" y="281.5" font-size="16" fill="#e6edf3">158</text>
+  <text x="220" y="311.5" font-size="16" fill="#e6edf3" text-anchor="end">universal-ctags</text>
+  <path fill="#6e7681" d="M237 298h27.2a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-27.2z"/>
+  <text x="276.2" y="311.5" font-size="16" fill="#e6edf3">0.13</text>
+  <path fill="#6e7681" d="M569 298h1.48a1.48 1.48 0 0 1 1.48 1.48v13.03a1.48 1.48 0 0 1 -1.48 1.48h-1.48z"/>
+  <text x="579.97" y="311.5" font-size="16" fill="#e6edf3">12</text>
+
+  <text x="28" y="346" font-size="14" fill="#9198a1">Read both columns together: few tokens only count when the answer is right.</text>
+</svg>
