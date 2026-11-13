@@ -45,7 +45,7 @@ replaces a codefast that works.
 
 ```sh
 sh install.sh --dry-run                 # print every action, download and write nothing
-sh install.sh --version 0.2.3           # a specific release instead of the latest
+sh install.sh --version 0.2.4           # a specific release instead of the latest
 sh install.sh --bin-dir /opt/tools/bin  # another directory
 ```
 
@@ -64,7 +64,7 @@ Windows, and the npm package below is not published yet.
 With Node.js, once the npm packages are published (`npm/` holds them, and nothing is published yet):
 
 ```sh
-npx -y @yashsharmaa/codefast@0.2.3 mcp        # or: npm install -g @yashsharmaa/codefast
+npx -y @yashsharmaa/codefast@0.2.4 mcp        # or: npm install -g @yashsharmaa/codefast
 ```
 
 ### The launcher

@@ -200,6 +200,12 @@ Four runs per arm against four control runs. Two runs had said 0.92 for the seco
 is what this family's spread does to two runs. The body takes requests out and leaves the cost
 alone, so it was not kept.
 
+All of those arms ran on a build whose ranking was worse than it should have been: the path
+experiment below was swept into a commit by a careless `git add -A` and went out in version
+0.2.3, where it cost the card's own precision (a file of the real fix among the first three for
+0.57 of the reports instead of 0.79). Version 0.2.4 takes it out. The arms above are therefore
+a floor for what a card can do, not a ceiling.
+
 What that leaves is a number to beat rather than a wall: the push is worth 14% at a selection
 precision of 1.00 and nothing at 0.45, which is the break-even band the push study reports
 (0.45 to 0.68). Raising what `locate` does with the text of a report above that band is the

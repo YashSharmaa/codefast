@@ -25,7 +25,10 @@ runs per arm: two runs of the same build said 0.92 where four said 1.00.
 
 What has been tried on the file ranking and did not work, so that it is not tried again:
 
-- **Scoring a query word that is also a part of a file's path** (`iwlwifi`, `a4tech`,
+- **Scoring a query word that is also a part of a file's path** (this one reached a release:
+  it went out in 0.2.3 by a careless `git add -A` and was taken out again in 0.2.4, which is
+  why a change to the ranking is measured on the dev halves before it is committed, and why
+  `git add -A` is not how a source change is staged) (`iwlwifi`, `a4tech`,
   `nouveau`). 53 of the 80 kernel reports whose file the ranking misses name a component of
   that file's path, so the headroom is real, but adding the signal lowered every set: on the
   development halves LinuxFLBench went from 0.370 to 0.303 (right file first), ContextBench

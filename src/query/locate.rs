@@ -500,10 +500,6 @@ impl Acc {
 
 /// Weight of one verbatim phrase that occurs in a single file.
 const PHRASE_W: f32 = 14.0;
-/// A word of the query that is also a part of a file's path.
-const PATH_W: f32 = 6.0;
-/// Shorter words name too much to be a part of a path worth scoring.
-const PATH_MIN_WORD: usize = 4;
 const K1: f32 = 1.2;
 const B: f32 = 0.4;
 
@@ -679,43 +675,6 @@ pub fn rank(ix: &Index, text: &str, common: &Common) -> (Query, Ranked) {
             if v.kind().is_callable() && !v.is_decl() {
                 acc.score[v.file().0 as usize] += w / n.sqrt();
                 *def_scores.entry(d).or_default() += w / n.sqrt();
-            }
-        }
-    }
-
-    // A word of the report that names a directory or a file: `iwlwifi`, `a4tech`, `mac80211`.
-    // A report says which part of the tree it is about long before it says which symbol, and
-    // the tree is named after its parts. How much a component is worth depends on how many
-    // files carry it: one file is proof, forty thousand ("drivers", "net") is nothing.
-    {
-        let want: FxHashMap<String, f32> = terms
-            .iter()
-            .filter(|t| t.text.len() >= PATH_MIN_WORD)
-            .map(|t| (t.text.to_ascii_lowercase(), t.weight))
-            .collect();
-        if !want.is_empty() {
-            let mut matched: FxHashMap<String, Vec<FileId>> = FxHashMap::default();
-            let mut buf = String::new();
-            for &fid in &live {
-                buf.clear();
-                buf.push_str(ix.path(fid));
-                buf.make_ascii_lowercase();
-                let mut seen: Option<&str> = None;
-                for c in buf.split(|ch: char| !ch.is_ascii_alphanumeric()) {
-                    if c.len() < PATH_MIN_WORD || seen == Some(c) || !want.contains_key(c) {
-                        continue;
-                    }
-                    seen = Some(c);
-                    matched.entry(c.to_string()).or_default().push(fid);
-                }
-            }
-            for (comp, files) in matched {
-                let df = files.len() as f32;
-                let w = PATH_W * want[&comp] * idf(text_files, df) / df.sqrt();
-                for f in files {
-                    acc.score[f.0 as usize] += w;
-                    acc.hits[f.0 as usize] += 1;
-                }
             }
         }
     }

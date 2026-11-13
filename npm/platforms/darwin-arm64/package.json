@@ -1,6 +1,6 @@
 {
   "name": "@yashsharmaa/codefast-darwin-arm64",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "The codefast binary for macOS on Apple silicon. Install @yashsharmaa/codefast instead: it selects this package.",
   "homepage": "https://github.com/YashSharmaa/codefast",
   "repository": {
