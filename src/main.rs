@@ -432,8 +432,7 @@ fn run(cli: Cli) -> Result<()> {
             anyhow::bail!(why);
         }
     }
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-    codefast::build::init_thread_pool(threads);
+    codefast::build::init_thread_pool(thread_count(&cli.cmd));
     let common = Common { paths: cli.paths.clone(), kinds: parse_kinds(&cli.kind)?, tests: cli.tests, budget: cli.budget };
 
     match &cli.cmd {
@@ -573,6 +572,20 @@ fn run(cli: Cli) -> Result<()> {
     }
     emit(&out.finish());
     Ok(())
+}
+
+/// How many threads to work with. `CODEFAST_THREADS` decides when it is set. Otherwise every
+/// core, except for the refresh a hook starts in the background: nobody is waiting for that
+/// one, so it leaves half of the machine to whatever else is running.
+fn thread_count(cmd: &Cmd) -> usize {
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    if let Some(n) = std::env::var("CODEFAST_THREADS").ok().and_then(|v| v.trim().parse::<usize>().ok()).filter(|n| *n > 0) {
+        return n.min(256);
+    }
+    match cmd {
+        Cmd::Hook { event: Some(e), .. } if e == "index-refresh" => (cores / 2).max(1),
+        _ => cores,
+    }
 }
 
 fn debug_facts(path: &str) {
