@@ -965,16 +965,16 @@ fn prompt_cards(place: Place, found: prompt::Mentions, session_id: Option<String
         if session.seen(&format!("p:{name}")) {
             continue;
         }
-        // A prompt that asks for a rename and names a function gets one card, and the card
+        // A prompt that asks for a rename and names a definition gets one card, and the card
         // starts with the command that does the rename: where the definition is and how widely
-        // it is called are what the command takes care of.
+        // it is used are what the command takes care of.
         if found.rename {
-            if target.class != Class::Callable {
+            if target.class == Class::Module {
                 continue;
             }
-            let calls = spread(&ix, &rs, &target).filter(|s| s.starts_with("called from")).map(|s| format!(" ({s})")).unwrap_or_default();
+            let uses = spread(&ix, &rs, &target).filter(|s| s.starts_with("called from") || s.starts_with("used at")).map(|s| format!(" ({s})")).unwrap_or_default();
             let card = format!(
-                "`{cli} rename {name} NEW_NAME` renames {name} in one step: the definition at {}:{} and every call the index is sure of{calls}. It lists what it leaves alone.",
+                "`{cli} rename {name} NEW_NAME` renames {name} in one step: the definition at {}:{} and every reference the index is sure of{uses}. It lists what it leaves alone.",
                 def.path(),
                 def.rec.line
             );

@@ -52,7 +52,7 @@ enum Cmd {
     Check(CheckArgs),
     /// The uncommitted changes by definition (added, removed, altered), then what `check` finds
     Changed,
-    /// Rename a function or method: its definition and every reference the index is sure of
+    /// Rename a function, method, type or field: its definition and every reference the index is sure of
     Rename(RenameArgs),
     /// Shortest call chain between two functions
     Path(PathArgs),
@@ -107,13 +107,16 @@ enum Cmd {
 
 #[derive(Args)]
 struct RenameArgs {
-    /// The function or method: `name`, `Owner.name` or `path:line`
+    /// What to rename: `name`, `Owner.name` or `path:line`
     target: String,
     /// The name it gets
     new_name: String,
     /// Show what would change and change nothing
     #[arg(long)]
     dry_run: bool,
+    /// Rename a method although it may be part of an interface
+    #[arg(long)]
+    force: bool,
 }
 
 #[derive(Args)]
@@ -518,7 +521,7 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Check(a) if a.false_alarms => query::changed::false_alarms(&ix, &rs, &common, &mut out),
         Cmd::Check(a) => query::changed::check(&ix, &rs, &a.files, &common, &mut out),
         Cmd::Changed => query::changed::changed(&ix, &rs, &common, &mut out),
-        Cmd::Rename(a) => query::rename::rename(&ix, &rs, &ix.root, &a.target, &a.new_name, &query::rename::Options { dry_run: a.dry_run }, &mut out),
+        Cmd::Rename(a) => query::rename::rename(&ix, &rs, &ix.root, &a.target, &a.new_name, &query::rename::Options { dry_run: a.dry_run, force: a.force }, &mut out),
         Cmd::Path(a) => query::refs::path(&ix, &rs, &a.from, &a.to, &common, a.max_depth, &mut out),
         Cmd::Locate(a) => {
             let text = if a.text.len() == 1 && a.text[0] == "-" {

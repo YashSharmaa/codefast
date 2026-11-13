@@ -78,9 +78,14 @@ fn a_prompt_gets_no_card_for_what_the_index_cannot_pin_down() {
     let two = ask("d", "`dev_write` and `copy_all` and `dev_read` all need a timeout parameter.").context("UserPromptSubmit");
     assert_eq!(two.matches(" is defined at ").count(), 2, "{two}");
     assert!(two.starts_with("codefast: dev_write is defined at src/io.c:11 ") && two.contains("\ncopy_all is defined at src/main.c:3 "), "{two}");
-    // A method named in words, with the type it belongs to.
+    // A member named in words, with the type it belongs to. The prompt asks for a rename, so
+    // the card is the command that does it.
     let said = ask("e", "Rename the field read of dev_ops to read_bytes everywhere.");
-    assert!(said.stdout.is_empty() || said.context("UserPromptSubmit").contains("dev_ops.read is defined at src/io.h:3"), "{}", said.stdout);
+    assert!(
+        said.stdout.is_empty() || said.context("UserPromptSubmit").contains("rename dev_ops.read NEW_NAME` renames dev_ops.read in one step: the definition at src/io.h:3"),
+        "{}",
+        said.stdout
+    );
 }
 
 #[test]
@@ -185,6 +190,6 @@ fn a_prompt_that_asks_for_a_rename_gets_the_command_that_does_it() {
     // One card, led by the command. The usual card about the symbol is not sent with it.
     assert_eq!(
         said,
-        "codefast: `codefast rename dev_read NEW_NAME` renames dev_read in one step: the definition at src/io.c:4 and every call the index is sure of (called from 1 site in 1 file). It lists what it leaves alone."
+        "codefast: `codefast rename dev_read NEW_NAME` renames dev_read in one step: the definition at src/io.c:4 and every reference the index is sure of (called from 1 site in 1 file). It lists what it leaves alone."
     );
 }

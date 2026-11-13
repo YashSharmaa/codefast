@@ -1,5 +1,5 @@
-//! `codefast rename TARGET NEW`: rename one function or method, at its definition and at every
-//! place the index is sure refers to it.
+//! `codefast rename TARGET NEW`: rename one function, method, type, field, variable or constant,
+//! at its definition and at every place the index is sure refers to it.
 //!
 //! A rename by hand is a search, a read of every hit to tell this `Add` from the other types'
 //! `Add`, and an edit per file. All three are things the index has already done. The command
@@ -76,6 +76,127 @@ struct LinePlan {
 
 pub struct Options {
     pub dry_run: bool,
+    /// Rename although the method may be part of an interface.
+    pub force: bool,
+}
+
+/// Methods the interfaces of Go's standard library are made of. A type that has one is, more
+/// often than not, used as that interface somewhere, and the rename would end that silently
+/// or with an error far from the edit.
+const GO_INTERFACE_METHODS: [&str; 25] = [
+    "Error",
+    "String",
+    "Close",
+    "Read",
+    "Write",
+    "Seek",
+    "ReadAt",
+    "WriteAt",
+    "ReadFrom",
+    "WriteTo",
+    "Len",
+    "Less",
+    "Swap",
+    "MarshalJSON",
+    "UnmarshalJSON",
+    "MarshalText",
+    "UnmarshalText",
+    "MarshalYAML",
+    "UnmarshalYAML",
+    "MarshalBinary",
+    "UnmarshalBinary",
+    "ServeHTTP",
+    "Format",
+    "GoString",
+    "Unwrap",
+];
+
+/// An interface of this repository that declares the method's name and all of whose methods
+/// the owner has: the interface, and how many methods it has. Structural typing lets the owner
+/// stand in for it without saying so.
+fn fits_an_interface<'a>(ix: &'a Index, rs: &Resolver, t: &Target) -> Option<(crate::store::DefV<'a>, usize)> {
+    use crate::facts::DefKind;
+    let owner = t.owner_ty()?;
+    if !matches!(ix.lang(t.primary(ix).file()), Lang::Go | Lang::TypeScript | Lang::Tsx | Lang::JavaScript) {
+        return None;
+    }
+    let mut best: Option<(crate::store::DefV<'a>, usize)> = None;
+    for d in ix.defs_named(&t.name) {
+        let Some(i) = ix.def(d).parent().filter(|p| p.kind() == DefKind::Interface) else { continue };
+        let methods: Vec<Vec<u8>> =
+            ix.defs_of_file(i.file()).filter(|m| m.parent().is_some_and(|p| p.id == i.id) && m.kind() == DefKind::Method).map(|m| m.name().to_vec()).collect();
+        let has = |m: &Vec<u8>| rs.has_member(&owner, m) || rs.ancestors(&owner).iter().any(|a| rs.has_member(a, m));
+        if !methods.is_empty() && methods.iter().all(has) && best.as_ref().is_none_or(|b| b.1 < methods.len()) {
+            best = Some((i, methods.len()));
+        }
+    }
+    best
+}
+
+/// Why renaming this method alone would not be a rename: it is part of an interface, written
+/// down or implied, and the name is what ties the two together.
+fn bound_by_an_interface(ix: &Index, rs: &Resolver, t: &Target) -> Option<String> {
+    use crate::facts::{DefKind, RefKind};
+    let name = String::from_utf8_lossy(&t.name).into_owned();
+    let shown = t.primary(ix).qualified();
+    // The declaration in an interface itself: every implementation carries the name.
+    for &d in &t.defs {
+        if let Some(p) = ix.def(d).parent().filter(|p| matches!(p.kind(), DefKind::Interface | DefKind::Trait)) {
+            return Some(format!(
+                "{shown} is declared by the interface {} ({}:{}). The types that implement it have a method of this name each, and they have to change with it.",
+                p.name_str(),
+                p.path(),
+                p.rec.line
+            ));
+        }
+    }
+    let owner = t.owner_ty()?;
+    // A supertype has a member of this name: an override, an implementation, or a method that
+    // hides the one of an embedded type (which calls would fall back to after the rename).
+    if let Some(a) = rs.ancestors(&owner).into_iter().find(|a| rs.has_member(a, &t.name)) {
+        return Some(format!(
+            "{}, which {} extends, embeds or implements, has a `{name}` too. Renaming this one alone would change which of the two a call means.",
+            String::from_utf8_lossy(&a.name),
+            String::from_utf8_lossy(&owner.name)
+        ));
+    }
+    for &od in &owner.defs {
+        let o = ix.def(od);
+        // `var _ io.Closer = (*T)(nil)`: declared to implement an interface of another package.
+        for r in ix.refs_of_file(o.file()).filter(|r| r.kind() == RefKind::Implements && r.encl().is_some_and(|e| e.id == od)) {
+            let mut path = r.qual().map(<[u8]>::to_vec).unwrap_or_default();
+            if !path.is_empty() {
+                path.push(b'|');
+            }
+            path.extend_from_slice(r.name());
+            if rs.root_external(&path, r.file) {
+                return Some(format!(
+                    "{} is declared to implement {} ({}:{}), an interface of another package, which may ask for this method.",
+                    o.name_str(),
+                    String::from_utf8_lossy(r.name()),
+                    r.path(),
+                    r.line()
+                ));
+            }
+        }
+    }
+    let lang = ix.lang(t.primary(ix).file());
+    // A type that has every method of an interface of several methods is that interface's
+    // implementation for all practical purposes. With a single method the fit is often an
+    // accident of the name: that case is renamed, and said (see the caller).
+    if let Some((i, n)) = fits_an_interface(ix, rs, t).filter(|(_, n)| *n >= 2) {
+        return Some(format!(
+            "{} has all {n} methods of the interface {} ({}:{}), which declares `{name}`: where it is used as one, the name has to stay or change in both.",
+            String::from_utf8_lossy(&owner.name),
+            i.name_str(),
+            i.path(),
+            i.rec.line
+        ));
+    }
+    if lang == Lang::Go && GO_INTERFACE_METHODS.contains(&name.as_str()) {
+        return Some(format!("`{name}` is a method the standard library's interfaces are made of: a type that has it is usually used as one of them."));
+    }
+    None
 }
 
 pub fn rename(ix: &Index, rs: &Resolver, root: &Path, target: &str, new: &str, opts: &Options, out: &mut Out) {
@@ -87,17 +208,19 @@ pub fn rename(ix: &Index, rs: &Resolver, root: &Path, target: &str, new: &str, o
     let common = Common { paths: Vec::new(), kinds: None, tests: true, budget: 0 };
     let pf = PathFilter::new(&[]);
     let all: Vec<Target> = targets_for(ix, rs, &parse_spec(ix, target), &common, &pf);
-    let callable: Vec<&Target> = all.iter().filter(|t| t.class == Class::Callable).collect();
+    // Functions, methods, types, fields, variables and constants. A module or a namespace is
+    // a file or a directory, which a rename of names does not move.
+    let callable: Vec<&Target> = all.iter().filter(|t| t.class != Class::Module).collect();
     let t = match callable.as_slice() {
         [one] => *one,
         [] => {
             out.push(&format!(
-                "`{target}` is not a function or method this index knows: nothing was changed. (`codefast find {target}` lists what the name stands for.)"
+                "`{target}` is not a definition this index knows: nothing was changed. (`codefast find {target}` lists what the name stands for.)"
             ));
             return;
         }
         many => {
-            out.push(&format!("`{target}` names {} functions. Say which one, as Owner.name or path:line. Nothing was changed.", many.len()));
+            out.push(&format!("`{target}` names {} things. Say which one, as Owner.name or path:line. Nothing was changed.", many.len()));
             for t in many.iter().take(8) {
                 out.push(&format!("  {}", super::def_line(&t.primary(ix))));
             }
@@ -120,6 +243,13 @@ pub fn rename(ix: &Index, rs: &Resolver, root: &Path, target: &str, new: &str, o
     } else if let Some(d) = ix.defs_named(new.as_bytes()).into_iter().find(|&d| t.defs.iter().any(|&m| ix.def(m).file() == ix.def(d).file())) {
         out.push(&format!("`{new}` is already defined next to it ({}). Nothing was changed.", super::def_line(&ix.def(d))));
         return;
+    }
+
+    if !opts.force {
+        if let Some(why) = bound_by_an_interface(ix, rs, t) {
+            out.push(&format!("{why} Nothing was changed. (`--force` renames it all the same.)"));
+            return;
+        }
     }
 
     // What refers to it: for sure, through a supertype, or by name only.
@@ -252,15 +382,43 @@ pub fn rename(ix: &Index, rs: &Resolver, root: &Path, target: &str, new: &str, o
         let ls: Vec<String> = lines.iter().map(u32::to_string).collect();
         out.push(&format!("{path}: {}", ls.join(",")));
     }
+    // What no index of the source can see: a type handed to another package as one of that
+    // package's interfaces keeps the interface by the names of its methods.
+    if t.class == Class::Callable && t.owner.is_some() {
+        if let Some((i, _)) = fits_an_interface(ix, rs, t) {
+            out.push(&format!(
+                "(The type also fits the interface {} at {}:{}, which declares `{old_str}`. Where it is passed as one, the interface needs the same rename.)",
+                i.name_str(),
+                i.path(),
+                i.rec.line
+            ));
+        }
+        if ix.lang(t.primary(ix).file()) == Lang::Go {
+            out.push("(Go: if the type is used as an interface of another package, that interface needs the old name. The compiler says so where it is.)");
+        }
+    }
+    // Everything left alone is listed, since it is what remains to be done by hand: the first
+    // lines with their text, the rest by file.
+    let list = |out: &mut Out, rows: &[(String, u32, String)]| {
+        for (p, l, text) in rows.iter().take(12) {
+            out.push(&format!("  {p}:{l}: {text}"));
+        }
+        let mut rest: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+        for (p, l, _) in rows.iter().skip(12) {
+            rest.entry(p.as_str()).or_default().push(l.to_string());
+        }
+        for (p, ls) in rest {
+            out.push(&format!("  {p}: {}", ls.join(",")));
+        }
+    };
     if !unclear.is_empty() {
+        unclear.sort();
         out.push(&format!(
             "not changed, {} line{} where `{old_str}` stands for more than this (edit by hand):",
             count(unclear.len()),
             if unclear.len() == 1 { "" } else { "s" }
         ));
-        for (p, l, text) in unclear.iter().take(20) {
-            out.push(&format!("  {p}:{l}: {text}"));
-        }
+        list(out, &unclear);
     }
     by_name.sort();
     by_name.dedup();
@@ -270,13 +428,17 @@ pub fn rename(ix: &Index, rs: &Resolver, root: &Path, target: &str, new: &str, o
             count(by_name.len()),
             if by_name.len() == 1 { "" } else { "s" }
         ));
-        for (f, l) in by_name.iter().take(20) {
-            let text = ix
-                .source(*f)
-                .map(|s| String::from_utf8_lossy(super::show::line_text(&s, &super::show::line_starts(&s), *l)).trim().to_string())
-                .unwrap_or_default();
-            out.push(&format!("  {}:{l}: {}", ix.path(*f), crate::output::clip(&text, 110)));
-        }
+        let rows: Vec<(String, u32, String)> = by_name
+            .iter()
+            .map(|(f, l)| {
+                let text = ix
+                    .source(*f)
+                    .map(|s| String::from_utf8_lossy(super::show::line_text(&s, &super::show::line_starts(&s), *l)).trim().to_string())
+                    .unwrap_or_default();
+                (ix.path(*f).to_string(), *l, crate::output::clip(&text, 110))
+            })
+            .collect();
+        list(out, &rows);
     }
 }
 

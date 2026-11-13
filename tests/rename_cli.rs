@@ -157,15 +157,15 @@ fn a_rename_that_cannot_be_exact_is_refused() {
     let p = sets("refused");
     // Two methods share the name: which one is meant has to be said.
     let said = p.ask(&["rename", "Add", "Insert"]);
-    has(&said, "`Add` names 2 functions. Say which one, as Owner.name or path:line. Nothing was changed.");
+    has(&said, "`Add` names 2 things. Say which one, as Owner.name or path:line. Nothing was changed.");
     // The new name is taken.
     std::fs::write(p.root.join("src/sets/more.go"), "package sets\n\nfunc (s *Set) Insert(x int) {}\n").unwrap();
     let said = p.ask(&["rename", "Set.Add", "Insert"]);
     has(&said, "Set already has a member `Insert` (sets/more.go:3");
     has(&said, "Nothing was changed.");
-    // Not a name, and not a function.
+    // Not a name, and not anything the index knows.
     has(&p.ask(&["rename", "Set.Add", "2fast"]), "`2fast` is not a name: nothing was changed.");
-    has(&p.ask(&["rename", "Set.items", "things"]), "is not a function or method this index knows");
+    has(&p.ask(&["rename", "Set.missing", "things"]), "is not a definition this index knows");
     assert_eq!(p.read("sets/sets.go"), SETS);
     assert_eq!(p.read("sets/use.go"), USE);
 }
@@ -190,4 +190,105 @@ fn a_function_is_renamed_through_its_imports() {
     assert_eq!(p.read("app/cart.ts"), "import { priceText } from '../lib/money'\n\nexport const total = (n: number) => priceText(n) + ' total'\n");
     // A function of the same name in a module that does not import it is another function.
     lacks(&p.read("app/local.ts"), "priceText");
+}
+
+const SHAPES: &str = r#"package shapes
+
+import "io"
+
+type Shape interface {
+	Area() float64
+	Name() string
+}
+
+type Square struct{ side float64 }
+
+func (s Square) Area() float64          { return s.side * s.side }
+func (s Square) Name() string           { return "square" }
+func (s Square) Grow(by float64) Square { return Square{s.side + by} }
+
+// Circle has an Area and no Name: it is not a Shape.
+type Circle struct{ r float64 }
+
+func (c Circle) Area() float64 { return 3 * c.r * c.r }
+
+type Loud struct{ Square }
+
+func (l Loud) Grow(by float64) Square { return l.Square.Grow(by * 2) }
+
+type failure struct{}
+
+func (failure) Error() string { return "failed" }
+
+type file struct{}
+
+var _ io.Closer = (*file)(nil)
+
+func (f *file) Close() error { return nil }
+func (f *file) Sync() error  { return nil }
+
+func total(shapes []Shape) (sum float64) {
+	for _, s := range shapes {
+		sum += s.Area()
+	}
+	return
+}
+
+type Grower interface{ Grow(by float64) Square }
+"#;
+
+#[test]
+fn a_method_that_an_interface_ties_to_its_name_is_not_renamed_alone() {
+    let p = Project::new("interfaces", &[("shapes/shapes.go", SHAPES)]);
+    let refused = |target: &str, new: &str, why: &str| {
+        let said = p.ask(&["rename", target, new]);
+        has(&said, why);
+        has(&said, "Nothing was changed. (`--force` renames it all the same.)");
+        assert_eq!(p.read("shapes/shapes.go"), SHAPES, "{target}");
+    };
+    // The declaration in the interface, and a method of a type that can stand in for it.
+    refused("Shape.Area", "Surface", "Shape.Area is declared by the interface Shape (shapes/shapes.go:5).");
+    refused("Square.Area", "Surface", "Square has all 2 methods of the interface Shape (shapes/shapes.go:5), which declares `Area`");
+    // A method that hides the one of an embedded type.
+    refused("Loud.Grow", "Enlarge", "Square, which Loud extends, embeds or implements, has a `Grow` too.");
+    // The standard library's interfaces: by a declaration, and by the name alone.
+    refused("file.Sync", "Flush", "file is declared to implement Closer (shapes/shapes.go:31), an interface of another package");
+    refused("failure.Error", "Message", "`Error` is a method the standard library's interfaces are made of");
+    // An interface of one method is fitted by accident as often as by design: the rename is
+    // done, and the interface is named.
+    let said = p.ask(&["rename", "Square.Grow", "Enlarge", "--dry-run"]);
+    has(&said, "would rename Square.Grow to Enlarge: its definition and 0 references in 1 file");
+    has(
+        &said,
+        "(The type also fits the interface Grower at shapes/shapes.go:43, which declares `Grow`. Where it is passed as one, the interface needs the same rename.)",
+    );
+    // The call of it stands on a line with another type's `Grow`, which is left to the reader.
+    has(&said, "  shapes/shapes.go:23: func (l Loud) Grow(by float64) Square { return l.Square.Grow(by * 2) }");
+    // A type that lacks a method of the interface is not bound by it.
+    has(&p.ask(&["rename", "Circle.Area", "Surface"]), "renamed Circle.Area to Surface: its definition and 0 references in 1 file");
+    has(&p.read("shapes/shapes.go"), "func (c Circle) Surface() float64 { return 3 * c.r * c.r }");
+    // And the person who knows better can insist.
+    has(&p.ask(&["rename", "failure.Error", "Message", "--force"]), "renamed failure.Error to Message");
+    has(&p.read("shapes/shapes.go"), "func (failure) Message() string { return \"failed\" }");
+}
+
+#[test]
+fn a_type_and_a_field_are_renamed_like_a_method() {
+    let p = sets("types");
+    // The field of one struct.
+    let said = p.ask(&["rename", "Set.items", "things"]);
+    has(&said, "renamed Set.items to things: its definition and 2 references in 1 file");
+    has(&p.read("sets/sets.go"), "type Set struct{ things []int }\n\nfunc (s *Set) Add(x int) { s.things = append(s.things, x) }");
+    // The type, wherever it is written as one. `NewSet` is another name and keeps it.
+    let said = p.ask(&["rename", "Set", "Group"]);
+    has(&said, "renamed Set to Group: its definition and ");
+    let sets = p.read("sets/sets.go");
+    has(&sets, "type Group struct{ things []int }");
+    has(&sets, "func (s *Group) Add(x int)");
+    has(&sets, "func NewSet(xs ...int) *Group {\n\ts := &Group{}");
+    has(&sets, "func open() (string, *Group, error)");
+    has(&sets, "// Set holds numbers. Add puts one in.");
+    has(&p.read("sets/use.go"), "func both(s *Group, b *Bag) { s.Add(6); b.Add(7) }");
+    // What was renamed is still found, under the new names.
+    has(&p.ask(&["callers", "Group.Add"]), "7 fill: s.Add(2)");
 }

@@ -2012,7 +2012,21 @@ impl<'a, 't> W<'a, 't> {
             }
             // Fields of an anonymous struct type belong to the variable.
             let saved = std::mem::replace(&mut self.owner, first);
-            if Some(ch) == ty && implements != NONE {
+            if Some(ch) == ty && implements != NONE && self.k(ch) == K::InterfaceType {
+                // Each interface the literal embeds is one the type is declared to implement.
+                for i in 0..ch.named_child_count().min(64) as u32 {
+                    let Some(x) = ch.named_child(i).filter(|e| self.k(*e) == K::TypeElem && e.named_child_count() == 1).and_then(|e| e.named_child(0)) else { continue };
+                    if !matches!(self.k(x), K::TypeIdentifier | K::QualifiedType | K::GenericType) {
+                        continue;
+                    }
+                    let at = self.cx.facts.refs.len();
+                    let mut cx = x.walk();
+                    self.named_type(x, &mut cx, RefKind::Implements);
+                    if self.cx.facts.refs.get(at).is_some_and(|r| r.kind == RefKind::Implements) {
+                        self.impls.push((at as u32, implements));
+                    }
+                }
+            } else if Some(ch) == ty && implements != NONE {
                 let at = self.cx.facts.refs.len();
                 self.named_type(ch, c, RefKind::Implements);
                 if self.cx.facts.refs.get(at).is_some_and(|r| r.kind == RefKind::Implements) {
@@ -2034,7 +2048,9 @@ impl<'a, 't> W<'a, 't> {
         let (Some(ty), Some(v)) = (ty, value) else { return NONE };
         let blank = spec.named_child(0).is_some_and(|x| self.k(x) == K::Identifier && self.cx.text(x) == b"_");
         let lone = spec.named_child(1).is_none_or(|x| self.k(x) != K::Identifier);
-        if !blank || !lone || !matches!(self.k(ty), K::TypeIdentifier | K::QualifiedType | K::GenericType) {
+        // The interface is named, or written out as the interfaces it is made of
+        // (`var _ interface{ io.Reader; fmt.Stringer } = (*T)(nil)`).
+        if !blank || !lone || !matches!(self.k(ty), K::TypeIdentifier | K::QualifiedType | K::GenericType | K::InterfaceType) {
             return NONE;
         }
         let id = self.expr_type_name(v);
