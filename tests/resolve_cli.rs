@@ -226,3 +226,23 @@ fn c_static_calls_and_pasting_macros() {
     has(&callers, "pmu_ops.vcpu_run in intel_ops");
     has(&callers, "17 enter_guest: return ops_call(vcpu_run)(v);");
 }
+
+#[test]
+fn references_to_a_member_that_is_gone_are_listed() {
+    // The definition was renamed and the call sites were not: what is left to fix.
+    let p = Project::new(
+        "go-dangling",
+        &[
+            (
+                "set.go",
+                "package main\n\ntype Set struct{ items []int }\n\nfunc (s *Set) AddEntry(v int) {\n\ts.items = append(s.items, v)\n}\n\ntype Other struct{}\n\nfunc (o *Other) Add(v int) {}\n",
+            ),
+            ("use.go", "package main\n\nfunc fill(s *Set, o *Other) {\n\ts.Add(1)\n\to.Add(2)\n\ts.Add(3)\n}\n"),
+        ],
+    );
+    let out = p.ask(&["callers", "Set.Add"]);
+    has(&out, "has no member `Add`. References that expect one (2 in 1 files)");
+    has(&out, "4 fill: s.Add(1)");
+    has(&out, "6 fill: s.Add(3)");
+    lacks(&out, "o.Add(2)");
+}

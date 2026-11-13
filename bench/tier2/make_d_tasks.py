@@ -33,7 +33,11 @@ ENVS = {
 
 
 def sh(cmd, cwd=None, inp=None, env=None, timeout=900):
-    p = subprocess.run(cmd, cwd=cwd, input=inp, capture_output=True, text=True, env=env, timeout=timeout)
+    try:
+        p = subprocess.run(cmd, cwd=cwd, input=inp, capture_output=True, text=True, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # A test that hangs before the fix (a performance report) is not a usable task.
+        return 124, "", "timed out"
     return p.returncode, p.stdout, p.stderr
 
 
@@ -66,7 +70,7 @@ def apply(patch, cwd):
 
 def run_django(repo_dir, env, labels):
     e = dict(os.environ, PYTHONPATH=str(repo_dir), PYTHONDONTWRITEBYTECODE="1")
-    rc, out, err = sh([str(env / "bin/python"), "runtests.py", "--parallel", "1", "-v", "1", *labels], cwd=repo_dir / "tests", env=e, timeout=1200)
+    rc, out, err = sh([str(env / "bin/python"), "runtests.py", "--parallel", "1", "-v", "1", *labels], cwd=repo_dir / "tests", env=e, timeout=600)
     text = out + "\n" + err
     failed = sorted(set(re.findall(r"^(?:FAIL|ERROR): \S+ \(([\w.]+)\)", text, re.M)))
     m = re.search(r"^Ran (\d+) tests? in", text, re.M)
@@ -78,7 +82,7 @@ def run_django(repo_dir, env, labels):
 def run_pytest(repo_dir, env, files):
     xml = repo_dir / ".d-junit.xml"
     e = dict(os.environ, PYTHONPATH=str(repo_dir), PYTHONDONTWRITEBYTECODE="1")
-    rc, out, err = sh([str(env / "bin/python"), "-m", "pytest", "-q", "-x", "--no-header", "-p", "no:cacheprovider", f"--junitxml={xml}", *files], cwd=repo_dir, env=e, timeout=1200)
+    rc, out, err = sh([str(env / "bin/python"), "-m", "pytest", "-q", "-x", "--no-header", "-p", "no:cacheprovider", f"--junitxml={xml}", *files], cwd=repo_dir, env=e, timeout=300)
     failed, ran = [], 0
     if xml.exists():
         for tc in ET.parse(xml).getroot().iter("testcase"):

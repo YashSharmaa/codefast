@@ -200,7 +200,9 @@ pub fn refs(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, opts: 
         let spec = parse_spec(ix, s);
         let ents = targets_for(ix, rs, &spec, common, &def_filter);
         let Some(t) = ents.first() else {
-            out.push(&format!("no symbol matches `{s}` (try: codefast find {s})"));
+            if !dangling_member(ix, rs, s, common, &pf, out) {
+                out.push(&format!("no symbol matches `{s}` (try: codefast find {s})"));
+            }
             continue;
         };
         if t.class == Class::Member && ents.len() > 1 && matches!(&spec, Spec::Sym { owner: None, .. }) {
@@ -301,6 +303,50 @@ pub fn refs(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, opts: 
             }
         }
     }
+}
+
+/// `Owner.name` names no definition. If a type `Owner` exists, the references that expect it to
+/// have such a member are listed: after a rename or a removal these are the places left to fix.
+fn dangling_member(ix: &Index, rs: &Resolver, s: &str, common: &Common, pf: &PathFilter, out: &mut Out) -> bool {
+    let Some((owner, name)) = s.rsplit_once('.').or_else(|| s.rsplit_once("::")) else { return false };
+    if owner.is_empty() || name.is_empty() || owner.contains('/') {
+        return false;
+    }
+    let owner_defs: Vec<DefId> = ix.defs_named(owner.as_bytes()).into_iter().filter(|&d| ix.def(d).kind().is_type()).collect();
+    if owner_defs.is_empty() {
+        return false;
+    }
+    let Some(nid) = ix.name_id(name.as_bytes()) else { return false };
+    let mut hits: Vec<RefV> = Vec::new();
+    ix.for_each_ref_named(nid, |r| {
+        if !r.kind().is_member() || !pf.matches(r.path()) || (!common.tests && ix.is_test_file(r.file)) {
+            return;
+        }
+        // The receiver's type as written, whether or not that type has such a member.
+        let Some(q) = r.qual() else { return };
+        let tys = rs.type_path_from(q.strip_prefix(b"^").unwrap_or(q), Some(r.file));
+        if tys.iter().any(|o| o.name.as_slice() == owner.as_bytes() && (o.defs.is_empty() || o.defs.iter().any(|d| owner_defs.contains(d)))) {
+            hits.push(r);
+        }
+    });
+    if hits.is_empty() {
+        return false;
+    }
+    let first = ix.def(owner_defs[0]);
+    hits.sort_by_cached_key(|r| proximity_key(ix, first.path(), r));
+    let nfiles = hits.iter().map(|r| r.file).collect::<FxHashSet<_>>().len();
+    out.push(&format!(
+        "`{owner}` ({}:{}) has no member `{name}`. References that expect one ({} in {} files):",
+        first.path(),
+        first.rec.line,
+        count(hits.len()),
+        count(nfiles)
+    ));
+    list_refs(ix, &hits, hits.len() <= 40, out);
+    if !common.tests {
+        out.push("(test code is not included: add --tests)");
+    }
+    true
 }
 
 /// Functions written into a table slot through a name-pasting macro, one line each.
@@ -776,7 +822,9 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
         let spec = parse_spec(ix, s);
         let ents = targets_for(ix, rs, &spec, common, &def_filter);
         let Some(t) = ents.first() else {
-            out.push(&format!("no symbol matches `{s}` (try: codefast find {s})"));
+            if !dangling_member(ix, rs, s, common, &pf, out) {
+                out.push(&format!("no symbol matches `{s}` (try: codefast find {s})"));
+            }
             continue;
         };
         if t.class == Class::Member && ents.len() > 1 && matches!(&spec, Spec::Sym { owner: None, .. }) {
