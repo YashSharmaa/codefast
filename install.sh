@@ -19,7 +19,7 @@ usage() {
     cat <<'EOF'
 Usage: install.sh [--version VERSION] [--bin-dir DIR] [--dry-run]
 
-  --version VERSION  release to install, for example 0.1.0 (default: latest)
+  --version VERSION  release to install, for example 0.1.1 (default: latest)
   --bin-dir DIR      directory to install into (default: ~/.local/bin)
   --dry-run          print every action without downloading or writing anything
   -h, --help         show this text

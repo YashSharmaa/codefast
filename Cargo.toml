@@ -1,6 +1,6 @@
 [package]
 name = "codefast"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "LLM-free code intelligence for AI coding harnesses: fast structural index, token-efficient answers"
@@ -61,11 +61,6 @@ default = [
     "lang-go",
     "lang-rust",
     "lang-java",
-    "lang-csharp",
-    "lang-kotlin",
-    "lang-php",
-    "lang-ruby",
-    "lang-swift",
 ]
 lang-c = ["dep:tree-sitter-c"]
 lang-cpp = ["dep:tree-sitter-cpp"]
