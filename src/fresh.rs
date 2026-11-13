@@ -71,7 +71,11 @@ fn open_base(root: &Path, opts: &OpenOptions) -> Result<Segment> {
     let path = build::index_dir(root).join(BASE_SEGMENT);
     if path.exists() {
         if let Ok(seg) = Segment::open(&path) {
-            return Ok(seg);
+            // An index directory named by the environment can end up shared by two
+            // repositories. An index built for another root is rebuilt, never served.
+            if seg.meta("root").is_none_or(|r| Path::new(r) == root) {
+                return Ok(seg);
+            }
         }
     }
     if !opts.quiet {

@@ -197,7 +197,7 @@ by its Bash tool, so a per-plugin cache would be filled once by the MCP server a
 every command the agent types. One cache also means one download for all harnesses.
 
 When no binary is there yet, `codefast hook session-start` starts the download in the background
-and returns. The other hooks return at once. The background download lets go of the hook's
+and returns, and the other hooks return at once. The background download lets go of the hook's
 stdout and stderr first, because a harness waits until both are closed. `codefast mcp` and
 ordinary commands download in the foreground and say so on stderr. A downloaded binary has to
 answer `--version` before it enters the cache: the cache is consulted before `PATH`, so a binary
@@ -270,7 +270,7 @@ sh tests/packaging/manifests/harness_sandbox_test.sh target/release/codefast
   the pieces against each other and read the shipped files to do so: `tests/mcp_manifests.rs`
   starts the MCP server through the launcher the way each manifest starts it (command, arguments,
   working directory and environment of that harness) and expects the same five tools and one
-  version everywhere. `tests/hooks_manifests.rs` runs every command line of the shipped hooks
+  version everywhere, and `tests/hooks_manifests.rs` runs every command line of the shipped hooks
   files and compares them with what `codefast setup --hooks` writes. `tests/setup_native.rs`
   runs the real `claude` and `codex` against a sandbox when they are installed and is skipped
   otherwise.

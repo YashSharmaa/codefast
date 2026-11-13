@@ -170,3 +170,25 @@ fn go_method_values_are_value_uses() {
     let path = p.ask(&["path", "Controller.Run", "Controller.step"]);
     has(&path, "Run → worker → step");
 }
+
+#[test]
+fn an_index_built_for_another_repository_is_never_served() {
+    // One index directory, named by the environment, used from two repositories in turn.
+    let a = Project::new("shared-a", &[("a.c", "int only_in_a(void)\n{\n    return 1;\n}\n")]);
+    let b = Project::new("shared-b", &[("b.c", "int only_in_b(void)\n{\n    return 2;\n}\n")]);
+    let ask = |p: &Project, name: &str| {
+        let out = Command::new(BIN)
+            .arg("--root")
+            .arg(p.root.join("src"))
+            .args(["find", name])
+            .env("CODEFAST_INDEX_DIR", a.root.join("index"))
+            .output()
+            .expect("run codefast");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    has(&ask(&a, "only_in_a"), "a.c:1");
+    has(&ask(&b, "only_in_b"), "b.c:1");
+    lacks(&ask(&b, "only_in_a"), "a.c:1");
+    has(&ask(&a, "only_in_a"), "a.c:1");
+    lacks(&ask(&a, "only_in_b"), "b.c:1");
+}
