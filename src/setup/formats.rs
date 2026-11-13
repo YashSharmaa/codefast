@@ -1,5 +1,6 @@
-//! The configuration formats that are not JSON: Codex's `config.toml`, Goose's `config.yaml`,
-//! Crush's `crushrc`, Aider's `.aider.conf.yml`, and the marked block in `AGENTS.md`.
+//! The configuration formats that are not JSON: the `config.toml` of Codex and of Mistral Vibe,
+//! the `config.yaml` of Goose and of Hermes Agent, Crush's `crushrc`, Aider's `.aider.conf.yml`,
+//! and the marked block in `AGENTS.md`.
 //!
 //! No general TOML or YAML parser is involved. Each reader recognises the one shape the harness
 //! documents for an MCP server entry, each writer adds or replaces exactly those lines, and a
@@ -149,6 +150,52 @@ fn toml_key<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     rest.strip_prefix('=').map(str::trim)
 }
 
+/// The `command` and `args` keys among the lines of one table.
+fn toml_entry(body: &[&str]) -> Found {
+    let (mut command, mut args) = (None, Some(Vec::new()));
+    for line in body {
+        if let Some(v) = toml_key(line, "command") {
+            command = toml_read_string(v).filter(|(_, rest)| is_blank_or_comment(rest)).map(|(s, _)| s);
+            if command.is_none() {
+                return Found::Unreadable;
+            }
+        } else if let Some(v) = toml_key(line, "args") {
+            args = toml_read_array(v);
+        }
+    }
+    match (command, args) {
+        (Some(command), Some(args)) => Found::Entry(Server { command, args }),
+        _ => Found::Unreadable,
+    }
+}
+
+/// The table `[start, end)` with its `command` and `args` lines set; any other key stays. An
+/// `args` line the table lacks goes right under the header.
+fn toml_replace(all: &[&str], start: usize, end: usize, server: &Server, nl: &str) -> String {
+    let command = format!("command = {}", toml_string(&server.command));
+    let args = format!("args = [{}]", server.args.iter().map(|a| toml_string(a)).collect::<Vec<_>>().join(", "));
+    let mut out = String::new();
+    for (i, line) in all.iter().enumerate() {
+        let inside = i > start && i < end;
+        if inside && toml_key(line, "command").is_some() {
+            out.push_str(&format!("{command}{nl}"));
+        } else if inside && toml_key(line, "args").is_some() {
+            out.push_str(&format!("{args}{nl}"));
+        } else {
+            out.push_str(line);
+        }
+        if i == start {
+            if !line.ends_with('\n') {
+                out.push_str(nl);
+            }
+            if !all[start + 1..end].iter().any(|l| toml_key(l, "args").is_some()) {
+                out.push_str(&format!("{args}{nl}"));
+            }
+        }
+    }
+    out
+}
+
 /// The `[mcp_servers.NAME]` entry of a Codex `config.toml`.
 pub fn toml_get(text: &str, name: &str) -> Found {
     let all = lines(text);
@@ -167,21 +214,7 @@ pub fn toml_get(text: &str, name: &str) -> Found {
         });
         return if inline || under_parent { Found::Unreadable } else { Found::Missing };
     };
-    let (mut command, mut args) = (None, Some(Vec::new()));
-    for line in &all[start + 1..end] {
-        if let Some(v) = toml_key(line, "command") {
-            command = toml_read_string(v).filter(|(_, rest)| is_blank_or_comment(rest)).map(|(s, _)| s);
-            if command.is_none() {
-                return Found::Unreadable;
-            }
-        } else if let Some(v) = toml_key(line, "args") {
-            args = toml_read_array(v);
-        }
-    }
-    match (command, args) {
-        (Some(command), Some(args)) => Found::Entry(Server { command, args }),
-        _ => Found::Unreadable,
-    }
+    toml_entry(&all[start + 1..end])
 }
 
 /// Whether the `[mcp_servers.NAME]` table holds more than `command` and `args`: other keys, or
@@ -205,35 +238,75 @@ pub fn toml_set(text: &str, name: &str, server: &Server) -> Result<String> {
         Found::Entry(_) => {
             let all = lines(text);
             let (start, end) = toml_table(&all, name).expect("found above");
-            let mut out = String::with_capacity(text.len() + 128);
-            let (mut wrote_command, mut wrote_args) = (false, false);
-            for (i, line) in all.iter().enumerate() {
-                let inside = i > start && i < end;
-                if inside && toml_key(line, "command").is_some() {
-                    out.push_str(&format!("{command}{nl}"));
-                    wrote_command = true;
-                } else if inside && toml_key(line, "args").is_some() {
-                    out.push_str(&format!("{args}{nl}"));
-                    wrote_args = true;
-                } else {
-                    out.push_str(line);
-                }
-                if i == start {
-                    if !line.ends_with('\n') {
-                        out.push_str(nl);
-                    }
-                    // `args` may be absent from the old table; it goes right under the header.
-                    if !all[start + 1..end].iter().any(|l| toml_key(l, "args").is_some()) {
-                        out.push_str(&format!("{args}{nl}"));
-                        wrote_args = true;
-                    }
-                }
-            }
-            debug_assert!(wrote_command && wrote_args);
-            out
+            toml_replace(&all, start, end, server, nl)
         }
     };
     if toml_get(&new, name) != Found::Entry(server.clone()) {
+        bail!("the edit could not be verified; the file was left unchanged");
+    }
+    Ok(new)
+}
+
+// ----- TOML (Mistral Vibe) -----
+
+/// Whether a line is the header `[[mcp_servers]]`.
+fn vibe_header(line: &str) -> bool {
+    let t = line.trim();
+    t.split('#').next().unwrap_or(t).trim().replace(' ', "") == "[[mcp_servers]]"
+}
+
+/// Lines `[start, end)` of the `[[mcp_servers]]` table whose `name` is NAME, header included.
+fn vibe_table(all: &[&str], name: &str) -> Option<(usize, usize)> {
+    (0..all.len()).filter(|&i| vibe_header(all[i])).find_map(|start| {
+        let end = all[start + 1..].iter().position(|l| toml_header(l).is_some()).map(|p| start + 1 + p).unwrap_or(all.len());
+        let named =
+            all[start + 1..end].iter().any(|l| toml_key(l, "name").and_then(toml_read_string).is_some_and(|(n, rest)| n == name && is_blank_or_comment(rest)));
+        named.then_some((start, end))
+    })
+}
+
+/// The `[[mcp_servers]]` entry named NAME of a Vibe `config.toml`.
+pub fn vibe_get(text: &str, name: &str) -> Found {
+    let all = lines(text);
+    match vibe_table(&all, name) {
+        Some((start, end)) => toml_entry(&all[start + 1..end]),
+        // The servers written as one inline array (`mcp_servers = [{ name = ... }]`).
+        None if all.iter().any(|l| toml_key(l, "mcp_servers").is_some() && text.contains(&format!("\"{name}\""))) => Found::Unreadable,
+        None => Found::Missing,
+    }
+}
+
+/// Whether the entry NAME holds more than `name`, `transport`, `command` and `args`: other
+/// keys, or a sub-table such as `[mcp_servers.env]` right after it.
+pub fn vibe_has_more(text: &str, name: &str) -> bool {
+    let all = lines(text);
+    let Some((start, end)) = vibe_table(&all, name) else { return false };
+    let own = ["name", "transport", "command", "args"];
+    let other = all[start + 1..end].iter().any(|l| !is_blank_or_comment(l) && own.iter().all(|k| toml_key(l, k).is_none()));
+    other || all.get(end).and_then(|l| toml_header(l)).is_some_and(|h| h.starts_with("mcp_servers."))
+}
+
+/// Add or update the `[[mcp_servers]]` entry named NAME. Other keys of an existing entry are kept.
+pub fn vibe_set(text: &str, name: &str, server: &Server) -> Result<String> {
+    let nl = newline(text);
+    let new = match vibe_get(text, name) {
+        Found::Unreadable => bail!("the existing mcp_servers entry `{name}` is written in a form that is not rewritten automatically"),
+        Found::Missing => append_block(
+            text,
+            &format!(
+                "[[mcp_servers]]\nname = {}\ntransport = \"stdio\"\ncommand = {}\nargs = [{}]",
+                toml_string(name),
+                toml_string(&server.command),
+                server.args.iter().map(|a| toml_string(a)).collect::<Vec<_>>().join(", ")
+            ),
+        ),
+        Found::Entry(_) => {
+            let all = lines(text);
+            let (start, end) = vibe_table(&all, name).expect("found above");
+            toml_replace(&all, start, end, server, nl)
+        }
+    };
+    if vibe_get(&new, name) != Found::Entry(server.clone()) {
         bail!("the edit could not be verified; the file was left unchanged");
     }
     Ok(new)
@@ -277,30 +350,60 @@ fn yaml_key<'a>(line: &'a str, indent: usize, key: &str) -> Option<&'a str> {
     (rest.is_empty() || rest.starts_with([' ', '\t', '\r', '\n'])).then(|| rest.trim())
 }
 
-/// Lines `(start, end)` below the top-level `extensions:` key, and the indent of its children.
-fn goose_extensions(all: &[&str]) -> Option<(usize, usize, usize, bool)> {
-    let at = all.iter().position(|l| yaml_key(l, 0, "extensions").is_some())?;
-    let inline = !yaml_key(all[at], 0, "extensions").unwrap_or("").is_empty();
+/// The two YAML files that keep servers in a map under one top-level key: Goose's
+/// `config.yaml` (`extensions:`, the program under `cmd`) and Hermes Agent's `config.yaml`
+/// (`mcp_servers:`, the program under `command`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum YamlStyle {
+    Goose,
+    Hermes,
+}
+
+impl YamlStyle {
+    fn top(self) -> &'static str {
+        match self {
+            YamlStyle::Goose => "extensions",
+            YamlStyle::Hermes => "mcp_servers",
+        }
+    }
+
+    fn cmd(self) -> &'static str {
+        match self {
+            YamlStyle::Goose => "cmd",
+            YamlStyle::Hermes => "command",
+        }
+    }
+}
+
+/// Lines `(start, end)` below the top-level key, and the indent of its children.
+fn yaml_map(all: &[&str], top: &str) -> Option<(usize, usize, usize, bool)> {
+    let at = all.iter().position(|l| yaml_key(l, 0, top).is_some())?;
+    let inline = !yaml_key(all[at], 0, top).unwrap_or("").is_empty();
     let end = all[at + 1..].iter().position(|l| !is_blank_or_comment(l) && indent_of(l) == 0).map(|p| at + 1 + p).unwrap_or(all.len());
     let child = all[at + 1..end].iter().find(|l| !is_blank_or_comment(l)).map(|l| indent_of(l)).unwrap_or(2);
     Some((at, end, child, inline))
 }
 
-/// Lines `[start, end)` of the extension NAME inside the extensions block.
-fn goose_entry(all: &[&str], name: &str) -> Option<(usize, usize, usize)> {
-    let (at, end, child, _) = goose_extensions(all)?;
+/// Lines `[start, end)` of the entry NAME inside the map.
+fn yaml_entry(all: &[&str], top: &str, name: &str) -> Option<(usize, usize, usize)> {
+    let (at, end, child, _) = yaml_map(all, top)?;
     let start = (at + 1..end).find(|&i| yaml_key(all[i], child, name).is_some())?;
-    let stop = (start + 1..end).find(|&i| !is_blank_or_comment(all[i]) && indent_of(all[i]) <= child).unwrap_or(end);
+    let mut stop = (start + 1..end).find(|&i| !is_blank_or_comment(all[i]) && indent_of(all[i]) <= child).unwrap_or(end);
+    // Blank lines and comments after the entry's last line belong to what follows it.
+    while stop > start + 1 && is_blank_or_comment(all[stop - 1]) {
+        stop -= 1;
+    }
     Some((start, stop, child))
 }
 
-/// The extension NAME of a Goose `config.yaml`.
-pub fn goose_get(text: &str, name: &str) -> Found {
+/// The server NAME of a YAML file in `style`.
+pub fn yaml_get(text: &str, style: YamlStyle, name: &str) -> Found {
+    let (top, cmd) = (style.top(), style.cmd());
     let all = lines(text);
-    let Some((start, stop, child)) = goose_entry(&all, name) else {
-        return match goose_extensions(&all) {
+    let Some((start, stop, child)) = yaml_entry(&all, top, name) else {
+        return match yaml_map(&all, top) {
             // `extensions: {...}` on one line may hold anything.
-            Some((at, _, _, true)) if yaml_key(all[at], 0, "extensions") != Some("{}") => Found::Unreadable,
+            Some((at, _, _, true)) if yaml_key(all[at], 0, top) != Some("{}") => Found::Unreadable,
             _ => Found::Missing,
         };
     };
@@ -311,7 +414,7 @@ pub fn goose_get(text: &str, name: &str) -> Found {
     }
     let (mut command, mut args) = (None, Some(Vec::new()));
     for (i, line) in body.iter().enumerate() {
-        if let Some(v) = yaml_key(line, inner, "cmd") {
+        if let Some(v) = yaml_key(line, inner, cmd) {
             command = yaml_unquote(v);
         } else if let Some(v) = yaml_key(line, inner, "args") {
             args = if v.is_empty() {
@@ -333,39 +436,42 @@ pub fn goose_get(text: &str, name: &str) -> Found {
     }
 }
 
-/// Add or replace the stdio extension NAME in a Goose `config.yaml`. With `in_place`, an entry
-/// that is already there keeps everything but its `cmd`: the caller says so for an entry of this
-/// program that only has to follow the binary to a new path, and whose arguments are unchanged.
-pub fn goose_set(text: &str, name: &str, server: &Server, description: &str, in_place: bool) -> Result<String> {
+/// Add or replace the stdio server NAME in a YAML file in `style`. With `in_place`, an entry
+/// that is already there keeps everything but its command (`cmd` in Goose): the caller says so
+/// for an entry of this program that only has to follow the binary to a new path, and whose
+/// arguments are unchanged.
+pub fn yaml_set(text: &str, style: YamlStyle, name: &str, server: &Server, description: &str, in_place: bool) -> Result<String> {
+    let (top, cmd) = (style.top(), style.cmd());
     let nl = newline(text);
     let all = lines(text);
     let block = |child: usize| {
         let (a, b) = (" ".repeat(child), " ".repeat(child + 2));
         let args = server.args.iter().map(|x| yaml_scalar(x)).collect::<Vec<_>>().join(", ");
-        [
-            format!("{a}{name}:"),
-            format!("{b}name: {name}"),
-            format!("{b}type: stdio"),
-            format!("{b}cmd: {}", yaml_scalar(&server.command)),
-            format!("{b}args: [{args}]"),
-            format!("{b}enabled: true"),
-            format!("{b}envs: {{}}"),
-            format!("{b}timeout: 300"),
-            format!("{b}description: {}", yaml_scalar(description)),
-        ]
-        .iter()
-        .map(|l| format!("{l}{nl}"))
-        .collect::<String>()
+        let lines = match style {
+            YamlStyle::Goose => vec![
+                format!("{a}{name}:"),
+                format!("{b}name: {name}"),
+                format!("{b}type: stdio"),
+                format!("{b}cmd: {}", yaml_scalar(&server.command)),
+                format!("{b}args: [{args}]"),
+                format!("{b}enabled: true"),
+                format!("{b}envs: {{}}"),
+                format!("{b}timeout: 300"),
+                format!("{b}description: {}", yaml_scalar(description)),
+            ],
+            YamlStyle::Hermes => vec![format!("{a}{name}:"), format!("{b}command: {}", yaml_scalar(&server.command)), format!("{b}args: [{args}]")],
+        };
+        lines.iter().map(|l| format!("{l}{nl}")).collect::<String>()
     };
-    let new = match (goose_get(text, name), goose_extensions(&all)) {
-        (Found::Unreadable, _) => bail!("the existing `{name}` extension is written in a form that is not rewritten automatically"),
+    let new = match (yaml_get(text, style, name), yaml_map(&all, top)) {
+        (Found::Unreadable, _) => bail!("the existing `{name}` entry under {top} is written in a form that is not rewritten automatically"),
         (Found::Entry(found), _) if in_place && found.args == server.args => {
-            let (start, stop, _) = goose_entry(&all, name).expect("found above");
+            let (start, stop, _) = yaml_entry(&all, top, name).expect("found above");
             let inner = all[start + 1..stop].iter().find(|l| !is_blank_or_comment(l)).map(|l| indent_of(l)).unwrap_or(0);
             let mut out = String::with_capacity(text.len() + 64);
             for (i, line) in all.iter().enumerate() {
-                if i > start && i < stop && yaml_key(line, inner, "cmd").is_some() {
-                    out.push_str(&format!("{}cmd: {}{}", &line[..inner], yaml_scalar(&server.command), if line.ends_with('\n') { nl } else { "" }));
+                if i > start && i < stop && yaml_key(line, inner, cmd).is_some() {
+                    out.push_str(&format!("{}{cmd}: {}{}", &line[..inner], yaml_scalar(&server.command), if line.ends_with('\n') { nl } else { "" }));
                 } else {
                     out.push_str(line);
                 }
@@ -373,16 +479,16 @@ pub fn goose_set(text: &str, name: &str, server: &Server, description: &str, in_
             out
         }
         (Found::Entry(_), _) => {
-            let (start, stop, child) = goose_entry(&all, name).expect("found above");
+            let (start, stop, child) = yaml_entry(&all, top, name).expect("found above");
             format!("{}{}{}", all[..start].concat(), block(child), all[stop..].concat())
         }
         (Found::Missing, Some((at, _, child, inline))) => {
-            let head = if inline { format!("extensions:{nl}") } else { ensure_newline(all[at], nl) };
+            let head = if inline { format!("{top}:{nl}") } else { ensure_newline(all[at], nl) };
             format!("{}{}{}{}", all[..at].concat(), head, block(child), all[at + 1..].concat())
         }
-        (Found::Missing, None) => append_block(text, &format!("extensions:{nl}{}", block(2))),
+        (Found::Missing, None) => append_block(text, &format!("{top}:{nl}{}", block(2))),
     };
-    if goose_get(&new, name) != Found::Entry(server.clone()) {
+    if yaml_get(&new, style, name) != Found::Entry(server.clone()) {
         bail!("the edit could not be verified; the file was left unchanged");
     }
     Ok(new)
@@ -626,22 +732,22 @@ mod tests {
     #[test]
     fn goose_yaml_extensions() {
         let s = server("/usr/local/bin/codefast");
-        let fresh = goose_set("", "codefast", &s, "Code search", false).unwrap();
+        let fresh = yaml_set("", YamlStyle::Goose, "codefast", &s, "Code search", false).unwrap();
         assert_eq!(
             fresh,
             "extensions:\n  codefast:\n    name: codefast\n    type: stdio\n    cmd: /usr/local/bin/codefast\n    args: [mcp]\n    enabled: true\n    envs: {}\n    timeout: 300\n    description: \"Code search\"\n"
         );
-        assert_eq!(goose_get(&fresh, "codefast"), Found::Entry(s.clone()));
-        assert_eq!(goose_set(&fresh, "codefast", &s, "Code search", false).unwrap(), fresh);
+        assert_eq!(yaml_get(&fresh, YamlStyle::Goose, "codefast"), Found::Entry(s.clone()));
+        assert_eq!(yaml_set(&fresh, YamlStyle::Goose, "codefast", &s, "Code search", false).unwrap(), fresh);
 
         // As Goose writes its own file: block lists, keys in any order, other settings around.
         let config = "GOOSE_PROVIDER: anthropic\nextensions:\n  developer:\n    bundled: true\n    enabled: true\n    name: developer\n    timeout: 300\n    type: builtin\n  github:\n    args:\n    - -y\n    - '@modelcontextprotocol/server-github'\n    cmd: npx\n    type: stdio\nGOOSE_MODEL: claude-opus-5\n";
         assert_eq!(
-            goose_get(config, "github"),
+            yaml_get(config, YamlStyle::Goose, "github"),
             Found::Entry(Server { command: "npx".into(), args: vec!["-y".into(), "@modelcontextprotocol/server-github".into()] })
         );
-        assert_eq!(goose_get(config, "codefast"), Found::Missing);
-        let added = goose_set(config, "codefast", &s, "Code search", false).unwrap();
+        assert_eq!(yaml_get(config, YamlStyle::Goose, "codefast"), Found::Missing);
+        let added = yaml_set(config, YamlStyle::Goose, "codefast", &s, "Code search", false).unwrap();
         assert!(added.starts_with("GOOSE_PROVIDER: anthropic\nextensions:\n  codefast:\n    name: codefast\n"), "{added}");
         assert!(
             added.ends_with(
@@ -649,32 +755,85 @@ mod tests {
             ),
             "{added}"
         );
-        assert_eq!(goose_get(&added, "github"), goose_get(config, "github"));
+        assert_eq!(yaml_get(&added, YamlStyle::Goose, "github"), yaml_get(config, YamlStyle::Goose, "github"));
         // Replacing touches only our block.
-        let moved = goose_set(&added, "codefast", &server("codefast"), "Code search", false).unwrap();
+        let moved = yaml_set(&added, YamlStyle::Goose, "codefast", &server("codefast"), "Code search", false).unwrap();
         assert_eq!(moved.replace("cmd: codefast", "cmd: /usr/local/bin/codefast"), added);
         // No extensions yet, or an empty map.
         assert_eq!(
-            goose_set("GOOSE_MODEL: x\n", "codefast", &s, "d", false).unwrap().lines().take(3).collect::<Vec<_>>(),
+            yaml_set("GOOSE_MODEL: x\n", YamlStyle::Goose, "codefast", &s, "d", false).unwrap().lines().take(3).collect::<Vec<_>>(),
             ["GOOSE_MODEL: x", "", "extensions:"]
         );
-        assert!(goose_set("extensions: {}\nGOOSE_MODEL: x\n", "codefast", &s, "d", false).unwrap().starts_with("extensions:\n  codefast:\n"));
+        assert!(yaml_set("extensions: {}\nGOOSE_MODEL: x\n", YamlStyle::Goose, "codefast", &s, "d", false).unwrap().starts_with("extensions:\n  codefast:\n"));
         // Shapes that are not rewritten.
         for other in
             ["extensions: {codefast: {cmd: x}}\n", "extensions:\n  codefast: {cmd: x, args: [mcp]}\n", "extensions:\n  codefast:\n    cmd: |\n      x\n"]
         {
-            assert_eq!(goose_get(other, "codefast"), Found::Unreadable, "{other}");
-            assert!(goose_set(other, "codefast", &s, "d", false).is_err());
+            assert_eq!(yaml_get(other, YamlStyle::Goose, "codefast"), Found::Unreadable, "{other}");
+            assert!(yaml_set(other, YamlStyle::Goose, "codefast", &s, "d", false).is_err());
         }
         // An entry that only follows its binary keeps every other line, comments included.
         let lived = "extensions:\n  codefast:\n    # pinned\n    args:\n    - mcp\n    cmd: /old/codefast\n    enabled: false\n    envs:\n      CODEFAST_ROOT: /r\n    timeout: 900\n  z:\n    type: builtin\n";
-        assert_eq!(goose_set(lived, "codefast", &s, "d", true).unwrap(), lived.replace("/old/codefast", "/usr/local/bin/codefast"));
+        assert_eq!(yaml_set(lived, YamlStyle::Goose, "codefast", &s, "d", true).unwrap(), lived.replace("/old/codefast", "/usr/local/bin/codefast"));
         // Not when the arguments change too: then the entry is written anew.
         let other = Server { command: "/usr/local/bin/codefast".into(), args: vec!["mcp".into(), "--root".into(), "/r".into()] };
-        assert!(goose_set(lived, "codefast", &other, "d", true).unwrap().contains("    args: [mcp, \"--root\", /r]\n    enabled: true\n"));
+        assert!(yaml_set(lived, YamlStyle::Goose, "codefast", &other, "d", true).unwrap().contains("    args: [mcp, \"--root\", /r]\n    enabled: true\n"));
         // A command that needs quoting round-trips.
         let odd = server("/Users/a b/it's: here #1/codefast");
-        assert_eq!(goose_get(&goose_set("", "codefast", &odd, "d", false).unwrap(), "codefast"), Found::Entry(odd));
+        assert_eq!(yaml_get(&yaml_set("", YamlStyle::Goose, "codefast", &odd, "d", false).unwrap(), YamlStyle::Goose, "codefast"), Found::Entry(odd));
+    }
+
+    #[test]
+    fn vibe_toml_array_of_tables() {
+        let s = server("/usr/local/bin/codefast");
+        // The shape the Vibe documentation gives: one `[[mcp_servers]]` table per server.
+        let written = "[[mcp_servers]]\nname = \"codefast\"\ntransport = \"stdio\"\ncommand = \"/usr/local/bin/codefast\"\nargs = [\"mcp\"]\n";
+        assert_eq!(vibe_set("", "codefast", &s).unwrap(), written);
+        assert_eq!(vibe_get(written, "codefast"), Found::Entry(s.clone()));
+        assert_eq!(vibe_set(written, "codefast", &s).unwrap(), written);
+        assert!(!vibe_has_more(written, "codefast"));
+
+        let config = "# my vibe\nactive_model = \"devstral\"\n\n[[mcp_servers]]\nname = \"linear\"\ntransport = \"http\"\nurl = \"https://mcp.linear.app/mcp\"\n\n[mcp_servers.auth]\ntype = \"oauth\"\n";
+        assert_eq!(vibe_get(config, "codefast"), Found::Missing);
+        assert_eq!(vibe_set(config, "codefast", &s).unwrap(), format!("{config}\n{written}"));
+        // An entry of ours keeps its other keys and what follows it.
+        let old = "[[mcp_servers]]\nname = 'codefast'\ntransport = \"stdio\"\ncommand = \"/old/codefast\" # mine\nargs = [\"mcp\"]\nstartup_timeout_sec = 30\n\n[[mcp_servers]]\nname = \"x\"\ncommand = \"/old/codefast\"\n";
+        assert_eq!(vibe_get(old, "codefast"), Found::Entry(Server { command: "/old/codefast".into(), args: vec!["mcp".into()] }));
+        assert!(vibe_has_more(old, "codefast"));
+        assert_eq!(vibe_set(old, "codefast", &s).unwrap(), old.replacen("\"/old/codefast\" # mine", "\"/usr/local/bin/codefast\"", 1));
+        assert!(vibe_has_more("[[mcp_servers]]\nname = \"codefast\"\ncommand = \"x\"\n[mcp_servers.env]\nA = \"b\"\n", "codefast"));
+        // Written some other way: left alone.
+        for other in ["mcp_servers = [{ name = \"codefast\", command = \"x\" }]\n", "[[mcp_servers]]\nname = \"codefast\"\ncommand = [\"x\"]\n"] {
+            assert_eq!(vibe_get(other, "codefast"), Found::Unreadable, "{other}");
+            assert!(vibe_set(other, "codefast", &s).is_err());
+        }
+        assert_eq!(vibe_get("# [[mcp_servers]]\n# name = \"codefast\"\n[[mcp_servers]]\nname = \"codefast2\"\ncommand = \"x\"\n", "codefast"), Found::Missing);
+    }
+
+    #[test]
+    fn hermes_yaml_servers() {
+        let s = server("/usr/local/bin/codefast");
+        let fresh = yaml_set("", YamlStyle::Hermes, "codefast", &s, "d", false).unwrap();
+        assert_eq!(fresh, "mcp_servers:\n  codefast:\n    command: /usr/local/bin/codefast\n    args: [mcp]\n");
+        assert_eq!(yaml_get(&fresh, YamlStyle::Hermes, "codefast"), Found::Entry(s.clone()));
+        assert_eq!(yaml_get(&fresh, YamlStyle::Goose, "codefast"), Found::Missing, "a Goose reader does not see it");
+        // As the Hermes documentation writes servers: quoted strings, a flow list, other settings around.
+        let config = "model:\n  default: hermes-4\nmcp_servers:\n  # docs\n  filesystem:\n    command: \"npx\"\n    args: [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/home/user/projects\"]\nterminal:\n  backend: local\n";
+        assert_eq!(
+            yaml_get(config, YamlStyle::Hermes, "filesystem"),
+            Found::Entry(Server {
+                command: "npx".into(),
+                args: vec!["-y".into(), "@modelcontextprotocol/server-filesystem".into(), "/home/user/projects".into()]
+            })
+        );
+        let added = yaml_set(config, YamlStyle::Hermes, "codefast", &s, "d", false).unwrap();
+        assert_eq!(added, config.replace("mcp_servers:\n", "mcp_servers:\n  codefast:\n    command: /usr/local/bin/codefast\n    args: [mcp]\n"));
+        assert_eq!(yaml_set(&added, YamlStyle::Hermes, "codefast", &s, "d", false).unwrap(), added);
+        // An entry of ours that follows its binary keeps its other keys and comments.
+        let lived = "mcp_servers:\n  codefast:\n    # pinned\n    command: /old/codefast\n    args: [mcp]\n    env:\n      CODEFAST_ROOT: /r\n";
+        assert_eq!(yaml_set(lived, YamlStyle::Hermes, "codefast", &s, "d", true).unwrap(), lived.replace("/old/codefast", "/usr/local/bin/codefast"));
+        assert!(yaml_set("mcp_servers: {}\n", YamlStyle::Hermes, "codefast", &s, "d", false).unwrap().starts_with("mcp_servers:\n  codefast:\n"));
+        assert_eq!(yaml_get("mcp_servers: {codefast: {command: x}}\n", YamlStyle::Hermes, "codefast"), Found::Unreadable);
     }
 
     #[test]

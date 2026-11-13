@@ -80,6 +80,22 @@ fn rows() -> Vec<Row> {
         ("junie", "project", At::Project(".junie/mcp/mcp.json"), SERVERS, plain),
         ("deepagents", "user", At::Home(".deepagents/.mcp.json"), SERVERS, plain),
         ("deepagents", "project", At::Project(".mcp.json"), SERVERS, stdio),
+        ("devin", "user", At::Home(".config/devin/mcp_config.json"), SERVERS, plain),
+        ("devin", "project", At::Project(".devin/mcp_config.json"), SERVERS, plain),
+        ("antigravity", "user", At::Home(".gemini/config/mcp_config.json"), SERVERS, plain),
+        ("antigravity", "project", At::Project(".agents/mcp_config.json"), SERVERS, plain),
+        // Added from the documentation read on 2026-11-13. None of these harnesses was run.
+        ("openclaw", "user", At::Home(".openclaw/openclaw.json"), "/mcp/servers/codefast", plain),
+        ("continue", "project", At::Project(".continue/mcpServers/mcp.json"), SERVERS, plain),
+        ("openhands", "user", At::Home(".openhands/mcp.json"), SERVERS, plain),
+        ("warp", "user", At::Home(".warp/.mcp.json"), SERVERS, plain),
+        ("warp", "project", At::Project(".warp/.mcp.json"), SERVERS, plain),
+        ("auggie", "user", At::Home(".augment/settings.json"), SERVERS, plain),
+        ("auggie", "project", At::Project(".augment/settings.json"), SERVERS, plain),
+        ("codebuddy", "user", At::Home(".codebuddy/.mcp.json"), SERVERS, stdio),
+        ("codebuddy", "project", At::Project(".mcp.json"), SERVERS, stdio),
+        ("kimi-code", "user", At::Home(".kimi-code/mcp.json"), SERVERS, plain),
+        ("kimi-code", "project", At::Project(".kimi-code/mcp.json"), SERVERS, plain),
     ]
 }
 
@@ -228,6 +244,9 @@ fn each_harness_configuration_variable_moves_its_files() {
         ("kilo-code", "XDG_CONFIG_HOME", s("xdg"), o("xdg/kilo/kilo.jsonc")),
         ("goose", "XDG_CONFIG_HOME", s("xdg"), o("xdg/goose/config.yaml")),
         ("amp", "XDG_CONFIG_HOME", s("xdg"), o("xdg/amp/settings.json")),
+        ("hermes", "HERMES_HOME", s("hermes"), o("hermes/config.yaml")),
+        ("mistral-vibe", "VIBE_HOME", s("vibe"), o("vibe/config.toml")),
+        ("kimi-code", "KIMI_CODE_HOME", s("kimi"), o("kimi/mcp.json")),
     ];
     for (id, var, value, file) in &cases {
         let out = sb.setup_env(&[id, "--with", "mcp", "--apply"], &[(var, value)]);
@@ -283,14 +302,22 @@ fn the_skill_goes_where_each_harness_looks_for_skills() {
         "deepagents",
         "pi",
         "devin",
-        "antigravity",
         "dsh",
+        "mistral-vibe",
+        "openhands",
+        "warp",
+        "auggie",
+        "kimi-code",
     ];
     let own = [
         ("claude-code", ".claude/skills", ".claude/skills"),
         ("qwen-code", ".qwen/skills", ".qwen/skills"),
         ("junie", ".junie/skills", ".junie/skills"),
         ("droid", ".factory/skills", ".agents/skills"),
+        ("kiro", ".kiro/skills", ".kiro/skills"),
+        ("antigravity", ".gemini/config/skills", ".agents/skills"),
+        ("codebuddy", ".codebuddy/skills", ".codebuddy/skills"),
+        ("hermes", ".hermes/skills", ".agents/skills"),
     ];
     let skill = include_str!("../skills/codefast/SKILL.md");
     for id in shared {
@@ -309,10 +336,15 @@ fn the_skill_goes_where_each_harness_looks_for_skills() {
         assert!(!sb.home(".agents").exists(), "{id} does not read ~/.agents/skills");
     }
     // Harnesses without skills of their own get no skill step at all.
-    for id in ["zed", "kiro"] {
+    for id in ["zed", "continue"] {
         let sb = Sandbox::new("skill");
         assert!(!sb.setup(&[id]).ok().contains("  skill "), "{id}");
     }
+    // OpenClaw reads ~/.agents/skills, and has no directory of a repository's own.
+    let sb = Sandbox::new("skill");
+    sb.setup(&["openclaw", "--with", "skill", "--apply"]).ok();
+    assert_eq!(read(&sb.home(".agents/skills/codefast/SKILL.md")), skill);
+    assert!(!sb.setup(&["openclaw", "--scope", "project"]).ok().contains("  skill "));
     // The skill is the open format: the frontmatter keys every client accepts, and the name of its folder.
     let front: Vec<&str> = skill.lines().skip(1).take_while(|l| *l != "---").collect();
     assert!(front.contains(&"name: codefast") && front.iter().any(|l| l.starts_with("description: ")), "{front:?}");
@@ -321,7 +353,7 @@ fn the_skill_goes_where_each_harness_looks_for_skills() {
 #[test]
 fn harnesses_without_a_file_to_write_get_exact_instructions() {
     let sb = Sandbox::new("manual");
-    let out = sb.setup(&["dsh", "devin", "antigravity", "pi", "--apply"]);
+    let out = sb.setup(&["dsh", "continue", "pi", "--apply"]);
     let text = out.ok();
     assert!(
         text.contains(&format!(
@@ -329,15 +361,18 @@ fn harnesses_without_a_file_to_write_get_exact_instructions() {
         )),
         "{text}"
     );
-    assert!(text.contains("  mcp    manual   add this server to ~/.config/devin/mcp_config.json (stdio; the file's schema is not published"), "{text}");
+    // Continue keeps its user servers in a YAML list, which setup does not edit.
     assert!(
-        text.contains("  mcp    manual   Antigravity takes MCP servers from plugins: agy plugin install https://github.com/YashSharmaa/codefast\n"),
+        text.contains(&format!(
+            "  mcp    manual   add this item to the mcpServers list of ~/.continue/config.yaml: - {{name: codefast, command: {BIN}, args: [mcp]}}\n"
+        )),
         "{text}"
     );
     assert!(text.contains("  mcp    skip     Pi has no MCP client: the skill, which runs the codefast command, is the integration\n"), "{text}");
     assert!(text.contains("  note            as a package: pi install git:github.com/YashSharmaa/codefast\n"), "{text}");
-    // What can be done is done: the skill all four read.
-    assert!(text.ends_with("1 changed, 3 already in place, 3 left to do by hand.\n"), "{text}");
+    // What can be done is done: the skill the two others read.
+    assert!(text.ends_with("1 changed, 1 already in place, 2 left to do by hand.\n"), "{text}");
+    assert!(!sb.home(".continue").exists());
     assert!(sb.home(".agents/skills/codefast/SKILL.md").exists());
     // VS Code's user profile is VS Code's to write: without `code` on PATH the command is printed.
     let out = sb.setup(&["copilot", "--with", "mcp", "--apply"]);
@@ -365,5 +400,181 @@ fn aider_gets_the_conventions_file() {
     let agents = read(&sb.project("AGENTS.md"));
     assert!(agents.starts_with("<!-- codefast:begin -->\n## Code navigation: codefast\n") && agents.ends_with("<!-- codefast:end -->\n"));
     assert!(sb.setup(&["aider", "--apply"]).ok().ends_with("0 changed, 2 already in place.\n"));
+    assert_eq!(std::fs::read_dir(&sb.home).unwrap().count(), 0);
+}
+
+/// Where doctor reports the user-scope MCP entry of one harness.
+fn doctor_mcp(sb: &Sandbox, id: &str) -> Value {
+    let report: Value = serde_json::from_str(sb.run(&["doctor", "--json"], &[]).ok()).unwrap();
+    let seen = report["harnesses"].as_array().unwrap().iter().find(|h| h["id"] == id).unwrap_or_else(|| panic!("doctor does not list {id}: {report}"));
+    assert_eq!(seen["registered"], json!(true), "{seen}");
+    seen["user"]["mcp"].clone()
+}
+
+#[test]
+fn hermes_and_vibe_get_their_yaml_and_toml() {
+    // Hermes Agent: `mcp_servers` in ~/.hermes/config.yaml. Mistral Vibe: a `[[mcp_servers]]`
+    // table in ~/.vibe/config.toml. As documented on 2026-11-13; neither program was run.
+    let sb = Sandbox::new("hermes-vibe");
+    let out = sb.setup(&["hermes", "mistral-vibe", "--with", "mcp", "--apply"]);
+    assert!(out.ok().ends_with("2 changed, 0 already in place.\n"), "{}", out.stdout);
+    assert_eq!(read(&sb.home(".hermes/config.yaml")), format!("mcp_servers:\n  codefast:\n    command: {BIN}\n    args: [mcp]\n"));
+    assert_eq!(
+        read(&sb.home(".vibe/config.toml")),
+        format!("[[mcp_servers]]\nname = \"codefast\"\ntransport = \"stdio\"\ncommand = \"{BIN}\"\nargs = [\"mcp\"]\n")
+    );
+    assert_eq!(files(&sb), ["home/.hermes/config.yaml", "home/.vibe/config.toml"]);
+    assert!(sb.setup(&["hermes", "mistral-vibe", "--with", "mcp", "--apply"]).ok().ends_with("0 changed, 2 already in place.\n"));
+    for id in ["hermes", "mistral-vibe"] {
+        let mcp = doctor_mcp(&sb, id);
+        assert_eq!((&mcp["state"], &mcp["command"]), (&json!("registered"), &json!(format!("{BIN} mcp"))), "{id}: {mcp}");
+    }
+
+    // Files that already hold settings keep them, with their comments and order.
+    let hermes = "# Hermes\nmodel:\n  default: hermes-4\nmcp_servers:\n  filesystem:\n    command: \"npx\"\n    args: [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/tmp\"]\n  # remote one\n  linear:\n    url: \"https://mcp.linear.app/mcp\"\nterminal:\n  backend: local\n";
+    let vibe = "# vibe\nactive_model = \"devstral\"\n\n[[mcp_servers]]\nname = \"linear\"\ntransport = \"http\"\nurl = \"https://mcp.linear.app/mcp\"\n";
+    write(&sb.home(".hermes/config.yaml"), hermes);
+    write(&sb.home(".vibe/config.toml"), vibe);
+    sb.setup(&["hermes", "mistral-vibe", "--with", "mcp", "--apply"]).ok();
+    assert_eq!(
+        read(&sb.home(".hermes/config.yaml")),
+        hermes.replace("mcp_servers:\n", &format!("mcp_servers:\n  codefast:\n    command: {BIN}\n    args: [mcp]\n"))
+    );
+    assert_eq!(
+        read(&sb.home(".vibe/config.toml")),
+        format!("{vibe}\n[[mcp_servers]]\nname = \"codefast\"\ntransport = \"stdio\"\ncommand = \"{BIN}\"\nargs = [\"mcp\"]\n")
+    );
+    assert!(sb.setup(&["hermes", "mistral-vibe", "--with", "mcp", "--apply"]).ok().ends_with("0 changed, 2 already in place.\n"));
+
+    // An older entry of ours follows the binary and keeps what its owner added.
+    write(
+        &sb.home(".vibe/config.toml"),
+        "[[mcp_servers]]\nname = \"codefast\"\ntransport = \"stdio\"\ncommand = \"/old/codefast\"\nargs = [\"mcp\"]\nstartup_timeout_sec = 30\n",
+    );
+    sb.setup(&["mistral-vibe", "--with", "mcp", "--apply"]).ok();
+    assert_eq!(
+        read(&sb.home(".vibe/config.toml")),
+        format!("[[mcp_servers]]\nname = \"codefast\"\ntransport = \"stdio\"\ncommand = \"{BIN}\"\nargs = [\"mcp\"]\nstartup_timeout_sec = 30\n")
+    );
+
+    // Project scope: Vibe reads the project's .vibe/config.toml; Hermes has none.
+    let out = sb.setup(&["mistral-vibe", "hermes", "--scope", "project", "--with", "mcp", "--apply"]);
+    assert!(out.ok().ends_with("1 changed, 0 already in place.\n"), "{}", out.stdout);
+    assert_eq!(
+        read(&sb.project(".vibe/config.toml")),
+        "[[mcp_servers]]\nname = \"codefast\"\ntransport = \"stdio\"\ncommand = \"codefast\"\nargs = [\"mcp\"]\n"
+    );
+    assert!(out.stdout.contains("  mcp    skip     Hermes Agent keeps MCP servers in the user's config.yaml only; use --scope user\n"), "{}", out.stdout);
+    assert!(out.stdout.contains("  note            Vibe reads .vibe/config.toml and .agents/skills only in a folder you have trusted\n"), "{}", out.stdout);
+}
+
+#[test]
+fn the_new_json_harnesses_keep_what_is_already_in_the_file() {
+    // (harness, file, the text already there, a line of it that must survive as it is)
+    let cases = [
+        (
+            "openclaw",
+            ".openclaw/openclaw.json",
+            "{\n  // gateway\n  \"gateway\": {\"port\": 18789},\n  \"mcp\": {\n    \"servers\": {\n      \"docs\": {\"command\": \"uvx\", \"args\": [\"mcp-server-fetch\"]}\n    }\n  }\n}\n",
+        ),
+        ("openhands", ".openhands/mcp.json", "{\n  \"mcpServers\": {\n    \"docs\": {\"command\": \"uvx\", \"args\": [\"mcp-server-fetch\"]}\n  }\n}\n"),
+        ("warp", ".warp/.mcp.json", "{\n  // mine\n  \"mcpServers\": {\n    \"docs\": {\"command\": \"uvx\", \"args\": [\"mcp-server-fetch\"]}\n  }\n}\n"),
+        (
+            "auggie",
+            ".augment/settings.json",
+            "{\n  \"model\": \"sonnet\",\n  \"mcpServers\": {\n    \"docs\": {\"command\": \"uvx\", \"args\": [\"mcp-server-fetch\"]}\n  },\n  \"hooks\": {}\n}\n",
+        ),
+        ("kimi-code", ".kimi-code/mcp.json", "{\n  \"mcpServers\": {\n    \"docs\": {\"command\": \"uvx\", \"args\": [\"mcp-server-fetch\"]}\n  }\n}\n"),
+        ("devin", ".config/devin/mcp_config.json", "{\n  \"mcpServers\": {\n    \"docs\": {\"command\": \"uvx\", \"args\": [\"mcp-server-fetch\"]}\n  }\n}\n"),
+        (
+            "antigravity",
+            ".gemini/config/mcp_config.json",
+            "{\n  \"mcpServers\": {\n    \"docs\": {\"command\": \"uvx\", \"args\": [\"mcp-server-fetch\"], \"env\": {}}\n  }\n}\n",
+        ),
+        // CodeBuddy reads and writes the first of its user files that exists, the legacy one included.
+        (
+            "codebuddy",
+            ".codebuddy.json",
+            "{\n  \"projects\": {},\n  \"mcpServers\": {\n    \"docs\": {\"type\": \"stdio\", \"command\": \"uvx\", \"args\": [\"mcp-server-fetch\"]}\n  }\n}\n",
+        ),
+    ];
+    for (id, rel, before) in cases {
+        let sb = Sandbox::new("keep");
+        write(&sb.home(rel), before);
+        let out = sb.setup(&[id, "--with", "mcp", "--apply"]);
+        assert!(out.ok().ends_with("1 changed, 0 already in place.\n"), "{id}: {}", out.stdout);
+        let after = read(&sb.home(rel));
+        // Every line that was there is still there, in the same order, and ours comes after the
+        // server that was there before it.
+        let mut rest = after.as_str();
+        for line in before.lines().filter(|l| !l.trim().is_empty()) {
+            let at = rest.find(line.trim_end_matches(',')).unwrap_or_else(|| panic!("{id}: lost `{line}`:\n{after}"));
+            rest = &rest[at..];
+        }
+        assert!(after.find("\"docs\"").unwrap() < after.find("\"codefast\"").unwrap(), "{id}:\n{after}");
+        assert_eq!(files(&sb), [format!("home/{rel}")], "{id}");
+        assert!(sb.setup(&[id, "--with", "mcp", "--apply"]).ok().ends_with("0 changed, 1 already in place.\n"), "{id}");
+        let mcp = doctor_mcp(&sb, id);
+        assert_eq!((&mcp["state"], mcp["file"].as_str()), (&json!("registered"), sb.home(rel).to_str()), "{id}: {mcp}");
+    }
+}
+
+#[test]
+fn the_new_harnesses_own_commands_are_run_as_documented() {
+    // Stand-ins that record their arguments and register nothing, so the documented file is
+    // written after each. The command lines are the ones each harness's documentation gives.
+    let sb = Sandbox::new("new-native");
+    for name in ["openclaw", "vibe", "openhands", "auggie", "codebuddy", "devin"] {
+        sb.fake(name, "exit 0");
+    }
+    let ids = ["openclaw", "mistral-vibe", "openhands", "auggie", "codebuddy", "devin", "--with", "mcp"];
+    let plan = sb.setup(&ids);
+    assert!(plan.ok().contains(&format!("  mcp    plan     run `openclaw mcp add codefast --command {BIN} --arg mcp`\n")), "{}", plan.stdout);
+    let mut apply = ids.to_vec();
+    apply.push("--apply");
+    let out = sb.setup(&apply);
+    assert!(out.ok().ends_with("6 changed, 0 already in place.\n"), "{}", out.stdout);
+    let call = |args: &[&str]| vec![args.iter().map(|a| a.to_string()).collect::<Vec<String>>()];
+    assert_eq!(sb.calls("openclaw"), call(&["mcp", "add", "codefast", "--command", BIN, "--arg", "mcp"]));
+    assert_eq!(sb.calls("vibe"), call(&["mcp", "add", "codefast", "--transport", "stdio", "--command", BIN, "--arg", "mcp"]));
+    assert_eq!(sb.calls("openhands"), call(&["mcp", "add", "codefast", "--transport", "stdio", BIN, "--", "mcp"]));
+    assert_eq!(sb.calls("auggie"), call(&["mcp", "add", "codefast", "--command", BIN, "--args", "mcp"]));
+    assert_eq!(sb.calls("codebuddy"), call(&["mcp", "add", "--scope", "user", "codefast", "--", BIN, "mcp"]));
+    assert_eq!(sb.calls("devin"), call(&["mcp", "add", "-s", "user", "codefast", "--", BIN, "mcp"]));
+    assert_eq!(out.stdout.matches("the command did not register the server; wrote ").count(), 6, "{}", out.stdout);
+    assert!(read(&sb.home(".vibe/config.toml")).contains(&format!("command = \"{BIN}\"")));
+    for file in [".openclaw/openclaw.json", ".openhands/mcp.json", ".augment/settings.json", ".codebuddy/.mcp.json", ".config/devin/mcp_config.json"] {
+        assert!(read(&sb.home(file)).contains(BIN), "{file}");
+    }
+    // Registered now: no command runs again.
+    assert!(sb.setup(&apply).ok().ends_with("0 changed, 6 already in place.\n"));
+    assert_eq!(sb.calls("vibe").len(), 1);
+    // An older entry of ours is removed by the harness's own command before the new one is added.
+    write(&sb.home(".vibe/config.toml"), "[[mcp_servers]]\nname = \"codefast\"\ntransport = \"stdio\"\ncommand = \"/old/codefast\"\nargs = [\"mcp\"]\n");
+    sb.setup(&["mistral-vibe", "--with", "mcp", "--apply"]).ok();
+    assert_eq!(sb.calls("vibe")[1], ["mcp", "remove", "codefast"]);
+    // Project scope edits the project's file and runs nothing.
+    let out = sb.setup(&["auggie", "codebuddy", "devin", "--scope", "project", "--with", "mcp", "--apply"]);
+    assert!(out.ok().ends_with("3 changed, 0 already in place.\n"), "{}", out.stdout);
+    assert_eq!((sb.calls("auggie").len(), sb.calls("codebuddy").len(), sb.calls("devin").len()), (1, 1, 1));
+}
+
+#[test]
+fn harnesses_without_project_configuration_say_so() {
+    let sb = Sandbox::new("no-project");
+    let out = sb.setup(&["openclaw", "openhands", "warp", "kimi-code", "--scope", "project", "--with", "mcp", "--apply"]);
+    let text = out.ok();
+    assert!(text.contains("  mcp    skip     OpenClaw keeps MCP servers in the user's openclaw.json only; use --scope user\n"), "{text}");
+    assert!(text.contains("  mcp    skip     the OpenHands CLI keeps MCP servers in the user's mcp.json only; use --scope user\n"), "{text}");
+    // Warp and Kimi Code read a project file, and each needs a step by hand before it starts the server.
+    assert!(
+        text.contains("  note            Warp starts a project's servers only when you switch each one on in its MCP servers page, once per session\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  note            Kimi Code reads .kimi-code/mcp.json only in a trusted folder (KIMI_CODE_TRUST_WORKSPACE=1 for headless runs)\n"),
+        "{text}"
+    );
+    assert!(text.ends_with("2 changed, 0 already in place.\n"), "{text}");
     assert_eq!(std::fs::read_dir(&sb.home).unwrap().count(), 0);
 }

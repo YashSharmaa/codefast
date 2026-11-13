@@ -198,7 +198,7 @@ fn each_harness_found_is_reported_with_what_is_registered() {
     // Nothing installed, nothing found.
     let r = report(&sb, &[]);
     assert_eq!(r["harnesses"], json!([]));
-    assert_eq!(r["not_found"].as_array().unwrap().len(), 23);
+    assert_eq!(r["not_found"].as_array().unwrap().len(), 32);
     assert!(text(&sb, &[]).contains("harnesses found on this machine\n  none (`codefast setup --list` names the ones setup knows)\n"));
 
     // Found but not registered: the command that would register it.

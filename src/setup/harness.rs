@@ -2,11 +2,12 @@
 //! its MCP servers, skills and hooks at user and project scope, which of its own commands
 //! register a server, and what it calls its plugin.
 //!
-//! Sources: `docs/research/harness-plugin-formats.md` (sections 1.3, 2 and 5) and each
-//! harness's documentation as re-read on 2026-11-13. `claude` and `codex` were run against a
-//! sandbox; every other entry is the documented format.
+//! Sources: `docs/research/harness-plugin-formats.md` (sections 1.3, 2 and 5),
+//! `docs/research/harness-gaps-and-context-audit.md` (part A) and each harness's documentation
+//! as re-read on 2026-11-13. `claude` and `codex` were run against a sandbox; every other entry
+//! is the documented format, and none of those harnesses was run.
 
-use super::formats::Server;
+use super::formats::{Server, YamlStyle};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -145,16 +146,25 @@ pub enum Mcp {
         /// through the harness's own command.
         writable: bool,
     },
-    /// Codex's `config.toml`.
-    Toml { file: PathBuf, native: Option<Native> },
-    /// Goose's `config.yaml`.
-    Yaml { file: PathBuf },
+    /// A `config.toml`: Codex's `[mcp_servers.NAME]` tables, or Mistral Vibe's `[[mcp_servers]]`.
+    Toml { file: PathBuf, native: Option<Native>, style: TomlStyle },
+    /// A `config.yaml` with a map of servers: Goose's or Hermes Agent's.
+    Yaml { file: PathBuf, style: YamlStyle },
     /// Crush's `crushrc`.
     CrushRc { file: PathBuf },
     /// Nothing this program can write: the text says what to do by hand.
     Manual(String),
     /// The harness has no MCP client, or no configuration at this scope.
     Unavailable(String),
+}
+
+/// How a `config.toml` holds its servers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TomlStyle {
+    /// `[mcp_servers.NAME]` with `command` and `args` (Codex).
+    Codex,
+    /// `[[mcp_servers]]` with `name`, `transport`, `command` and `args` (Mistral Vibe).
+    Vibe,
 }
 
 /// A hooks file in the Claude Code shape (`{"hooks": {EVENT: [{matcher, hooks: [...]}]}}`).
@@ -198,6 +208,15 @@ pub const HARNESSES: &[Harness] = &[
     Harness { id: "antigravity", name: "Antigravity", aliases: &["agy"], bins: &["agy", "antigravity"] },
     Harness { id: "dsh", name: "DeepSeek Harness", aliases: &["deepseek-harness"], bins: &["dsh"] },
     Harness { id: "aider", name: "Aider", aliases: &[], bins: &["aider"] },
+    Harness { id: "hermes", name: "Hermes Agent", aliases: &["hermes-agent"], bins: &["hermes"] },
+    Harness { id: "openclaw", name: "OpenClaw", aliases: &[], bins: &["openclaw"] },
+    Harness { id: "mistral-vibe", name: "Mistral Vibe", aliases: &["vibe"], bins: &["vibe"] },
+    Harness { id: "continue", name: "Continue", aliases: &["continue-dev", "cn"], bins: &["cn"] },
+    Harness { id: "openhands", name: "OpenHands CLI", aliases: &["open-hands"], bins: &["openhands"] },
+    Harness { id: "warp", name: "Warp", aliases: &[], bins: &["warp-terminal"] },
+    Harness { id: "auggie", name: "Auggie (Augment CLI)", aliases: &["augment"], bins: &["auggie"] },
+    Harness { id: "codebuddy", name: "CodeBuddy Code", aliases: &["codebuddy-code"], bins: &["codebuddy"] },
+    Harness { id: "kimi-code", name: "Kimi Code CLI", aliases: &["kimi"], bins: &["kimi"] },
 ];
 
 pub fn lookup(word: &str) -> Option<&'static Harness> {
@@ -240,6 +259,27 @@ impl Harness {
 
     fn copilot_dir(ctx: &Ctx) -> PathBuf {
         env_path("COPILOT_HOME").unwrap_or_else(|| ctx.home(".copilot"))
+    }
+
+    fn hermes_dir(ctx: &Ctx) -> PathBuf {
+        env_path("HERMES_HOME").unwrap_or_else(|| ctx.home(".hermes"))
+    }
+
+    fn vibe_dir(ctx: &Ctx) -> PathBuf {
+        env_path("VIBE_HOME").unwrap_or_else(|| ctx.home(".vibe"))
+    }
+
+    fn kimi_dir(ctx: &Ctx) -> PathBuf {
+        env_path("KIMI_CODE_HOME").unwrap_or_else(|| ctx.home(".kimi-code"))
+    }
+
+    /// Devin's user configuration directory: `~/.config/devin`, `%APPDATA%\devin` on Windows.
+    fn devin_dir(ctx: &Ctx) -> PathBuf {
+        if cfg!(windows) {
+            env_path("APPDATA").map(|a| a.join("devin")).unwrap_or_else(|| ctx.home("AppData/Roaming/devin"))
+        } else {
+            ctx.home(".config/devin")
+        }
     }
 
     /// Zed's configuration directory, as `config_dir()` in Zed's `crates/paths` decides it:
@@ -288,10 +328,19 @@ impl Harness {
             "junie" => vec![ctx.home(".junie")],
             "deepagents" => vec![ctx.home(".deepagents")],
             "pi" => vec![ctx.home(".pi")],
-            "devin" => vec![ctx.config("devin"), ctx.home(".codeium/windsurf")],
+            "devin" => vec![Self::devin_dir(ctx), ctx.home(".codeium/windsurf")],
             "antigravity" => vec![ctx.home(".antigravity")],
             "dsh" => vec![ctx.home(".dsh")],
             "aider" => vec![ctx.home(".aider.conf.yml"), ctx.project(".aider.conf.yml")],
+            "hermes" => vec![Self::hermes_dir(ctx)],
+            "openclaw" => vec![ctx.home(".openclaw")],
+            "mistral-vibe" => vec![Self::vibe_dir(ctx)],
+            "continue" => vec![ctx.home(".continue")],
+            "openhands" => vec![ctx.home(".openhands")],
+            "warp" => vec![ctx.home(".warp")],
+            "auggie" => vec![ctx.home(".augment")],
+            "codebuddy" => vec![ctx.home(".codebuddy"), ctx.home(".codebuddy.json")],
+            "kimi-code" => vec![Self::kimi_dir(ctx)],
             _ => Vec::new(),
         }
     }
@@ -304,7 +353,8 @@ impl Harness {
         }
         let mut traces = self.traces(ctx);
         let probe = Server { command: NAME.to_string(), args: Vec::new() };
-        if let Mcp::Json { file, writable: true, .. } | Mcp::Toml { file, .. } | Mcp::Yaml { file } | Mcp::CrushRc { file } = self.mcp(ctx, Scope::User, &probe)
+        if let Mcp::Json { file, writable: true, .. } | Mcp::Toml { file, .. } | Mcp::Yaml { file, .. } | Mcp::CrushRc { file } =
+            self.mcp(ctx, Scope::User, &probe)
         {
             traces.push(file);
         }
@@ -348,9 +398,9 @@ impl Harness {
             }
             "codex" => {
                 if user {
-                    Mcp::Toml { file: Self::codex_dir(ctx).join("config.toml"), native: dashed("codex", &["mcp", "add"], &[]) }
+                    Mcp::Toml { file: Self::codex_dir(ctx).join("config.toml"), native: dashed("codex", &["mcp", "add"], &[]), style: TomlStyle::Codex }
                 } else {
-                    Mcp::Toml { file: ctx.project(".codex/config.toml"), native: None }
+                    Mcp::Toml { file: ctx.project(".codex/config.toml"), native: None, style: TomlStyle::Codex }
                 }
             }
             "gemini-cli" | "qwen-code" => {
@@ -433,7 +483,7 @@ impl Harness {
             }
             "goose" => {
                 if user {
-                    Mcp::Yaml { file: ctx.config("goose/config.yaml") }
+                    Mcp::Yaml { file: ctx.config("goose/config.yaml"), style: YamlStyle::Goose }
                 } else {
                     Mcp::Unavailable("Goose keeps extensions in the user's config.yaml only; use --scope user".to_string())
                 }
@@ -500,12 +550,92 @@ impl Harness {
                     json(ctx.project(".mcp.json"), &servers, stdio(), None)
                 }
             }
-            "devin" => Mcp::Manual(format!(
-                "add this server to {} (stdio; the file's schema is not published, the MCP tab of Devin Desktop writes it): {}",
-                if user { "~/.config/devin/mcp_config.json" } else { ".devin/mcp_config.json" },
-                plain()
-            )),
-            "antigravity" => Mcp::Manual(format!("Antigravity takes MCP servers from plugins: agy plugin install {}", repo_url())),
+            "devin" => {
+                if user {
+                    json(Self::devin_dir(ctx).join("mcp_config.json"), &servers, plain(), dashed("devin", &["mcp", "add", "-s", "user"], &[]))
+                } else {
+                    json(ctx.project(".devin/mcp_config.json"), &servers, plain(), None)
+                }
+            }
+            "antigravity" => {
+                json(if user { ctx.home(".gemini/config/mcp_config.json") } else { ctx.project(".agents/mcp_config.json") }, &servers, plain(), None)
+            }
+            "hermes" => {
+                if user {
+                    Mcp::Yaml { file: Self::hermes_dir(ctx).join("config.yaml"), style: YamlStyle::Hermes }
+                } else {
+                    Mcp::Unavailable("Hermes Agent keeps MCP servers in the user's config.yaml only; use --scope user".to_string())
+                }
+            }
+            "openclaw" => {
+                if user {
+                    let mut add = strings(&["mcp", "add", NAME, "--command", command]);
+                    for arg in args {
+                        add.extend(["--arg".to_string(), arg.clone()]);
+                    }
+                    json(ctx.home(".openclaw/openclaw.json"), &["mcp", "servers", NAME], plain(), Some(Native { program: "openclaw", add, remove: None }))
+                } else {
+                    Mcp::Unavailable("OpenClaw keeps MCP servers in the user's openclaw.json only; use --scope user".to_string())
+                }
+            }
+            "mistral-vibe" => {
+                if user {
+                    let mut add = strings(&["mcp", "add", NAME, "--transport", "stdio", "--command", command]);
+                    for arg in args {
+                        add.extend(["--arg".to_string(), arg.clone()]);
+                    }
+                    let native = Native { program: "vibe", add, remove: Some(strings(&["mcp", "remove", NAME])) };
+                    Mcp::Toml { file: Self::vibe_dir(ctx).join("config.toml"), native: Some(native), style: TomlStyle::Vibe }
+                } else {
+                    Mcp::Toml { file: ctx.project(".vibe/config.toml"), native: None, style: TomlStyle::Vibe }
+                }
+            }
+            "continue" => {
+                if user {
+                    // `mcpServers` in config.yaml is a list, which setup does not edit.
+                    Mcp::Manual(format!(
+                        "add this item to the mcpServers list of ~/.continue/config.yaml: - {{name: {NAME}, command: {}, args: [{}]}}",
+                        super::quote(command),
+                        args.join(", ")
+                    ))
+                } else {
+                    json(ctx.project(".continue/mcpServers/mcp.json"), &servers, plain(), None)
+                }
+            }
+            "openhands" => {
+                if user {
+                    let mut add = strings(&["mcp", "add", NAME, "--transport", "stdio", command, "--"]);
+                    add.extend(args.iter().cloned());
+                    let native = Native { program: "openhands", add, remove: Some(strings(&["mcp", "remove", NAME])) };
+                    json(ctx.home(".openhands/mcp.json"), &servers, plain(), Some(native))
+                } else {
+                    Mcp::Unavailable("the OpenHands CLI keeps MCP servers in the user's mcp.json only; use --scope user".to_string())
+                }
+            }
+            "warp" => json(if user { ctx.home(".warp/.mcp.json") } else { ctx.project(".warp/.mcp.json") }, &servers, plain(), None),
+            "auggie" => {
+                if user {
+                    let add = strings(&["mcp", "add", NAME, "--command", command, "--args", &args.join(" ")]);
+                    let native = Native { program: "auggie", add, remove: Some(strings(&["mcp", "remove", NAME])) };
+                    json(ctx.home(".augment/settings.json"), &servers, plain(), Some(native))
+                } else {
+                    json(ctx.project(".augment/settings.json"), &servers, plain(), None)
+                }
+            }
+            "codebuddy" => {
+                if user {
+                    // The first of these that exists is the one CodeBuddy reads and writes.
+                    let file = [ctx.home(".codebuddy/.mcp.json"), ctx.home(".codebuddy/mcp.json"), ctx.home(".codebuddy.json")]
+                        .into_iter()
+                        .find(|p| p.exists())
+                        .unwrap_or_else(|| ctx.home(".codebuddy/.mcp.json"));
+                    let native = dashed("codebuddy", &["mcp", "add", "--scope", "user"], &["mcp", "remove", NAME, "--scope", "user"]);
+                    json(file, &servers, stdio(), native)
+                } else {
+                    json(ctx.project(".mcp.json"), &servers, stdio(), None)
+                }
+            }
+            "kimi-code" => json(if user { Self::kimi_dir(ctx).join("mcp.json") } else { ctx.project(".kimi-code/mcp.json") }, &servers, plain(), None),
             "dsh" => Mcp::Manual(format!(
                 "add an MCP row in Settings -> MCP, or to the profile's cordis.patch.yml: {{id: mcp-{NAME}, name: '@deepseek-ai/dsh-mcp-client', serverName: {NAME}, transport: stdio, command: {}, args: [{}]}}",
                 super::quote(command),
@@ -528,8 +658,17 @@ impl Harness {
             "qwen-code" => Some(pick(ctx.home(".qwen/skills"), ".qwen/skills")),
             "junie" => Some(pick(ctx.home(".junie/skills"), ".junie/skills")),
             "droid" => Some(pick(ctx.home(".factory/skills"), ".agents/skills")),
-            // No skills of their own (Zed runs other agents; Aider has none), or not documented.
-            "zed" | "aider" | "kiro" => None,
+            // Kiro's CLI reads only the project's directory; the IDE reads both.
+            "kiro" => Some(pick(ctx.home(".kiro/skills"), ".kiro/skills")),
+            "antigravity" => Some(pick(ctx.home(".gemini/config/skills"), ".agents/skills")),
+            "codebuddy" => Some(pick(ctx.home(".codebuddy/skills"), ".codebuddy/skills")),
+            // Hermes reads `~/.agents/skills` only when it is named in its configuration.
+            "hermes" => Some(pick(Self::hermes_dir(ctx).join("skills"), ".agents/skills")),
+            // OpenClaw's project directories belong to its own agent workspace, not to a repository.
+            "openclaw" if !user => None,
+            // No skills of their own (Zed runs other agents; Aider has none), or not documented
+            // (Continue's documentation names no skills directory).
+            "zed" | "aider" | "continue" => None,
             _ => Some(pick(ctx.home(".agents/skills"), ".agents/skills")),
         }
     }
@@ -654,11 +793,29 @@ impl Harness {
             "copilot" => out.push("as a plugin: run \"Chat: Install Plugin from Source\" in VS Code and give it the repository URL".to_string()),
             "droid" => out.push(format!("as a plugin: droid plugin marketplace add {slug} && droid plugin install {NAME}@{NAME}")),
             "goose" => out.push(format!("skills and hooks as a plugin: goose plugin install {url}.git")),
-            "kiro" => out.push(format!("as a Power: add {url} in Kiro's Powers panel")),
+            "kiro" => {
+                out.push(format!("as a Power: add {url} in Kiro's Powers panel"));
+                if scope == Scope::User {
+                    out.push("Kiro CLI reads skills from a project's .kiro/skills only; ~/.kiro/skills is for the IDE".to_string());
+                }
+            }
+            "antigravity" => out.push(format!("as a plugin: agy plugin install {url}")),
             "pi" => out.push(format!("as a package: pi install git:{}", url.trim_start_matches("https://"))),
             "amp" if scope == Scope::Project => out.push(format!("Amp asks for approval of workspace servers once: amp mcp approve {NAME}")),
             "deepagents" if scope == Scope::Project => {
                 out.push("Deep Agents Code asks for approval of project servers once (or --trust-project-mcp)".to_string())
+            }
+            "hermes" if scope == Scope::Project => out.push("Hermes Agent loads a repository's skills only after `hermes skills trust` in it".to_string()),
+            "hermes" => out.push("a running Hermes session picks the server up after /reload-mcp".to_string()),
+            "mistral-vibe" if scope == Scope::Project => {
+                out.push("Vibe reads .vibe/config.toml and .agents/skills only in a folder you have trusted".to_string())
+            }
+            "continue" => out.push("Continue uses MCP tools in agent mode only".to_string()),
+            "warp" if scope == Scope::Project => {
+                out.push("Warp starts a project's servers only when you switch each one on in its MCP servers page, once per session".to_string())
+            }
+            "kimi-code" if scope == Scope::Project => {
+                out.push("Kimi Code reads .kimi-code/mcp.json only in a trusted folder (KIMI_CODE_TRUST_WORKSPACE=1 for headless runs)".to_string())
             }
             _ => {}
         }
@@ -771,7 +928,7 @@ mod tests {
                         assert_eq!(server_of(&entry).as_ref(), Some(&server), "{}", h.id);
                         assert_eq!(scope == Scope::Project, file.starts_with(&ctx.root), "{} {:?}: {}", h.id, scope, file.display());
                     }
-                    Mcp::Toml { file, .. } | Mcp::Yaml { file } | Mcp::CrushRc { file } => {
+                    Mcp::Toml { file, .. } | Mcp::Yaml { file, .. } | Mcp::CrushRc { file } => {
                         assert_eq!(scope == Scope::Project, file.starts_with(&ctx.root), "{}", h.id)
                     }
                     Mcp::Manual(text) | Mcp::Unavailable(text) => assert!(!text.is_empty()),
@@ -790,6 +947,15 @@ mod tests {
         words.dedup();
         assert_eq!(words.len(), total, "ids and aliases are unique");
         for required in [
+            "hermes",
+            "openclaw",
+            "mistral-vibe",
+            "continue",
+            "openhands",
+            "warp",
+            "auggie",
+            "codebuddy",
+            "kimi-code",
             "claude-code",
             "codex",
             "gemini-cli",

@@ -141,7 +141,7 @@ fn mcp_state(ctx: &Ctx, h: &Harness, scope: Scope) -> Option<Value> {
     let want = Server { command: ctx.command(scope), args: vec!["mcp".to_string()] };
     let target = h.mcp(ctx, scope, &want);
     let file = match &target {
-        Mcp::Json { file, .. } | Mcp::Toml { file, .. } | Mcp::Yaml { file } | Mcp::CrushRc { file } => file.clone(),
+        Mcp::Json { file, .. } | Mcp::Toml { file, .. } | Mcp::Yaml { file, .. } | Mcp::CrushRc { file } => file.clone(),
         Mcp::Manual(_) | Mcp::Unavailable(_) => return None,
     };
     let mut out = json!({"file": file.display().to_string()});

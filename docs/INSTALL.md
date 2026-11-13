@@ -101,7 +101,9 @@ codefast doctor                             # or: codefast doctor --json
 `codefast setup [TARGET ...] [OPTIONS]` registers codefast with coding harnesses: the MCP server
 and the skill, and the hooks when asked. It runs the harness's own command where there is one
 (`claude mcp add`, `codex mcp add`, `gemini mcp add`, `qwen mcp add`, `copilot mcp add`,
-`amp mcp add`, `cline mcp add`, `droid mcp add`, `code --add-mcp`) and that program is on `PATH`.
+`amp mcp add`, `cline mcp add`, `droid mcp add`, `devin mcp add`, `openclaw mcp add`,
+`vibe mcp add`, `openhands mcp add`, `auggie mcp add`, `codebuddy mcp add`, `code --add-mcp`) and
+that program is on `PATH`.
 Otherwise it edits the configuration file the harness documents, keeping its comments, order
 and formatting. `docs/HARNESSES.md` lists the file for every harness and scope.
 
@@ -112,7 +114,7 @@ whatever the circumstances.
 
 | Target | What it is |
 |---|---|
-| `claude-code`, `codex`, `gemini-cli`, `cursor`, `copilot` (VS Code), `copilot-cli`, `opencode`, `qwen-code`, `goose`, `amp`, `cline`, `kilo-code`, `droid`, `crush`, `zed`, `kiro`, `junie`, `deepagents`, `pi`, `devin`, `antigravity`, `dsh`, `aider` | A harness. Also given as `--harness ID`, several are fine, and common names work too (`claude`, `gemini`, `vscode`, `kilo`, `qwen`, `factory`, `windsurf`, `dcode`, `agy`). |
+| `claude-code`, `codex`, `gemini-cli`, `cursor`, `copilot` (VS Code), `copilot-cli`, `opencode`, `qwen-code`, `goose`, `amp`, `cline`, `kilo-code`, `droid`, `crush`, `zed`, `kiro`, `junie`, `deepagents`, `pi`, `devin`, `antigravity`, `dsh`, `aider`, `hermes`, `openclaw`, `mistral-vibe`, `continue`, `openhands`, `warp`, `auggie`, `codebuddy`, `kimi-code` | A harness. Also given as `--harness ID`, several are fine, and common names work too (`claude`, `gemini`, `vscode`, `kilo`, `qwen`, `factory`, `windsurf`, `dcode`, `agy`, `vibe`, `cn`, `augment`, `kimi`). |
 | `--all` | Every harness found on this machine: its program is on `PATH`, or its configuration directory exists. `codefast setup --list` shows which. |
 | `agents-md` | The short rules block (between `<!-- codefast:begin -->` and `<!-- codefast:end -->`) in the project's `AGENTS.md`, and in `CLAUDE.md` or `GEMINI.md` where they exist and do not import `AGENTS.md`. `--file PATH` names another file. |
 | `mcp-json` | Prints the standard `mcpServers` snippet for any other MCP client. Writes nothing. |
@@ -171,8 +173,9 @@ and `doctor` before and after. Then `claude mcp list` reported the server as con
 Codex app server listed the skill, the server's five tools and the three hooks without warnings.
 For every other harness setup writes the file format that harness documents, and its own tests
 read the result back. None of those files has been loaded by the harness itself, and the
-commands of `gemini`, `qwen`, `copilot`, `amp`, `cline`, `droid` and `code` were only exercised
-with stand-in programs that record how they were called.
+commands of `gemini`, `qwen`, `copilot`, `amp`, `cline`, `droid`, `devin`, `openclaw`, `vibe`,
+`openhands`, `auggie`, `codebuddy` and `code` were only exercised with stand-in programs that
+record how they were called.
 
 ## 3. Harness by harness
 
@@ -328,7 +331,9 @@ npx skills add YashSharmaa/codefast -a opencode
 Or in `opencode.json`: `{ "mcp": { "servers": { "codefast": { "type": "local", "command": ["codefast", "mcp"] } } } }`.
 `codefast setup opencode --apply` edits that file itself and never runs `opencode mcp add`. In a
 file that does not use the `mcp.servers` layout yet it writes the older `mcp.codefast` form with
-`"enabled": true`, which OpenCode documents as still supported.
+`"enabled": true`, which OpenCode documents as still supported. For the rules block, OpenCode V2
+reads `AGENTS.md` only and does not fall back to `CLAUDE.md` (its instructions page, read on
+2026-11-13), so `codefast setup agents-md` reaches it through `AGENTS.md`.
 
 ### Qwen Code
 
@@ -429,7 +434,22 @@ as a rule. **Documented only.**
 devin plugins install YashSharmaa/codefast
 ```
 
-MCP server only: `devin mcp add codefast -- codefast mcp`.
+MCP server only (**documented only**, Devin CLI documentation read on 2026-11-13, not run):
+
+```sh
+devin mcp add -s user codefast -- codefast mcp
+```
+
+or by hand in `~/.config/devin/mcp_config.json`, or `.devin/mcp_config.json` for the project.
+Devin Desktop names the same three files (with `.devin/mcp_config.local.json`) in its own
+documentation:
+
+```json
+{ "mcpServers": { "codefast": { "command": "codefast", "args": ["mcp"] } } }
+```
+
+`codefast setup devin` runs the command when `devin` is on `PATH` and writes the file otherwise.
+`devin mcp list` shows the result.
 
 ### Junie
 
@@ -466,6 +486,10 @@ against a schema**, steps **documented only**. Install the Power from
 { "mcpServers": { "codefast": { "command": "codefast", "args": ["mcp"] } } }
 ```
 
+The skill: `codefast setup kiro` copies it to `~/.kiro/skills/codefast` (or `.kiro/skills/codefast`
+with `--scope project`). Kiro's skills page (read on 2026-11-13, not run) lists `~/.kiro/skills`
+for the IDE only: Kiro CLI reads the project's `.kiro/skills`.
+
 ### Antigravity
 
 Plugin (Agent Plugins format): skill and MCP server. Manifests **validated against a schema**,
@@ -474,6 +498,16 @@ command **documented only**.
 ```sh
 agy plugin install https://github.com/YashSharmaa/codefast
 ```
+
+MCP server only (**documented only**, read on 2026-11-13, not run): Antigravity, both the IDE and
+the CLI, reads `~/.gemini/config/mcp_config.json` and the workspace's `.agents/mcp_config.json`:
+
+```json
+{ "mcpServers": { "codefast": { "command": "codefast", "args": ["mcp"] } } }
+```
+
+`codefast setup antigravity` writes that entry, and the skill into `~/.gemini/config/skills` (or
+`.agents/skills` with `--scope project`). Check it with `/mcp` in a session.
 
 ### Aider
 
@@ -489,6 +523,153 @@ This puts the rules block into the project's `AGENTS.md` and adds `read: [AGENTS
 `codefast setup agents-md --apply`, and in `.aider.conf.yml`: `read: AGENTS.md`. The two commands
 are **tested in a sandbox** as far as the files they write. Aider itself was not run
 (**documented only**).
+
+### Hermes Agent
+
+**Documented only** (Hermes documentation read on 2026-11-13, not run). Hermes keeps MCP servers
+in `~/.hermes/config.yaml` (`$HERMES_HOME/config.yaml`) and has no command that adds an arbitrary
+one, so `codefast setup hermes` edits that file:
+
+```yaml
+mcp_servers:
+  codefast:
+    command: codefast
+    args: [mcp]
+```
+
+Check it with `hermes mcp test codefast`, and send `/reload-mcp` to a session that is already
+running. There is no project file for servers. The skill goes into `~/.hermes/skills/codefast`.
+A repository's `.agents/skills` is read only after `hermes skills trust` in it, and
+`~/.agents/skills` only when it is listed under `skills.external_dirs`.
+
+### OpenClaw
+
+**Documented only** (read on 2026-11-13, not run). Servers live under `mcp.servers` in
+`~/.openclaw/openclaw.json`, and there is no file per repository:
+
+```sh
+openclaw mcp add codefast --command codefast --arg mcp
+openclaw mcp doctor codefast --probe
+```
+
+`codefast setup openclaw` runs the first command when `openclaw` is on `PATH` and otherwise adds
+`"codefast": {"command": ..., "args": ["mcp"]}` under `mcp.servers` itself. That file is JSON5. A
+file written with JSON5 syntax beyond comments and trailing commas (unquoted keys, single quotes)
+is left alone and reported as `manual`. The skill goes into `~/.agents/skills`, which OpenClaw
+reads.
+
+### Mistral Vibe
+
+**Documented only** (read on 2026-11-13, not run).
+
+```sh
+vibe mcp add codefast --transport stdio --command codefast --arg mcp
+```
+
+That writes a table to `~/.vibe/config.toml` (`$VIBE_HOME`). The same by hand, or in the
+project's `.vibe/config.toml`, which Vibe reads only in a folder you have trusted:
+
+```toml
+[[mcp_servers]]
+name = "codefast"
+transport = "stdio"
+command = "codefast"
+args = ["mcp"]
+```
+
+Check it with `/mcp` in a session. The skill goes into `.agents/skills`, which Vibe reads at both
+scopes (the project's only in a trusted folder).
+
+### Continue
+
+**Documented only** (read on 2026-11-13, not run). Continue uses MCP tools in agent mode only. For
+a project, `codefast setup continue --scope project` writes `.continue/mcpServers/mcp.json`, a
+file in the JSON format of other clients, which Continue picks up from that folder:
+
+```json
+{ "mcpServers": { "codefast": { "command": "codefast", "args": ["mcp"] } } }
+```
+
+For the user, add an item to the `mcpServers` list of `~/.continue/config.yaml`, which the IDE
+extensions and `cn` share. Setup prints it and does not edit that list:
+
+```yaml
+mcpServers:
+  - name: codefast
+    command: codefast
+    args: [mcp]
+```
+
+Continue's documentation names no skills directory, so setup copies no skill.
+
+### OpenHands CLI
+
+**Documented only** (read on 2026-11-13, not run). The OpenHands CLI says of itself that it is no
+longer actively maintained.
+
+```sh
+openhands mcp add codefast --transport stdio codefast -- mcp
+openhands mcp list
+```
+
+or by hand in `~/.openhands/mcp.json`, in the `mcpServers` format. There is no project file. The
+skill goes into `.agents/skills`.
+
+### Warp
+
+**Documented only** (read on 2026-11-13, not run). Warp reads `~/.warp/.mcp.json` and the
+project's `.warp/.mcp.json` in the `mcpServers` format, and also the files of Claude Code and
+Codex (`~/.claude.json`, `.mcp.json`, `~/.codex/config.toml`, `.codex/config.toml`), so a server
+registered for those is listed too. Warp starts its own global servers by itself. Those from
+other agents' files need "Auto-spawn servers from third-party agents", and every project server
+has to be switched on in the MCP servers page, once per session. There is no shell command for
+it. The skill goes into `.agents/skills`.
+
+### Auggie (Augment CLI)
+
+**Documented only** (read on 2026-11-13, not run).
+
+```sh
+auggie mcp add codefast --command codefast --args "mcp"
+auggie mcp list --json
+```
+
+That writes `~/.augment/settings.json`. Add `--project` for `.augment/settings.json`. The skill
+goes into `.agents/skills`.
+
+### CodeBuddy Code
+
+**Documented only** (Tencent's documentation read on 2026-11-13, not run).
+
+```sh
+codebuddy mcp add --scope user codefast -- codefast mcp
+codebuddy mcp get codefast
+```
+
+User servers are read from the first of `~/.codebuddy/.mcp.json`, `~/.codebuddy/mcp.json` and
+`~/.codebuddy.json` that exists, project servers from `.mcp.json`. The entry carries
+`"type": "stdio"`. The skill goes into `~/.codebuddy/skills/codefast` or `.codebuddy/skills/codefast`.
+
+### Kimi Code CLI
+
+**Documented only** (read on 2026-11-13, not run). Kimi Code documents no shell command for MCP
+servers (`/mcp-config` in a session edits them). Add the server to `~/.kimi-code/mcp.json`
+(`$KIMI_CODE_HOME`) or the project's `.kimi-code/mcp.json`:
+
+```json
+{ "mcpServers": { "codefast": { "command": "codefast", "args": ["mcp"] } } }
+```
+
+The project file is read only in a trusted folder. A headless run needs
+`KIMI_CODE_TRUST_WORKSPACE=1` for that. Check it with `/mcp` in a session. The skill goes into
+`.agents/skills`.
+
+### JetBrains AI Assistant
+
+**Documented only** (read on 2026-11-13, not run). AI Assistant (not Junie) keeps its MCP servers
+inside the IDE, and no file for them is documented, so there is no setup target. Run
+`codefast setup mcp-json`, then paste what it prints under Settings, Tools, AI Assistant, Model
+Context Protocol (MCP), with Add, and choose global or project level there.
 
 ### Any other agent with Agent Skills
 

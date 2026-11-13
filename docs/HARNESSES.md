@@ -47,6 +47,16 @@ those without MCP. The MCP server and the hooks are additions.
 | Zed | `context_servers` entry | through the external agents it hosts | yes, by config | none | D |
 | Pi | package from git (it finds `skills/`) | yes | no MCP client | none | D |
 | Aider | instruction block in `AGENTS.md` | no | no | no | D |
+| Hermes Agent | MCP entry in `~/.hermes/config.yaml`, plus the skill in `~/.hermes/skills` | yes | yes, by config | none from setup | D (docs read 2026-11-13, not run) |
+| OpenClaw | MCP entry in `~/.openclaw/openclaw.json`, plus the skill in `~/.agents/skills` | yes | yes, by config | none from setup | D (docs read 2026-11-13, not run) |
+| Mistral Vibe | `[[mcp_servers]]` table in `config.toml`, plus the skill in `.agents/skills` | yes | yes, by config | none from setup | D (docs read 2026-11-13, not run) |
+| Continue | MCP entry in `.continue/mcpServers/mcp.json` (agent mode only) | not documented | yes, by config | none from setup | D (docs read 2026-11-13, not run) |
+| OpenHands CLI | MCP entry in `~/.openhands/mcp.json`, plus the skill in `.agents/skills` | yes | yes, by config | none from setup | D (docs read 2026-11-13, not run) |
+| Warp | MCP entry in `.warp/.mcp.json`, plus the skill in `.agents/skills`. It also reads `~/.claude.json`, `.mcp.json` and the Codex `config.toml` | yes | yes, by config | none | D (docs read 2026-11-13, not run) |
+| Auggie (Augment CLI) | MCP entry in `.augment/settings.json`, plus the skill in `.agents/skills` | yes | yes, by config | none from setup | D (docs read 2026-11-13, not run) |
+| CodeBuddy Code | MCP entry in `.mcp.json`, plus the skill in `.codebuddy/skills` | yes | yes, by config | none from setup | D (docs read 2026-11-13, not run) |
+| Kimi Code CLI | MCP entry in `.kimi-code/mcp.json`, plus the skill in `.agents/skills` | yes | yes, by config | none from setup | D (docs read 2026-11-13, not run) |
+| JetBrains AI Assistant | nothing to install: paste the snippet of `codefast setup mcp-json` under Settings, Tools, AI Assistant, Model Context Protocol (MCP) | not set up by setup | yes, by hand | none | D (docs read 2026-11-13, not run) |
 
 In every harness except Claude Code the skill needs `codefast` on `PATH` (`install.sh`): only
 Claude Code puts a plugin's `bin/` on the agent's `PATH`. A plugin's MCP server starts through the
@@ -137,14 +147,23 @@ has the options.
 | `droid` | `droid mcp add codefast 'BIN mcp'`, else `~/.factory/mcp.json` | `.factory/mcp.json` | `~/.factory/skills` / `.agents/skills` |
 | `crush` | the line `mcp add codefast --command BIN --args mcp` in `~/.config/crush/crushrc` (`$CRUSH_GLOBAL_CONFIG`), and `crush.json` only where it is the only configuration | `.crushrc` (or an existing `crushrc`) | `~/.agents/skills` / `.agents/skills` |
 | `zed` | `context_servers.codefast` in `~/.config/zed/settings.json` | `.zed/settings.json` | none: Zed runs other agents |
-| `kiro` | `~/.kiro/settings/mcp.json` | `.kiro/settings/mcp.json` | none: its skill directory is not documented |
+| `kiro` | `~/.kiro/settings/mcp.json` | `.kiro/settings/mcp.json` | `~/.kiro/skills` / `.kiro/skills` (Kiro CLI reads only the project's) |
 | `junie` | `~/.junie/mcp/mcp.json` | `.junie/mcp/mcp.json` | `~/.junie/skills` / `.junie/skills` |
 | `deepagents` | `~/.deepagents/.mcp.json` | `.mcp.json` | `~/.agents/skills` / `.agents/skills` |
 | `pi` | none: Pi has no MCP client | none | `~/.agents/skills` / `.agents/skills` |
-| `devin` | printed for you to add (the schema of `mcp_config.json` is not published) | printed | `~/.agents/skills` / `.agents/skills` |
-| `antigravity` | printed (`agy plugin install`): its servers come from plugins | printed | `~/.agents/skills` / `.agents/skills` |
+| `devin` | `devin mcp add -s user codefast -- BIN mcp`, else `mcpServers.codefast` in `~/.config/devin/mcp_config.json` | `.devin/mcp_config.json` | `~/.agents/skills` / `.agents/skills` |
+| `antigravity` | `mcpServers.codefast` in `~/.gemini/config/mcp_config.json` | `.agents/mcp_config.json` | `~/.gemini/config/skills` / `.agents/skills` |
 | `dsh` | printed (a row for the Settings page or `cordis.patch.yml`) | printed | `~/.agents/skills` / `.agents/skills` |
 | `aider` | no MCP: the rules block in the project's `AGENTS.md`, and `read: [AGENTS.md]` in `.aider.conf.yml` | the same | none |
+| `hermes` | `mcp_servers.codefast` in `~/.hermes/config.yaml` (`$HERMES_HOME`). Hermes has no command that adds an arbitrary server | none: Hermes keeps servers per user | `~/.hermes/skills` / `.agents/skills` (after `hermes skills trust`) |
+| `openclaw` | `openclaw mcp add codefast --command BIN --arg mcp`, else `mcp.servers.codefast` in `~/.openclaw/openclaw.json` | none: OpenClaw keeps servers per user | `~/.agents/skills` / none |
+| `mistral-vibe` | `vibe mcp add codefast --transport stdio --command BIN --arg mcp`, else a `[[mcp_servers]]` table with `name = "codefast"` in `~/.vibe/config.toml` (`$VIBE_HOME`) | the same table in `.vibe/config.toml` (read in a trusted folder only) | `~/.agents/skills` / `.agents/skills` |
+| `continue` | printed: `mcpServers` in `~/.continue/config.yaml` is a YAML list, which setup does not edit | `mcpServers.codefast` in `.continue/mcpServers/mcp.json` | none: no skills directory is documented |
+| `openhands` | `openhands mcp add codefast --transport stdio BIN -- mcp`, else `~/.openhands/mcp.json` | none: the CLI documents no project file | `~/.agents/skills` / `.agents/skills` |
+| `warp` | `mcpServers.codefast` in `~/.warp/.mcp.json` | `.warp/.mcp.json` (switched on by hand in Warp, once per session) | `~/.agents/skills` / `.agents/skills` |
+| `auggie` | `auggie mcp add codefast --command BIN --args mcp`, else `~/.augment/settings.json` | `.augment/settings.json` | `~/.agents/skills` / `.agents/skills` |
+| `codebuddy` | `codebuddy mcp add --scope user codefast -- BIN mcp`, else the first of `~/.codebuddy/.mcp.json`, `~/.codebuddy/mcp.json` and `~/.codebuddy.json` that exists | `.mcp.json` | `~/.codebuddy/skills` / `.codebuddy/skills` |
+| `kimi-code` | `mcpServers.codefast` in `~/.kimi-code/mcp.json` (`$KIMI_CODE_HOME`) | `.kimi-code/mcp.json` (read in a trusted folder only) | `~/.agents/skills` / `.agents/skills` |
 
 Hooks, with `--hooks`: `claude-code` in `~/.claude/settings.json` or `.claude/settings.json`,
 `codex` in `~/.codex/hooks.json` or `.codex/hooks.json`. `$XDG_CONFIG_HOME` replaces `~/.config`
@@ -152,7 +171,14 @@ where a harness honours it (Zed on macOS does not).
 
 Only the first two rows were exercised with the real program (Claude Code 2.1.323, codex-cli
 0.164.0). For the others the file is written in the format the harness documents and read back
-by codefast's own tests, and the command lines were checked with stand-in programs.
+by codefast's own tests, and the command lines were checked with stand-in programs. The rows
+from `hermes` to `kimi-code`, and the files of `devin`, `antigravity` and the skill directory of
+`kiro`, follow the documentation of each harness as read on 2026-11-13. None of those harnesses
+is installed here, so none of them was run.
+
+JetBrains AI Assistant has no setup target: its MCP servers are kept by the IDE, and no file for
+them is documented. Paste the snippet that `codefast setup mcp-json` prints under Settings, Tools,
+AI Assistant, Model Context Protocol (MCP), and choose global or project level there.
 
 What setup makes of a plugin that is already installed:
 

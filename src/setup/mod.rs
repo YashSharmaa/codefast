@@ -18,7 +18,7 @@ mod shell;
 
 use anyhow::{Result, bail};
 use formats::{Found, Server};
-use harness::{Ctx, HARNESSES, Harness, Mcp, NAME, Scope};
+use harness::{Ctx, HARNESSES, Harness, Mcp, NAME, Scope, TomlStyle};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{IsTerminal, Read, Write};
@@ -71,7 +71,8 @@ Options:
   --list                 list the known harnesses and whether each is found here
 
 Each harness's own configuration directory variable is honoured (CLAUDE_CONFIG_DIR, CODEX_HOME,
-GEMINI_CLI_HOME, COPILOT_HOME, XDG_CONFIG_HOME, CLINE_MCP_SETTINGS_PATH, CRUSH_GLOBAL_CONFIG).
+GEMINI_CLI_HOME, COPILOT_HOME, XDG_CONFIG_HOME, CLINE_MCP_SETTINGS_PATH, CRUSH_GLOBAL_CONFIG,
+HERMES_HOME, VIBE_HOME, KIMI_CODE_HOME).
 `codefast doctor` shows what is registered.
 ";
 
@@ -292,7 +293,7 @@ enum State {
 /// The entry named codefast in the harness's configuration, as it is now.
 fn existing(target: &Mcp, plan: &Planned) -> Result<Found, String> {
     let file = match target {
-        Mcp::Json { file, .. } | Mcp::Toml { file, .. } | Mcp::Yaml { file } | Mcp::CrushRc { file } => file,
+        Mcp::Json { file, .. } | Mcp::Toml { file, .. } | Mcp::Yaml { file, .. } | Mcp::CrushRc { file } => file,
         Mcp::Manual(_) | Mcp::Unavailable(_) => return Ok(Found::Missing),
     };
     match plan.read(file) {
@@ -310,8 +311,9 @@ fn found_in(target: &Mcp, text: &str) -> Result<Found, String> {
             Ok(Some(entry)) => Ok(harness::server_of(&entry).map(Found::Entry).unwrap_or(Found::Unreadable)),
             Err(e) => Err(e.to_string()),
         },
-        Mcp::Toml { .. } => Ok(formats::toml_get(text, NAME)),
-        Mcp::Yaml { .. } => Ok(formats::goose_get(text, NAME)),
+        Mcp::Toml { style: TomlStyle::Codex, .. } => Ok(formats::toml_get(text, NAME)),
+        Mcp::Toml { style: TomlStyle::Vibe, .. } => Ok(formats::vibe_get(text, NAME)),
+        Mcp::Yaml { style, .. } => Ok(formats::yaml_get(text, *style, NAME)),
         Mcp::CrushRc { .. } => Ok(formats::crush_get(text, NAME)),
         Mcp::Manual(_) | Mcp::Unavailable(_) => Ok(Found::Missing),
     }
@@ -353,7 +355,8 @@ fn carries_settings(target: &Mcp, old: &str, want: &Server) -> bool {
             let found = json_edit::get(old, &path).ok().flatten();
             found.is_some_and(|found| harness::moved(&found, &want.command) != *entry)
         }
-        Mcp::Toml { .. } => formats::toml_has_more(old, NAME),
+        Mcp::Toml { style: TomlStyle::Codex, .. } => formats::toml_has_more(old, NAME),
+        Mcp::Toml { style: TomlStyle::Vibe, .. } => formats::vibe_has_more(old, NAME),
         _ => false,
     }
 }
@@ -391,8 +394,9 @@ fn rewritten(target: &Mcp, old: &str, want: &Server) -> Result<String> {
                 _ => json_edit::set(old, &path, entry),
             }
         }
-        Mcp::Toml { .. } => formats::toml_set(old, NAME, &launch),
-        Mcp::Yaml { .. } => formats::goose_set(old, NAME, &launch, harness::DESCRIPTION, ours.is_some()),
+        Mcp::Toml { style: TomlStyle::Codex, .. } => formats::toml_set(old, NAME, &launch),
+        Mcp::Toml { style: TomlStyle::Vibe, .. } => formats::vibe_set(old, NAME, &launch),
+        Mcp::Yaml { style, .. } => formats::yaml_set(old, *style, NAME, &launch, harness::DESCRIPTION, ours.is_some()),
         Mcp::CrushRc { .. } => formats::crush_set(old, NAME, &launch),
         Mcp::Manual(_) | Mcp::Unavailable(_) => bail!("nothing to write"),
     }
@@ -435,8 +439,8 @@ fn plan_mcp(ctx: &Ctx, h: &Harness, scope: Scope, want: &Server, force: bool, pl
         Mcp::Unavailable(why) => return Step::new("mcp", Status::Skip, why.clone()),
         Mcp::Manual(text) => return Step::new("mcp", Status::Manual, text.clone()),
         Mcp::Json { file, native, writable, .. } => (file.clone(), native.clone(), *writable),
-        Mcp::Toml { file, native } => (file.clone(), native.clone(), true),
-        Mcp::Yaml { file } | Mcp::CrushRc { file } => (file.clone(), None, true),
+        Mcp::Toml { file, native, .. } => (file.clone(), native.clone(), true),
+        Mcp::Yaml { file, .. } | Mcp::CrushRc { file } => (file.clone(), None, true),
     };
     let shown = ctx.show(&file);
     let current = state(&target, want, plan);
