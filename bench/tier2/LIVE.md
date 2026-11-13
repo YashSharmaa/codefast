@@ -89,7 +89,8 @@ account's speed during the batch falls on both arms alike. A figure of the table
 over the tasks of a family, each task being the mean of its runs. The sessions of four
 questions (L) were run right after it with the same build, tag `h1l`.
 
-The bug-fix rows of the README's table are measured on the released build, the rest on 0.2.2,
+The bug-fix rows of the README's table are four runs of each arm on the released build (tags
+`h1`, `d4` and `prec1` for D, `h1`, `i4`, `i5` and `inc` for I), the rest two runs on 0.2.2,
 whose hooks answer those shorter prompts in exactly the same way.
 
 Of the 328 runs of that batch, 144 ended in an error from the API with no tokens used, in both
@@ -264,10 +265,11 @@ whose symbol the prompt cards already explained gets no body, nothing is said tw
 held-out reports went from 1.03 to **0.96** with 6.9 requests down to 6.4. The fixes in that
 run were 6.5 of 15 against the control's 7.5, which is one task in a run and inside the band
 this family resolves: three card arms have come in at 7.0, 6.5 and 6.5 against a control
-measured once at 7.5, and nothing here separates them. What the held-out runs did settle is the rule: where a report names a test file of this
-repository the card says nothing at all, which restores every fix (15 of 15 against 14.5) and
-takes the median task to 0.95. That is the shipped behaviour, and the README's table of real
-sessions carries 1.04 and 1.03 for these two families.
+measured once at 7.5, and nothing here separates them. What the held-out runs did settle is
+one rule: where a report names a test file of this repository the card says nothing at all,
+which restores every fix (15 of 15 against 14.5) and takes the median task to 0.95. That rule
+is why the card never fires on the family with the failing tests given, whose every prompt
+names one, and it is the reason the two families had to be read apart from here on.
 
 ## The tests that reach what an edit changed
 
@@ -308,6 +310,50 @@ question goes from 8,477 output tokens to 2,731, four of them in one session fro
 7,860, a rename from 5,100 to 2,823. A bug fix writes the fix and runs the tests, and that
 output does not shrink: 4,536 to 4,335 with the failing tests given, 4,510 to 4,805 without
 them. An index shortens the finding, and finding is not what a bug fix spends.
+
+## Taking the card out again
+
+Five attempts had now been measured on the held-out bug-fix tasks, and not one of them paid.
+The question left was the plain one: what does the family do with no card for a report at all?
+The `no-report` arm answers it, and version 0.2.9 is that arm shipped.
+
+Every row below is two runs of 15 tasks of one build, scored against the same four control runs
+of the same tasks, so the rows are comparable to each other and to the README's table.
+
+Fix a bug from the issue text alone (15 reports, the control at 7.1 requests and 7.5 fixes):
+
+| Build | What the prompt hook added for a report | Cost | Median task | Requests | Fixed |
+|---|---|---:|---:|---:|---:|
+| 0.2.5 (`h25`) | the ranking and the bodies of its three files | 1.01 | 0.96 | 7.1 | 7.0 |
+| 0.2.6 (`h27`) | the same, and the tests that reach the edit | 1.02 | 1.06 | 6.7 | 6.5 |
+| 0.2.6 (`h28`) | the same, that note reverted | 0.95 | 0.96 | 6.4 | 6.5 |
+| 0.2.8 (`i5`) | **nothing** | 0.96 | 1.02 | 6.8 | 7.5 |
+| 0.2.8 (`inc`) | **nothing** | 0.89 | 0.93 | 6.2 | 7.0 |
+
+Fix a bug, failing tests given (15 issues, the control at 6.3 requests and 15 fixes). Every
+prompt of this family names a test file of the repository, so from 0.2.6 on the card says
+nothing here by the rule above, and the only build that ever carded these prompts is 0.2.5:
+
+| Build | Cost | Median task | Requests | Fixed |
+|---|---:|---:|---:|---:|
+| 0.2.5 (`h25`), the ranking card | 1.01 | 1.03 | 6.0 | 14.5 |
+| 0.2.5 (`h26`), no card on these prompts | 1.01 | 0.98 | 6.1 | 15 |
+| 0.2.6 (`h27`), and the tests that reach the edit | 1.00 | 0.93 | 5.8 | 15 |
+| 0.2.7 (`prec1`) | 1.00 | 0.98 | 6.3 | 15 |
+| 0.2.8 (`d4`) | 0.87 | 0.94 | 5.3 | 15 |
+
+Pooled over four runs each, the issue-only family costs **0.98** with a card (`h25` and `h28`,
+6.8 fixes) and **0.92** without one (`i5` and `inc`, 7.2 fixes). Two runs of one build differ
+from two other runs of the same build by as much as the two columns differ from each other
+(0.96 and 0.89 are both 0.2.8), so the reading is not that 0.92 beats 0.98. It is that over
+five builds and ten batches the card never once paid for its tokens, while the arm with no card
+is the only one that also keeps every fix. So it was removed, with the constants, the test and
+the `CODEFAST_REPORT_CARD` switch, and what the prompt hook says about a report is now nothing.
+
+The README's two bug-fix rows are the four runs of the released behaviour: `prec1` and `d4` for
+the tests-given family at 0.93, `i5` and `inc` for the issue-only family at 0.92, each against
+the four control runs. Their median tasks are 0.99 and 1.03, so what the totals save sits in a
+few long sessions and not in the typical one.
 
 ## One meaning or nothing
 
@@ -365,7 +411,9 @@ The prompt card of version 0.2.2 was settled by three small experiments on devel
   run time (a format string with values in it) is found by its longest fixed part, which the
   kernel questions about log lines exercise and E does not.
 * A bug fix is mostly the model's own work: reproducing, editing, running tests again. The
-  bug-fix families show what the plugin costs or saves there, and it saves nothing.
+  bug-fix families show what the plugin costs or saves there, and the answer is that it costs
+  nothing and saves little. Their medians are level with the control and the totals, 0.93 and
+  0.92, come from a few long sessions. Six attempts to make that figure move are above.
 * There is no rename family for a language without a compiler. Two attempts to build one for
   Python (sqlglot) failed for want of a reference to check against: a refactoring library
   renamed the wrong places, and a rename traced from the running tests left 12 of 16

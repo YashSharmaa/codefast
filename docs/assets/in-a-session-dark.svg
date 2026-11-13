@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="788" viewBox="0 0 880 788" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="672" viewBox="0 0 880 672" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
   <title id="t">What arrives without being asked</title>
-  <desc id="d">Six moments at which codefast adds facts to a session through hooks. When a prompt names a symbol: its definition, whole when it is short, and how widely it is used. When a prompt quotes an error message or a log line: the line of code that writes it, the function around that line and who calls it. When a report of a problem is pasted: the files whose text its words match, ranked, each with the symbol of it that matches best. After the agent searches for a symbol: what the search did not print, such as who calls it. After the agent edits a file: the places that still use a name the edit removed. After the context is compacted: which definitions the uncommitted changes added, removed and altered.</desc>
-  <rect x="0.5" y="0.5" width="879" height="787" rx="12" fill="#161b22" stroke="#30363d"/>
+  <desc id="d">Five moments at which codefast adds facts to a session through hooks. When a prompt names a symbol: its definition, whole when it is short, and how widely it is used. When a prompt quotes an error message or a log line: the line of code that writes it, the function around that line and who calls it. After the agent searches for a symbol: what the search did not print, such as who calls it. After the agent edits a file: the places that still use a name the edit removed. After the context is compacted: which definitions the uncommitted changes added, removed and altered.</desc>
+  <rect x="0.5" y="0.5" width="879" height="671" rx="12" fill="#161b22" stroke="#30363d"/>
 
   <text x="28" y="42" font-size="20" font-weight="600" fill="#e6edf3">What arrives without being asked</text>
-  <text x="28" y="66" font-size="15" fill="#9198a1">Six moments of a session. A hook with nothing new to say prints nothing.</text>
+  <text x="28" y="66" font-size="15" fill="#9198a1">Five moments of a session. A hook with nothing new to say prints nothing.</text>
 
   <rect x="24" y="88" width="832" height="106" rx="10" fill="#0d1117" stroke="#3987e5" stroke-width="1.5"/>
   <path d="M248.5 100V182" stroke="#30363d"/>
@@ -27,43 +27,33 @@
     <text x="268.00" y="295" fill="#e6edf3" textLength="524.47" xml:space="preserve">safeCopy is called from 7 sites: ExtractFromZipToUniqueTempFile:104</text>
   </g>
   <text x="268" y="315" font-size="13.5" fill="#9198a1">and the other six, each with its file, function and line</text>
-  <rect x="24" y="340" width="832" height="106" rx="10" fill="#0d1117" stroke="#3987e5" stroke-width="1.5"/>
-  <path d="M248.5 352V434" stroke="#30363d"/>
-  <text x="44" y="372" font-size="15" font-weight="600" fill="#e6edf3">A report is pasted</text>
-  <text x="44" y="393" font-size="13.5" fill="#9198a1">where its words point</text>
+  <rect x="24" y="340" width="832" height="86" rx="10" fill="#0d1117" stroke="#3987e5" stroke-width="1.5"/>
+  <path d="M248.5 352V414" stroke="#30363d"/>
+  <text x="44" y="372" font-size="15" font-weight="600" fill="#e6edf3">The agent runs a search</text>
+  <text x="44" y="393" font-size="13.5" fill="#9198a1">what the search did not print</text>
   <g font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13">
-    <text x="268.00" y="371" fill="#e6edf3" textLength="516.64" xml:space="preserve">of the 6,756 files whose text matches the words of this one, these</text>
-    <text x="268.00" y="391" fill="#e6edf3" textLength="414.88" xml:space="preserve">rank highest, tests aside (a ranking, not an answer):</text>
-    <text x="283.66" y="411" fill="#e6edf3" textLength="383.56" xml:space="preserve">django/forms/formsets.py: formset_factory 534-573</text>
+    <text x="268.00" y="371" fill="#e6edf3" textLength="383.56" xml:space="preserve">NewCoordinateSet (syft/file/coordinate_set.go:15)</text>
+    <text x="268.00" y="391" fill="#e6edf3" textLength="430.53" xml:space="preserve">called by: CoordinateSet, partitionPEs, AllCoordinates,</text>
+    <text x="268.00" y="411" fill="#e6edf3" textLength="266.15" xml:space="preserve">newShareLibIndex (+4 more callers)</text>
   </g>
-  <text x="268" y="431" font-size="13.5" fill="#9198a1">and two more files, each with the symbol of it that matches best</text>
-  <rect x="24" y="456" width="832" height="86" rx="10" fill="#0d1117" stroke="#3987e5" stroke-width="1.5"/>
-  <path d="M248.5 468V530" stroke="#30363d"/>
-  <text x="44" y="488" font-size="15" font-weight="600" fill="#e6edf3">The agent runs a search</text>
-  <text x="44" y="509" font-size="13.5" fill="#9198a1">what the search did not print</text>
+  <rect x="24" y="436" width="832" height="106" rx="10" fill="#0d1117" stroke="#3987e5" stroke-width="1.5"/>
+  <path d="M248.5 448V530" stroke="#30363d"/>
+  <text x="44" y="468" font-size="15" font-weight="600" fill="#e6edf3">The agent edits a file</text>
+  <text x="44" y="489" font-size="13.5" fill="#9198a1">what the edit left behind</text>
   <g font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13">
-    <text x="268.00" y="487" fill="#e6edf3" textLength="383.56" xml:space="preserve">NewCoordinateSet (syft/file/coordinate_set.go:15)</text>
-    <text x="268.00" y="507" fill="#e6edf3" textLength="430.53" xml:space="preserve">called by: CoordinateSet, partitionPEs, AllCoordinates,</text>
-    <text x="268.00" y="527" fill="#e6edf3" textLength="266.15" xml:space="preserve">newShareLibIndex (+4 more callers)</text>
+    <text x="268.00" y="467" fill="#e6edf3" textLength="508.81" xml:space="preserve">LocationSet.Add is no longer defined in syft/file/location_set.go</text>
+    <text x="268.00" y="487" fill="#e6edf3" textLength="438.36" xml:space="preserve">(new there: Insert). Still used at 32 sites in 21 files:</text>
+    <text x="268.00" y="507" fill="#e6edf3" textLength="344.43" xml:space="preserve">syft/file/location_set.go: NewLocationSet:19</text>
   </g>
-  <rect x="24" y="552" width="832" height="106" rx="10" fill="#0d1117" stroke="#3987e5" stroke-width="1.5"/>
-  <path d="M248.5 564V646" stroke="#30363d"/>
-  <text x="44" y="584" font-size="15" font-weight="600" fill="#e6edf3">The agent edits a file</text>
-  <text x="44" y="605" font-size="13.5" fill="#9198a1">what the edit left behind</text>
+  <text x="268" y="527" font-size="13.5" fill="#9198a1">and 20 more files, every site with its function and line</text>
+  <rect x="24" y="552" width="832" height="72" rx="10" fill="#0d1117" stroke="#3987e5" stroke-width="1.5"/>
+  <path d="M248.5 564V612" stroke="#30363d"/>
+  <text x="44" y="584" font-size="15" font-weight="600" fill="#e6edf3">The context is compacted</text>
+  <text x="44" y="605" font-size="13.5" fill="#9198a1">what has changed so far</text>
   <g font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13">
-    <text x="268.00" y="583" fill="#e6edf3" textLength="508.81" xml:space="preserve">LocationSet.Add is no longer defined in syft/file/location_set.go</text>
-    <text x="268.00" y="603" fill="#e6edf3" textLength="438.36" xml:space="preserve">(new there: Insert). Still used at 32 sites in 21 files:</text>
-    <text x="268.00" y="623" fill="#e6edf3" textLength="344.43" xml:space="preserve">syft/file/location_set.go: NewLocationSet:19</text>
-  </g>
-  <text x="268" y="643" font-size="13.5" fill="#9198a1">and 20 more files, every site with its function and line</text>
-  <rect x="24" y="668" width="832" height="72" rx="10" fill="#0d1117" stroke="#3987e5" stroke-width="1.5"/>
-  <path d="M248.5 680V728" stroke="#30363d"/>
-  <text x="44" y="700" font-size="15" font-weight="600" fill="#e6edf3">The context is compacted</text>
-  <text x="44" y="721" font-size="13.5" fill="#9198a1">what has changed so far</text>
-  <g font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="13">
-    <text x="268.00" y="699" fill="#e6edf3" textLength="563.61" xml:space="preserve">uncommitted changes, by definition (+ added, - removed, ~ body changed):</text>
-    <text x="268.00" y="719" fill="#e6edf3" textLength="493.15" xml:space="preserve">syft/file/location_set.go: -LocationSet.Add +LocationSet.Insert</text>
+    <text x="268.00" y="583" fill="#e6edf3" textLength="563.61" xml:space="preserve">uncommitted changes, by definition (+ added, - removed, ~ body changed):</text>
+    <text x="268.00" y="603" fill="#e6edf3" textLength="493.15" xml:space="preserve">syft/file/location_set.go: -LocationSet.Add +LocationSet.Insert</text>
   </g>
 
-  <text x="28" y="766" font-size="13.5" fill="#9198a1">The lines are what codefast 0.2.3 printed on the syft repository, shortened to fit.</text>
+  <text x="28" y="650" font-size="13.5" fill="#9198a1">The lines are what codefast 0.2.9 printed on the syft repository, shortened to fit.</text>
 </svg>

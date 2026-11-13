@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "codefast",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "LLM-free code intelligence for coding agents: definitions, references, callers, call paths and bug-report localisation from a fast structural index, in one call and few tokens.",
   "author": {
     "name": "codefast contributors",

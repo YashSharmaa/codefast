@@ -158,58 +158,6 @@ fn a_card_carries_what_is_small_and_points_at_what_is_large() {
 }
 
 #[test]
-fn a_report_of_a_problem_gets_the_ranking_of_the_files_its_words_match() {
-    let repo = Repo::new("prompt-report");
-    // A test of this repository, so that a report naming it is a report with a starting point.
-    write(&repo.path("tests/test_open.c"), "int dev_read(struct dev *d, char *buf, int count);\n\nint test_open(void)\n{\n    return 0;\n}\n");
-    let home = scratch("home");
-    let (code, out, err) = run(&home, &repo.dir, &["index"], &[], None);
-    assert_eq!(code, 0, "codefast index: {out}{err}");
-    let ask = |session: &str, prompt: &str| {
-        let mut v: serde_json::Value = serde_json::from_str(&payload("claude-user-prompt", &repo.dir, &home)).unwrap();
-        v["prompt"] = prompt.into();
-        v["session_id"] = session.into();
-        hook(&home, &repo.dir, "user-prompt-submit", v.to_string().as_bytes(), &[])
-    };
-    // A report: prose over many lines, naming no symbol the index could answer about.
-    let report = r#"Reading from the device returns nothing after a while
-
-Steps to reproduce:
-1. Open the device and start a copy of a large file.
-2. Watch the number of bytes that come back from each read.
-3. After a few seconds every read returns zero bytes, with no error.
-
-What I expected: the copy finishes and the count of bytes matches the size of the file.
-What happens instead: the copy stops early and the program exits without no message at all.
-
-This started after we moved to the new build. It happens on two machines, both with the same
-hardware, and only when the buffer is larger than one page. A smaller buffer works every time.
-I have not been able to reproduce it with the test program that ships with the driver, only
-with our own copy loop. The log has nothing in it. We tried a build from last week and it
-behaved the same way, so this may have been here for longer than we thought. Any pointer to
-where the read path gives up would help: we cannot tell whether the device or the code around
-it is at fault.
-"#;
-    assert!(report.len() >= 900 && report.lines().count() >= 12, "the fixture is report-shaped");
-    let card = ask("a", report).context("UserPromptSubmit");
-    assert!(card.contains("these rank highest, tests aside (a ranking, not an answer:"), "{card}");
-    assert!(card.contains("
-  src/io.c: "), "the file about reading from a device: {card}");
-    // And the best function of each of them, with its body: a report that names no failing
-    // test says where it hurts and not where to look.
-    assert!(card.contains("and of the best function of each:\nsrc/io.c:"), "{card}");
-    assert!(card.contains("int dev_read(struct dev *d, char *buf, int count)"), "{card}");
-    // A report that names a test of this repository names where to start: the ranking is
-    // worth nothing there and the card says nothing.
-    let with_test = format!("{report}\nThe test tests/test_open.c fails the same way.\n");
-    ask("t", &with_test).assert_quiet("a report that names a failing test");
-    // Once per session, and never for a question, which names what it is about.
-    ask("a", report).assert_quiet("the same report again");
-    let short = ask("b", "Why does `dev_read` return zero after a while?").context("UserPromptSubmit");
-    assert!(!short.contains("rank highest"), "a question is answered, not ranked: {short}");
-}
-
-#[test]
 fn a_message_quoted_in_a_prompt_is_traced_to_the_line_that_writes_it() {
     let repo = Repo::new("prompt-origin");
     write(
