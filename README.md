@@ -396,9 +396,9 @@ is the figure each project or paper publishes for the same task list.
 | Loc-Bench, 243 held-out tasks | all gold files in the top 10 | 0.733 | 0.609 (ripwire) |
 | ContextBench, 42 sealed tasks | gold files covered by 20 files | 0.898 | 0.876 at 19 files (repowise) |
 
-A query takes 0.1 to 0.5 s. Ranking changes were judged on a development half of each task list.
-The figures above are for the full lists, measured with version 0.1.1. The ranking code has not
-changed since.
+A query takes 0.1 to 0.5 s. Ranking changes were judged on a development half of each task list,
+and the figures above are for the full lists. All four were run again with the current version:
+every figure is what 0.1.1 gave, and one kernel task has its file one rank lower.
 
 ## How it works
 
