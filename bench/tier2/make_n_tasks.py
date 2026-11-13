@@ -32,6 +32,7 @@ def main():
     ap.add_argument("--repo", default="syft", help="directory under bench/repos and bench/oracles")
     ap.add_argument("--repo-name", default="anchore/syft")
     ap.add_argument("--out", default="n", help="directory under target/ab")
+    ap.add_argument("--functions", action="store_true", help="also ask about top-level functions whose name something else in the repository shares")
     a = ap.parse_args()
     ORACLE, OUT = ROOT / "bench/oracles" / a.repo, ROOT / "target/ab" / a.out
     tag = "" if a.repo == "syft" else a.repo.replace("-", "") + "-"
@@ -39,18 +40,26 @@ def main():
     F = [json.loads(l) for l in gzip.open(ORACLE / "functions.jsonl.gz", "rt")]
     byloc = {(f["file"], f["line"]): f for f in F}
     owners = collections.defaultdict(set)
+    named = collections.Counter()
     for f in F:
+        named[f["name"]] += 1
         if f.get("receiver_or_class"):
             owners[f["name"]].add(f["receiver_or_class"].lstrip("*"))
     callers = collections.defaultdict(set)  # (receiver, name, file, line) -> {(caller name, caller file)}
     for e in E:
         c = e["callee"]
         fr = byloc.get((c["file"], c["line"]))
-        if fr and fr.get("receiver_or_class") and e.get("kind") == "static":
+        if not fr or e.get("kind") != "static":
+            continue
+        if fr.get("receiver_or_class"):
             callers[(fr["receiver_or_class"].lstrip("*"), c["name"], c["file"], c["line"])].add((e["caller"]["name"], e["caller"]["file"]))
+        elif a.functions and named[c["name"]] > 1:
+            # A top-level function whose name something else in the repository also carries:
+            # a text search for it finds more than the answer, which is the point of the task.
+            callers[("", c["name"], c["file"], c["line"])].add((e["caller"]["name"], e["caller"]["file"]))
     cands = []
     for (recv, name, file, line), who in callers.items():
-        rivals = owners[name] - {recv}
+        rivals = (owners[name] - {recv}) if recv else {f"{named[name] - 1} other definitions"}
         files = {f for _, f in who}
         if 5 <= len(who) <= 25 and len(files) >= 3 and rivals and name not in SKIP:
             # Callers of the same-named methods of other types: naming one of these is a wrong answer.
@@ -60,7 +69,7 @@ def main():
                     others |= w2
             gold = sorted(who)
             wrong = sorted(o for o in others if o[0] not in {n for n, _ in who})
-            cands.append(dict(id=f"N-{tag}{recv}-{name}", family="N", repo_name=a.repo_name, repo_dir=str(ROOT / "bench/repos" / a.repo), receiver=recv, name=name, file=file, line=line,
+            cands.append(dict(id=f"N-{tag}{recv or 'fn'}-{name}", family="N", repo_name=a.repo_name, repo_dir=str(ROOT / "bench/repos" / a.repo), receiver=recv, name=name, file=file, line=line,
                               gold=[dict(name=n, file=f) for n, f in gold], wrong=[dict(name=n, file=f) for n, f in wrong], rivals=len(rivals)))
     cands.sort(key=lambda c: hashlib.sha256(c["id"].encode()).hexdigest())
     tasks = cands[: a.n]

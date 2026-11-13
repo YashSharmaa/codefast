@@ -29,6 +29,7 @@ of a project from its second session on.
 
 | Family | Task | Checked by |
 |---|---|---|
+| Z | The same question in TypeScript: functions and methods of zod whose name something else in the project shares | the call graph the TypeScript type checker built (`bench/oracles/zod`), scored the same way |
 | N | Which functions call this method? Methods of a Go repository whose name several types share, so that a text search finds more than the answer | the call graph the Go type checker built (`bench/oracles`): F1 of the callers named with their file, against all real callers and against the callers of the other types' methods of that name |
 | L | Four N questions in one session | the same, per question |
 | E | A run ended with this error message: which function creates it, and which functions call that function? The message stands in one place of the source, written out in full | the function around that line and its callers in the type checker's call graph |
@@ -75,6 +76,12 @@ alone. The warm cost is what a session costs for anyone who started another one 
 hour, and it is the same formula for every arm.
 
 ## The runs behind the tables in the README
+
+**TypeScript, version 0.2.6** (`bench/results/live-heldout-haiku.jsonl`, tag `nz1`): the same
+kind of question on zod, a repository no session had used, two runs per task and arm. A session
+costs 0.53 of the control and is cheaper in 8 of 8 pairs, with the answers as good. Four of the
+eight questions are about the `create` of a v3 class, a name 34 other classes carry: both arms
+score about 0.4 on those and 1.00 on the rest, which is where the 0.62 in the table comes from.
 
 **Held-out tasks, version 0.2.2** (`bench/results/live-heldout-haiku.jsonl`, tag `h1`): one
 batch of both arms on Haiku 5.5, two runs per task and arm, interleaved so that a change in the

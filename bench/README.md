@@ -114,6 +114,7 @@ name:
 
 ```
 uv run bench/tier2/make_n_tasks.py --repo go-git --repo-name go-git/go-git --out n2
+uv run bench/tier2/make_n_tasks.py --repo zod --repo-name colinhacks/zod --out nz --functions
 uv run bench/tier2/make_r_tasks.py --repo go-git --repo-name go-git/go-git --out r2 --vet "go vet ./..."
 uv run bench/tier2/make_e_tasks.py           # from an error message to the function that raises it
 uv run bench/tier2/make_i_tasks.py           # the bug-fix tasks without their tests

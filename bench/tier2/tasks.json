@@ -230,6 +230,16 @@
    "L-gogit-1",
    "L-gogit-2",
    "L-gogit-3"
+  ],
+  "NZ": [
+   "N-zod-fn-process",
+   "N-zod-$ZodRegistry-get",
+   "N-zod-ZodString-create",
+   "N-zod-ZodNumber-create",
+   "N-zod-fn-config",
+   "N-zod-fn-clone",
+   "N-zod-ZodLiteral-create",
+   "N-zod-ZodObject-create"
   ]
  }
 }

@@ -105,7 +105,7 @@ def choose(a):
     d, r, i, e = load("d"), load("r") + load("r2"), load("i"), load("e")
     k = k_tasks() + k_tasks("kernel_questions_held_out")
     n, long = n_tasks()
-    n2 = load("n2")
+    n2 = load("n2") + load("nz")
     # Sessions of four on the second repository, from its held-out caller questions.
     held_n = [t for t in n2 if t["id"] in held_out("N")]
     long2 = [dict(id=f"L-gogit-{j // 4 + 1}", family="L", repo_name="go-git/go-git", parts=held_n[j : j + 4]) for j in range(0, len(held_n) - 3, 4)]
@@ -131,6 +131,7 @@ def choose(a):
 ABOUT = {
     "anchore/syft": "syft, a Go project that lists the software packages inside container images and file systems",
     "go-git/go-git": "go-git, an implementation of Git written in Go",
+    "colinhacks/zod": "zod, a TypeScript library for describing data and checking that it has the shape it should",
 }
 
 
@@ -141,6 +142,9 @@ def repo_of(t):
 
 
 def n_question(t):
+    if not t["receiver"]:
+        return (f"Which functions call the function {t['name']} defined in {t['file']}? Something else in this project is called {t['name']} too: "
+                f"calls of that do not count. Calls from test code do count.")
     return (f"Which functions call the method {t['name']} of {t['receiver']} (defined in {t['file']})? Other types have a method called {t['name']} too: "
             f"calls of those do not count. Calls from test code do count.")
 
