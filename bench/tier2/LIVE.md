@@ -254,6 +254,34 @@ repository the card says nothing at all, which restores every fix (15 of 15 agai
 takes the median task to 0.95. That is the shipped behaviour, and the README's table of real
 sessions carries 1.04 and 1.03 for these two families.
 
+## The tests that reach what an edit changed
+
+The expensive bug-fix sessions are not expensive because the agent cannot find the code. They
+are expensive because of the loop after the edit: run the tests, read the output, run them
+again. In one held-out session a single test run printed 78 KB. codefast knows which tests
+reach a function, so a hook was added to say so after an edit changed one:
+
+```
+the tests that reach create_permissions, which this edit changed: tests/auth_tests/
+test_management.py: test_default_permissions, test_unavailable_models,
+test_create_permissions_checks_contenttypes_created, test_set_permissions_fk_to_using_parameter
+```
+
+On that session's own task the line names the test that was failing. On the development
+reports it did what it was meant to do, and on the held-out tasks it did not:
+
+| | Cost | Median task | Shell output | Fixes |
+|---|---:|---:|---:|---|
+| 14 development reports, 4 runs | **0.93** | 0.96 | 6.5k to 4.3k | 7.8 against 8.0 of 14 |
+| 15 held-out reports, 2 runs | 1.03 | 1.09 | 8.9k to 8.3k | 6.5 against 7.5 of 15 |
+| 15 held-out tasks with their tests, 2 runs | 1.02 | **0.88** | 11.6k to 9.6k | 15 of 15 |
+
+It was reverted. The one reading worth keeping is the last row: where the tests of the change
+are in the tree, the median session falls to 0.88 and every fix is kept, and the total is
+carried by a few long sessions that the line does not shorten. Where the benchmark removes
+those tests (the issue-only family), the line names tests that cannot check the fix, and it
+reads as the push-precision rule again: a fact that is true and not the one needed costs.
+
 What that leaves is a number to beat rather than a wall: the push is worth 14% at a selection
 precision of 1.00 and nothing at 0.45, which is the break-even band the push study reports
 (0.45 to 0.68). Raising what `locate` does with the text of a report above that band is the

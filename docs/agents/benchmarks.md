@@ -41,6 +41,12 @@ measured on the development halves and on the 14 development bug reports):
 - **Damping a file that no code-shaped word of the query matches.** No effect: every candidate
   file already matches at least one.
 
+And on the bug-fix sessions, three things that worked on the development tasks and not on the
+held-out ones, which is why both are always run before a claim: the bodies of the three
+best-ranked functions (0.95 against 1.03), the tests that reach what an edit changed (0.93
+against 1.03) and, earlier, the ranking alone. A development-set gain in this family is not
+evidence until the held-out tasks repeat it.
+
 Rules for numbers:
 
 - A change to name linking must not lower precision or recall on any oracle. Run all four
