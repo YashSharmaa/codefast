@@ -10,6 +10,11 @@
 //!   being carried through only in part, and in a language without a compiler nothing says so
 //!   until the code runs.
 //!
+//!
+//! `check` also looks at what the edit wrote: a use of a member that the receiver's type does
+//! not have and that nothing in the repository defines. That is how a call of a method that
+//! was imagined, not looked up, shows before the code runs.
+//!
 //! Both compare a file with its committed version (`git show HEAD:path`). No history is kept:
 //! the answer is derived from the two texts each time, so it cannot go stale.
 
@@ -299,6 +304,92 @@ pub fn misfit_calls<'a>(ix: &'a Index, rs: &Resolver<'a>, file: FileId, now: &De
     out
 }
 
+/// Uses, in the definitions an edit added or altered, of a member that does not exist: the
+/// receiver is a value of a type of this repository whose ancestors are all in the repository
+/// too, neither it nor they have a member of that name, and no definition of that name exists
+/// anywhere. Each of the three conditions guards against a different false alarm (a member
+/// inherited from a library type, an extension defined elsewhere, a name the index knows).
+/// Rust is left out: its methods come from traits a type does not list.
+fn phantom_members<'a>(ix: &'a Index, rs: &Resolver<'a>, file: FileId, d: &Delta) -> Vec<(RefV<'a>, String, Vec<String>)> {
+    if matches!(ix.lang(file), Lang::Rust | Lang::Other) {
+        return Vec::new();
+    }
+    // A file the grammar could not read in full (Cython under a `.py` grammar, a macro-heavy
+    // header) may hold definitions the index did not see: nothing can be said to be missing.
+    let unsure = |f: FileId| ix.file(f).parse_errors > 0 || ix.path(f).ends_with(".pyx") || ix.path(f).ends_with(".pxd");
+    if unsure(file) {
+        return Vec::new();
+    }
+    let touched: FxHashSet<&str> = d.added.iter().chain(&d.altered).map(|s| s.name.as_str()).collect();
+    let mut out: Vec<(RefV, String, Vec<String>)> = Vec::new();
+    let mut seen: FxHashSet<(Vec<u8>, Vec<u8>)> = FxHashSet::default();
+    // Where classes get attributes at run time (a metaclass, a factory, `setattr`), an attribute
+    // read proves nothing. A call of a method nobody defines is still worth a line.
+    let dynamic = matches!(ix.lang(file), Lang::Python | Lang::Ruby | Lang::Php | Lang::JavaScript);
+    for r in ix.refs_of_file(file) {
+        if !(r.kind() == RefKind::MemberCall || (r.kind() == RefKind::MemberRead && !dynamic)) || r.name().starts_with(b"__") {
+            continue;
+        }
+        let Some(encl) = r.encl() else { continue };
+        if !touched.contains(encl.name_str().as_ref()) {
+            continue;
+        }
+        // Defined somewhere, as anything: then it may be reached in a way the index does not see.
+        if ix.name_id(r.name()).is_some_and(|n| ix.defs_named_id(n).next().is_some()) {
+            continue;
+        }
+        let Some(q) = r.qual() else { continue };
+        let tys = rs.type_path_from(q.strip_prefix(b"^").unwrap_or(q), Some(file));
+        let [ty] = &tys[..] else { continue };
+        // A type of this repository, and so is everything it extends, implements or embeds:
+        // a base that is not defined here (a library class) may bring any member with it.
+        let known = |t: &crate::resolve::Ty| {
+            !t.defs.is_empty()
+                && t.defs.iter().all(|&x| {
+                    let v = ix.def(x);
+                    v.kind().is_type()
+                        && v.kind() != DefKind::TypeAlias
+                        && ix
+                            .refs_of_file(v.file())
+                            .filter(|b| matches!(b.kind(), RefKind::Extends | RefKind::Implements) && b.encl().is_some_and(|e| e.id == x))
+                            // Written with a module in front (`unittest.TestCase`) it may be a
+                            // library's class that shares its name with one of ours.
+                            .all(|b| b.qual().is_none() && ix.name_id(b.name()).is_some_and(|n| ix.defs_named_id(n).any(|y| ix.def(y).kind().is_type())))
+                })
+        };
+        if !known(ty) || !rs.ancestors(ty).iter().all(known) || ty.defs.iter().any(|&x| unsure(ix.def(x).file())) || !seen.insert((ty.name.clone(), r.name().to_vec())) {
+            continue;
+        }
+        // What the type does have, nearest names first: the one that was meant is usually there.
+        let wanted = String::from_utf8_lossy(r.name()).to_lowercase();
+        let mut members: Vec<String> = Vec::new();
+        for &t in &ty.defs {
+            let home = ix.def(t);
+            for m in ix.defs_of_file(home.file()) {
+                if m.parent_name() == Some(ty.name.as_slice()) && matches!(m.kind(), DefKind::Method | DefKind::Function | DefKind::Field | DefKind::Property) {
+                    let n = m.name_str().into_owned();
+                    if !members.contains(&n) && !n.starts_with("__") {
+                        members.push(n);
+                    }
+                }
+            }
+        }
+        if members.is_empty() {
+            continue;
+        }
+        let shared = |m: &String| {
+            let m = m.to_lowercase();
+            let prefix = m.bytes().zip(wanted.bytes()).take_while(|(a, b)| a == b).count();
+            let within = usize::from(m.contains(&wanted) || wanted.contains(&m)) * m.len().min(wanted.len());
+            std::cmp::Reverse(prefix.max(within))
+        };
+        members.sort_by_key(shared);
+        members.truncate(6);
+        out.push((r, String::from_utf8_lossy(&ty.name).into_owned(), members));
+    }
+    out
+}
+
 /// One thing an edit left inconsistent.
 pub struct Finding {
     /// Stable for the same finding: what a caller uses to say it only once.
@@ -365,6 +456,17 @@ pub fn check_file(ix: &Index, rs: &Resolver, root: &Path, rel: &str, budget: usi
         out.push(Finding { key: format!("gone:{rel}:{name}"), text: text.trim_end().to_string(), brief, symbol: name });
     }
     if let Some(f) = file {
+        for (r, ty, members) in phantom_members(ix, rs, f, &d).into_iter().take(4) {
+            let name = String::from_utf8_lossy(r.name()).into_owned();
+            let home = rs.type_path_from(r.qual().map(|q| q.strip_prefix(b"^").unwrap_or(q)).unwrap_or(b""), Some(f)).first().and_then(|t| t.defs.first().map(|&x| ix.def(x)));
+            let at = home.map(|h| format!(" ({}:{})", h.path(), h.rec.line)).unwrap_or_default();
+            let text = format!(
+                "{rel}:{} uses {ty}.{name}, and nothing in this repository defines `{name}`. {ty}{at} has: {}.",
+                r.line(),
+                members.join(", ")
+            );
+            out.push(Finding { key: format!("phantom:{rel}:{ty}.{name}"), brief: text.clone(), text, symbol: format!("{ty}.{name}") });
+        }
         for (before, now) in d.arity.iter().take(6) {
             let mut calls = misfit_calls(ix, rs, f, now);
             if calls.is_empty() {
@@ -387,6 +489,27 @@ pub fn check_file(ix: &Index, rs: &Resolver, root: &Path, rel: &str, budget: usi
         }
     }
     out
+}
+
+/// How often the check for members that do not exist would speak about code as it is: every
+/// definition of every file is treated as just written. In code that builds and passes its
+/// tests each finding is a false alarm, so this is the measure of the check's precision.
+pub fn false_alarms(ix: &Index, rs: &Resolver, common: &Common, out: &mut Out) {
+    let pf = PathFilter::new(&common.paths);
+    let (mut files, mut refs, mut found) = (0usize, 0usize, 0usize);
+    for f in ix.files() {
+        if !pf.matches(ix.path(f)) || (!common.tests && ix.is_test_file(f)) {
+            continue;
+        }
+        let all = Delta { altered: ix.defs_of_file(f).map(|d| DefSum { owner: None, name: d.name_str().into_owned(), kind: d.kind(), line: d.rec.line, arity: (0, 0), flags: 0, hash: 0 }).collect(), ..Default::default() };
+        files += 1;
+        refs += ix.refs_of_file(f).filter(|r| matches!(r.kind(), RefKind::MemberCall | RefKind::MemberRead)).count();
+        for (r, ty, _) in phantom_members(ix, rs, f, &all) {
+            found += 1;
+            out.line(&format!("{}:{} {ty}.{}", r.path(), r.line(), String::from_utf8_lossy(r.name())));
+        }
+    }
+    out.push(&format!("{} member uses in {} files, {} reported as naming a member that does not exist", count(refs), count(files), count(found)));
 }
 
 /// `codefast check [PATH...]`: what the uncommitted edits left behind.

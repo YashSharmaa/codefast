@@ -152,3 +152,26 @@ fn after_a_compaction_the_session_is_told_what_it_changed() {
     assert!(code == 0 && out.contains("src/main.c: -copy_all +copy_everything\n") && out.contains("\ncopy_all is no longer defined in src/main.c"), "{out}");
     settle(&repo);
 }
+
+#[test]
+fn a_call_of_a_method_nobody_defines_is_named_with_what_the_type_does_have() {
+    let repo = Repo::new("phantom");
+    std::fs::remove_dir_all(repo.path(".git")).unwrap();
+    write(&repo.path("shop/cart.py"), "class Cart:\n    def __init__(self):\n        self.items = []\n\n    def add(self, item):\n        self.items.append(item)\n\n    def total(self):\n        return len(self.items)\n");
+    write(&repo.path("shop/checkout.py"), "from shop.cart import Cart\n\n\ndef checkout(names):\n    cart = Cart()\n    for n in names:\n        cart.add(n)\n    return cart.total()\n");
+    git(&repo, &["init", "-q", "."]);
+    write(&repo.path(".gitignore"), ".codefast/\n");
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "base"]);
+    let home = scratch("home");
+    assert_eq!(run(&home, &repo.dir, &["index"], &[], None).0, 0);
+    // The edit calls a method that was imagined, and one that exists.
+    edit(&repo, "shop/checkout.py", "        cart.add(n)\n", "        cart.add_item(n)\n        cart.add(n)\n");
+    let input = payload("claude-post-edit", &repo.dir, &home).replace("src/main.c", "shop/checkout.py");
+    let said = hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[]).context("PostToolUse");
+    assert_eq!(said, "codefast: shop/checkout.py:7 uses Cart.add_item, and nothing in this repository defines `add_item`. Cart (shop/cart.py:1) has: add, items, total.");
+    // A class with a base from a library may have any member: nothing is said about it.
+    edit(&repo, "shop/cart.py", "class Cart:", "import collections\n\n\nclass Cart(collections.UserList):");
+    edit(&repo, "shop/checkout.py", "cart.add_item(n)", "cart.extend_all(n)");
+    hook(&home, &repo.dir, "post-tool-use", in_session(&input, "library-base").as_bytes(), &[]).assert_quiet("a member that may come from a library class");
+}

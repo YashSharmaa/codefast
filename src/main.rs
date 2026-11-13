@@ -176,6 +176,10 @@ struct ContextArgs {
 struct CheckArgs {
     /// Files to check (default: every file that differs from the last commit)
     files: Vec<String>,
+    /// Treat all code as just written and count what the check for members that do not exist
+    /// would report: in code that works, each report is a false alarm.
+    #[arg(long, hide = true)]
+    false_alarms: bool,
 }
 
 #[derive(Args)]
@@ -495,6 +499,7 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Callers(a) => query::refs::callers(&ix, &rs, &a.targets, &common, a.depth, &mut out),
         Cmd::Callees(a) => query::refs::callees(&ix, &rs, &a.targets, &common, a.sigs, &mut out),
         Cmd::Context(a) => query::context::context(&ix, &rs, &a.targets, &common, &mut out),
+        Cmd::Check(a) if a.false_alarms => query::changed::false_alarms(&ix, &rs, &common, &mut out),
         Cmd::Check(a) => query::changed::check(&ix, &rs, &a.files, &common, &mut out),
         Cmd::Changed => query::changed::changed(&ix, &rs, &common, &mut out),
         Cmd::Path(a) => query::refs::path(&ix, &rs, &a.from, &a.to, &common, a.max_depth, &mut out),
