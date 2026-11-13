@@ -44,7 +44,7 @@ Measured so far (the tables are under [Results](#results)):
 | When the agent is | codefast answers |
 |---|---|
 | **Debugging** | Which files a bug report or stack trace points to (`codefast locate "<paste the report>"`), which function prints a message (`codefast grep -F "Busy inodes after unmount"`) and how execution gets from A to B (`codefast path sys_read ext4_file_read_iter`). |
-| **Changing code** | Before the edit, in one answer: the body, its type, the signatures of what it calls, its call sites and its tests (`codefast context vfs_read`). A rename in one command, at the definition and at every call the index is sure of (`codefast rename Set.Add Insert`). After any edit: what still uses a name the edit removed, renamed or gave another signature (`codefast check`). |
+| **Changing code** | Before the edit, in one answer: the body, its type, the signatures of what it calls, its call sites and its tests (`codefast context vfs_read`). A rename of a function, method, type or field in one command, at the definition and at every reference the index is sure of (`codefast rename Set.Add Insert`). After any edit: what still uses a name the edit removed, renamed or gave another signature (`codefast check`). |
 | **Writing new code** | One function or struct to build on instead of a whole file (`codefast show vfs_read`), the API of an installed dependency (`codefast dep requests Session`), and a warning when new code calls a method that does not exist (`codefast check`). |
 | **Working in a very large codebase** | Where a symbol is defined and who reaches it, also through ops tables and callbacks (`codefast search vfs_read`, `codefast callers ext4_file_read_iter`). |
 | **In a long session** | What the uncommitted work has added, removed and altered so far, by definition (`codefast changed`), delivered again after a compaction. |
@@ -96,7 +96,7 @@ codefast search vfs_read                    # where it is defined, its source, w
 codefast context vfs_read                   # all the reading before an edit, in one answer
 codefast callers ext4_file_read_iter        # every call site, also through ops tables
 codefast locate "paste a bug report here"   # the files to open, ranked
-codefast rename Set.Add Insert              # the definition and every sure call site, in one step
+codefast rename Set.Add Insert              # the definition and every sure reference, in one step
 codefast check                              # what the uncommitted edits left behind
 ```
 
@@ -128,7 +128,7 @@ that switches each part off, for this project only where the harness has such a 
 | Where to look for a bug report or stack trace | `codefast locate "text"` |
 | A pasted stack trace, one frame per line | `codefast trace` |
 | The API of an installed dependency | `codefast dep`, `codefast dep NAME SYMBOL` |
-| Rename a function or method everywhere it is surely meant | `codefast rename Owner.name NewName` (`--dry-run` shows the plan) |
+| Rename a function, method, type or field everywhere it is surely meant | `codefast rename Owner.name NewName` (`--dry-run` shows the plan) |
 | What the uncommitted edits left behind | `codefast check`, `codefast check FILE` |
 | What the uncommitted edits changed, by definition | `codefast changed` |
 | What the harness configuration costs per request | `codefast doctor context` |
@@ -212,11 +212,18 @@ possibly another type's. Agents answered that hedge by going back to grep and to
 a caller question cost 0.49 of the control and a rename 1.11. Typing those receivers (the later
 results of a call, the rows of a table-driven test, values that come from another package) took
 the matches by name in syft from 399 to 19, with the type checker's call graph as the judge,
-and the caller questions to 0.30. The rename became a command: without any model, the
-compiler passes after `codefast rename` in 10 of the 11 rename tasks, and the eleventh leaves
-one call through a function-typed variable, which the command lists as not changed.
+and the caller questions to 0.30. The rename became a command.
 
 The three kinds of task that gain were run again with Sonnet 5.5, a stronger model that needs fewer steps to begin with: a caller question costs 0.32 of the control (6.1 requests down to 2.9), a session of four costs 0.25 of the control (10.3 requests down to 3.3) and a rename costs 0.46 of the control (6.1 requests down to 3.5). The session with codefast was the cheaper one in 24 of 24 pairs, and the answers were as accurate in both arms (`bench/results/live-sonnet.jsonl`).
+
+The rename command was also checked without any model, by the compiler. In 10 of the 11 rename
+tasks `go build` and `go vet` pass after the one command, and the eleventh leaves one call
+through a function-typed variable, which the command lists as not changed. On a random sample
+of types, struct fields and methods of syft and gitleaks, 53 of 54 renames changed 2,478
+references and left no compiler error outside the lines the command itself had listed. It
+refused 25 more, most of them methods that an interface ties to their name. The one failure is
+a method of a type that is handed to another package as that package's interface, which no
+index of the source can see (`bench/results/rename-sample.jsonl`).
 
 ### Index a huge repository
 
@@ -406,6 +413,11 @@ hand are small, and the five languages added in 0.2.0 are the youngest.
   a list file several times (the LSM hooks, for one) are not.
 * It does not run builds, so code that is generated at build time is not indexed.
 * It does not save tokens everywhere. A bug fix with the failing tests given costs the same with and without it. Every live figure is one run per task and arm on one harness, and the rename figure is tuned on its own eight tasks (`bench/tier2/LIVE.md` says how).
+* A rename changes what the index is sure of and lists the rest. It refuses a method that an
+  interface ties to its name where it can see the tie (a declared implementation, an interface
+  of the repository, the method names of Go's standard library). A Go type handed to another
+  package as that package's interface, with nothing in the code saying so, it cannot see. The
+  compiler can.
 * The hooks were measured in Claude Code only. The Codex hooks pass their tests against recorded
   payloads and have not been measured in live sessions.
 

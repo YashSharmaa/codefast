@@ -114,6 +114,21 @@ checked, what is measured, and why the tables report a cost priced from the size
 request instead of the billed cost. `--resume` continues a batch that was interrupted, and a
 batch stops by itself when the login's usage window passes `--limit-stop`.
 
+## The rename command, judged by the compiler (`tier2/rename_*.py`)
+
+No model is involved. `rename_offline.py` applies `codefast rename` to a fresh copy of syft for
+each of the eleven rename tasks of the live benchmark and runs the task's own check (`go build`
+and `go vet`). `rename_sample.py` does the same for a random sample of the types, struct fields
+and methods of a Go repository, and counts a rename as passed when every complaint of the
+compiler is on a line the command itself listed as not changed. What the compiler says about
+the repository before any rename is subtracted.
+
+```
+python3 bench/tier2/rename_offline.py
+python3 bench/tier2/rename_sample.py --repo syft --per-kind 10
+python3 bench/tier2/rename_sample.py --repo gitleaks --per-kind 8 --out bench/results/rename-sample-gitleaks.jsonl
+```
+
 ## Agent pilot (`tier2`)
 
 An earlier and smaller experiment: one seed, tens of tasks, sub-agents of one harness, with

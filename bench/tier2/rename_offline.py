@@ -32,7 +32,7 @@ def main():
         said = p.stdout.splitlines()
         check = subprocess.run(t["check_cmd"].format(repo=repo), shell=True, capture_output=True, text=True)
         left = [l.strip() for l in said if l.startswith("  ")]
-        row = dict(id=t["id"], target=f"{owner}.{t['name']}", new_name=t["new_name"], passed=check.returncode == 0, rename_seconds=round(secs, 2),
+        row = dict(id=t["id"], target=f"{owner}.{t['name']}", new_name=t["new_name"], passed=check.returncode == 0 and bool(said) and said[0].startswith("renamed "), rename_seconds=round(secs, 2),
                    said=said[0] if said else "", listed_as_not_changed=left, compiler=(check.stdout + check.stderr).strip()[-600:] if check.returncode else "")
         rows.append(row)
         print(f"{t['id']:26} passed={row['passed']}  {row['said']}", flush=True)
