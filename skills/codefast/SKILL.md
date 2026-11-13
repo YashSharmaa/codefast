@@ -23,6 +23,7 @@ Reach for it before `grep` + reading files whenever the question is about a symb
 | Who calls it (also through ops tables, callbacks, registrations) | `codefast callers ext4_file_read_iter` |
 | A caller tree | `codefast callers vfs_read -d 3` |
 | What it calls, and where each callee lives | `codefast callees vfs_read` |
+| Before changing a function: its body, its type, the signatures of what it calls, its call sites and its tests, in one answer | `codefast context vfs_read` |
 | How execution gets from A to B | `codefast path sys_read ext4_file_read_iter` |
 | Which function prints a message | `codefast grep -F "Busy inodes after unmount"` |
 | Where to look for a bug report or stack trace | `codefast locate "<paste the report>"` (or `codefast locate - < report.txt`) |
@@ -38,8 +39,9 @@ to repeat the search with grep. Names that appear only in comments, strings or u
 are counted separately as text-only mentions.
 
 A call is listed when it can be tied to its target: by scope, import, or the type of the
-receiver. Where that is not possible (a method called on a value whose type is written nowhere)
-the answer says how many such call sites there are, and `codefast refs NAME --loose` lists them.
+receiver. Where the receiver's type is written nowhere (common in Python and JavaScript) a call
+can only match by method name. Such lines are marked `by name`. They are listed when few types
+have a method of that name, and counted otherwise (`codefast refs NAME --loose` lists them).
 
 ## Reading the answers
 

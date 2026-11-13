@@ -246,6 +246,11 @@ fn type_member(v: &DefV) -> bool {
     }
 }
 
+/// `same_family`, for the query layer.
+pub fn same_language_family(a: Lang, b: Lang) -> bool {
+    same_family(a, b)
+}
+
 /// JavaScript and the TypeScript dialects import each other freely; every other language keeps
 /// to itself.
 fn same_family(a: Lang, b: Lang) -> bool {
@@ -2232,6 +2237,12 @@ impl<'a> Resolver<'a> {
             }
         }
         out
+    }
+
+    /// How many types declare a member called `name`. A name that few types carry is a strong
+    /// hint by itself, which matters where receivers have no written type.
+    pub fn member_owner_count(&self, name: &[u8]) -> usize {
+        self.member_owners(name).len()
     }
 
     /// Types that declare a member called `field`, with whether it holds a callable.

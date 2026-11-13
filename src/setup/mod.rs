@@ -35,6 +35,7 @@ This repository is indexed by `codefast`. One shell command answers a structural
 
 - where a symbol is defined, with its body and callers: `codefast search NAME`
 - one function or type instead of a whole file: `codefast show NAME`; a file's outline: `codefast show PATH`
+- before changing a function, all of it in one answer (body, its type, what it calls, who calls it, its tests): `codefast context NAME`
 - who calls a function, also through callback tables and function pointers: `codefast callers NAME`
 - what a function calls: `codefast callees NAME`; every use of a symbol: `codefast refs NAME`
 - how execution gets from one function to another: `codefast path FROM TO`

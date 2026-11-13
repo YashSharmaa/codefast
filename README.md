@@ -68,6 +68,7 @@ The index builds itself on first use and follows your edits. There is nothing to
 | Who writes a field | `codefast refs task_struct.on_rq --only write` |
 | Who calls it | `codefast callers NAME` |
 | What it calls | `codefast callees NAME` |
+| Everything about a function before changing it | `codefast context NAME` |
 | How execution gets from A to B | `codefast path A B` |
 | Which function prints a message | `codefast grep -F "text of the message"` |
 | Where to look for a bug report or stack trace | `codefast locate "text"` |
@@ -78,9 +79,13 @@ The index builds itself on first use and follows your edits. There is nothing to
 
 * The index follows your edits. A function written a second ago can be found, shown and
   traced, with nothing to rebuild.
+* `codefast context NAME` is the reading done before an edit, in one answer: the function's
+  body, the type it belongs to, the signatures of what it calls, the lines that call it, the
+  tests that reach it and the command that runs them.
 * `codefast show NAME` returns one function or type instead of a whole file, so the agent
   reads what it is about to change and nothing else.
-* `codefast callers NAME` lists every place that depends on a function before it is changed.
+* `codefast callers NAME` lists every call site with its source line, so a signature change
+  can be carried out from one answer.
 * `codefast dep NAME SYMBOL` looks up a signature inside an installed dependency (a Python
   virtual environment, `node_modules`, the Go module cache, the cargo registry), which saves
   reading the package or guessing its API.

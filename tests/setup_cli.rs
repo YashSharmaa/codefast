@@ -606,7 +606,7 @@ fn the_rules_block_is_added_updated_in_place_and_otherwise_left_alone() {
         assert!(!said.contains(shout), "{shout}");
     }
     let commands: Vec<&str> = block.split("`codefast ").skip(1).filter_map(|rest| rest.split([' ', '`']).next()).collect();
-    assert_eq!(commands, ["search", "show", "show", "callers", "callees", "refs", "path", "grep", "locate"]);
+    assert_eq!(commands, ["search", "show", "show", "context", "callers", "callees", "refs", "path", "grep", "locate"]);
     for command in &commands {
         assert_eq!(sb.run(&[command, "--help"], &[]).code, 0, "codefast {command}");
     }

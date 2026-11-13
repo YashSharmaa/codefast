@@ -1,5 +1,6 @@
 //! Queries: turning a question from a coding agent into a compact, exact answer.
 
+pub mod context;
 pub mod export;
 pub mod find;
 pub mod grep;

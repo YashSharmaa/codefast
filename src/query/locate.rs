@@ -7,7 +7,7 @@ use super::find::split_words;
 use super::{Common, PathFilter, sig_of};
 use crate::facts::{DefKind, fflag};
 use crate::output::{Out, count};
-use crate::store::{DefId, FileId, Index, NameId};
+use crate::store::{DefId, DefV, FileId, Index, NameId};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 #[derive(Clone, Debug)]
@@ -838,6 +838,75 @@ fn file_symbols(ix: &Index, file: FileId, ranked: &Ranked, q: &Query, limit: usi
     out
 }
 
+/// The lines of a function that carry the query's own words, best first then in source order:
+/// what makes it a candidate, so that it need not be opened to be judged.
+fn evidence_lines(src: &[u8], starts: &[usize], d: &DefV, q: &Query, limit: usize) -> Vec<(u32, String)> {
+    let mut exact: FxHashMap<&str, f32> = FxHashMap::default();
+    let mut words: FxHashMap<String, f32> = FxHashMap::default();
+    for t in &q.terms {
+        match t.kind {
+            TermKind::Word => {
+                words.entry(t.text.to_ascii_lowercase()).or_insert(t.weight * 0.5);
+            }
+            _ => {
+                exact.entry(t.text.as_str()).or_insert(t.weight);
+                for w in split_words(&t.text) {
+                    if w.len() >= 4 {
+                        words.entry(w).or_insert(t.weight * 0.5);
+                    }
+                }
+            }
+        }
+    }
+    let mut scored: Vec<(f32, u32, String)> = Vec::new();
+    // The signature line is already shown: evidence starts below it.
+    for line in d.rec.line + 1..=d.rec.end_line {
+        let text = super::show::line_text(src, starts, line);
+        let Ok(text) = std::str::from_utf8(text) else { continue };
+        let trimmed = text.trim();
+        if trimmed.len() < 4 {
+            continue;
+        }
+        let mut score = 0.0f32;
+        let mut strong = false;
+        let mut seen: Vec<&str> = Vec::new();
+        let bytes = trimmed.as_bytes();
+        let mut i = 0usize;
+        while i < bytes.len() {
+            if !(bytes[i].is_ascii_alphabetic() || bytes[i] == b'_') {
+                i += 1;
+                continue;
+            }
+            let st = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            let tok = &trimmed[st..i];
+            if tok.len() < 3 || seen.contains(&tok) {
+                continue;
+            }
+            seen.push(tok);
+            if let Some(w) = exact.get(tok) {
+                score += w;
+                strong = true;
+            } else {
+                for sub in split_words(tok) {
+                    if let Some(w) = words.get(&sub) {
+                        score += w;
+                    }
+                }
+            }
+        }
+        if score > 0.0 && strong {
+            scored.push((score, line, crate::output::clip(trimmed, 110)));
+        }
+    }
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.1.cmp(&b.1)));
+    scored.truncate(limit);
+    scored.sort_by_key(|x| x.1);
+    scored.into_iter().map(|(_, l, t)| (l, t)).collect()
+}
+
 pub struct LocateOpts {
     pub top_files: usize,
     pub syms_per_file: usize,
@@ -889,10 +958,23 @@ pub fn locate(ix: &Index, text: &str, common: &Common, opts: &LocateOpts, out: &
         if !out.line(&format!("{}. {}", i + 1, ix.path(*f))) {
             break;
         }
-        for d in file_symbols(ix, *f, &ranked, &q, opts.syms_per_file) {
+        // For the leading candidates, the lines that make them candidates.
+        let src = if i < 3 { ix.source(*f) } else { None };
+        let starts = src.as_ref().map(|s| super::show::line_starts(s));
+        for (k, d) in file_symbols(ix, *f, &ranked, &q, opts.syms_per_file).into_iter().enumerate() {
             let v = ix.def(d);
             if !out.line(&format!("   {}-{} {}", v.rec.line, v.rec.end_line, sig_of(&v))) {
                 break;
+            }
+            if let (Some(s), Some(st)) = (&src, &starts) {
+                // Only for the best function of each leading file: the rest are context.
+                if k == 0 && v.kind().is_callable() {
+                    for (l, t) in evidence_lines(s, st, &v, &q, 2) {
+                        if !out.line(&format!("        {l}: {t}")) {
+                            break;
+                        }
+                    }
+                }
             }
         }
     }

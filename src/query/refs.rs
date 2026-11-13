@@ -311,15 +311,20 @@ pub struct Edge<'a> {
 }
 
 /// Incoming edges of an entity: direct calls, value uses, slot bindings and, for each slot it is
-/// bound into, the call sites dispatching through that slot.
-pub fn caller_edges<'a>(rs: &Resolver<'a>, t: &Target) -> (Vec<Edge<'a>>, usize) {
+/// bound into, the call sites dispatching through that slot. The second list holds call sites
+/// that match by name only, because the receiver has no type that could be read off the code.
+pub fn caller_edges<'a>(rs: &Resolver<'a>, t: &Target) -> (Vec<Edge<'a>>, Vec<RefV<'a>>) {
     let mut edges: Vec<Edge<'a>> = Vec::new();
     let mut slots: Vec<(Ty, Vec<u8>)> = Vec::new();
-    let mut name_only = 0usize;
+    let mut loose: Vec<RefV<'a>> = Vec::new();
     let mut aliases: Vec<DefId> = Vec::new();
     rs.refs_to(t, |r, conf| match r.kind() {
-        // In import-scoped code a match by name alone is not listed as a caller: it is counted.
-        _ if conf == Conf::Name && crate::resolve::scoped_language(rs.ix.lang(r.file)) => name_only += 1,
+        // In import-scoped code a match by name alone is kept apart from the sure callers.
+        _ if conf == Conf::Name && crate::resolve::scoped_language(rs.ix.lang(r.file)) => {
+            if matches!(r.kind(), RefKind::Call | RefKind::MemberCall | RefKind::New | RefKind::Annotation) {
+                loose.push(r);
+            }
+        }
         // A decorator or attribute applied to a definition runs the decorator.
         RefKind::Call | RefKind::MacroCall | RefKind::New | RefKind::MemberCall | RefKind::Annotation => edges.push(Edge { r, via: Via::Call }),
         RefKind::Read | RefKind::Write if t.class == Class::Callable => edges.push(Edge { r, via: Via::Value }),
@@ -362,12 +367,16 @@ pub fn caller_edges<'a>(rs: &Resolver<'a>, t: &Target) -> (Vec<Edge<'a>>, usize)
         for (r, conf) in rs.slot_calls(&owner, &field) {
             if conf == Conf::Exact {
                 edges.push(Edge { r, via: Via::Slot(owner.name.clone(), field.clone()) });
-            } else {
-                name_only += 1;
             }
         }
     }
-    (edges, name_only)
+    (edges, loose)
+}
+
+/// Whether call sites that match by name only are worth listing with the sure ones: when the
+/// name is rare among types, or there are only a handful of them.
+pub fn loose_is_likely(rs: &Resolver, t: &Target, loose: usize) -> bool {
+    loose > 0 && (rs.member_owner_count(&t.name) <= 3 || loose <= 8)
 }
 
 pub struct Callee<'a> {
@@ -384,6 +393,9 @@ pub struct Callee<'a> {
     pub passed_to: Option<&'a [u8]>,
     /// A member call whose receiver is a type of another package.
     pub external: bool,
+    /// The receiver has no type that can be read off the code: the targets are the few methods
+    /// of that name in the repository, not a resolved edge.
+    pub by_name: bool,
 }
 
 fn within(d: Option<DefV>, target: DefId) -> bool {
@@ -402,6 +414,7 @@ fn within(d: Option<DefV>, target: DefId) -> bool {
 pub fn callee_edges<'a>(rs: &Resolver<'a>, d: &DefV<'a>) -> Vec<Callee<'a>> {
     let ix = rs.ix;
     let file = d.file();
+    let lang_of_file = ix.lang(file);
     // An object-like macro that names a function is an alias: its body "calls" that function.
     let alias_macro = d.kind() == DefKind::Macro && d.rec.arity_max == 0;
     let mut raw: Vec<RefV<'a>> = ix
@@ -430,7 +443,17 @@ pub fn callee_edges<'a>(rs: &Resolver<'a>, d: &DefV<'a>) -> Vec<Callee<'a>> {
                 continue;
             }
             seen.insert(key, out.len());
-            out.push(Callee { name: r.name(), line: r.line(), count: 1, targets, slot: None, member: false, passed_to: r.qual(), external: false });
+            out.push(Callee {
+                name: r.name(),
+                line: r.line(),
+                count: 1,
+                targets,
+                slot: None,
+                member: false,
+                passed_to: r.qual(),
+                external: false,
+                by_name: false,
+            });
             continue;
         }
         // In languages without constructors a literal of a type (`T{...}`) runs no code.
@@ -443,6 +466,7 @@ pub fn callee_edges<'a>(rs: &Resolver<'a>, d: &DefV<'a>) -> Vec<Callee<'a>> {
             // implementations and functions bound into a slot are dynamic candidates.
             let mut slot = None;
             let mut external = false;
+            let mut by_name = false;
             let mut targets: Vec<DefId> = Vec::new();
             let owners = rs.owners_for_ref(&r);
             if let Some(owner) = owners.first() {
@@ -511,9 +535,33 @@ pub fn callee_edges<'a>(rs: &Resolver<'a>, d: &DefV<'a>) -> Vec<Callee<'a>> {
                     }
                 } else if slot.is_none() {
                     external = r.qual().is_some_and(|q| rs.path_external(q, file));
+                    if !external && rs.member_owner_count(r.name()) <= 3 {
+                        // No type to go by, but hardly any type has a method of this name.
+                        let mut cands: Vec<DefId> = ix
+                            .defs_named(r.name())
+                            .into_iter()
+                            .filter(|&c| {
+                                let v = ix.def(c);
+                                matches!(v.kind(), DefKind::Method | DefKind::Function)
+                                    && v.parent_name().is_some()
+                                    && !v.parent().is_some_and(|p| matches!(p.kind(), DefKind::Function | DefKind::Method))
+                                    && crate::resolve::same_language_family(ix.lang(v.file()), lang_of_file)
+                            })
+                            .collect();
+                        // Nearest first: the same file, then the closest directory.
+                        let here = ix.path(file);
+                        cands.sort_by_key(|&c| {
+                            let v = ix.def(c);
+                            (v.is_decl(), ix.is_test_file(v.file()), v.file() != file, -(common_prefix_dirs(here, v.path()) as i64), c)
+                        });
+                        if !cands.is_empty() && cands.len() <= 6 {
+                            targets = cands;
+                            by_name = true;
+                        }
+                    }
                 }
             }
-            out.push(Callee { name: r.name(), line: r.line(), count: 1, targets, slot, member: true, passed_to: None, external });
+            out.push(Callee { name: r.name(), line: r.line(), count: 1, targets, slot, member: true, passed_to: None, external, by_name });
         } else {
             // `new T()` names a type; a plain call may also be a class being instantiated.
             let lang = ix.lang(file);
@@ -538,7 +586,7 @@ pub fn callee_edges<'a>(rs: &Resolver<'a>, d: &DefV<'a>) -> Vec<Callee<'a>> {
                     continue;
                 }
             }
-            out.push(Callee { name: r.name(), line: r.line(), count: 1, targets, slot: None, member: false, passed_to: None, external: false });
+            out.push(Callee { name: r.name(), line: r.line(), count: 1, targets, slot: None, member: false, passed_to: None, external: false, by_name: false });
         }
     }
     out
@@ -572,7 +620,17 @@ pub fn value_edges<'a>(rs: &Resolver<'a>, d: &DefV<'a>) -> Vec<Callee<'a>> {
         if targets.is_empty() || targets.contains(&d.id) {
             continue;
         }
-        out.push(Callee { name: r.name(), line: r.line(), count: 1, targets, slot: None, member: false, passed_to: Some(b""), external: false });
+        out.push(Callee {
+            name: r.name(),
+            line: r.line(),
+            count: 1,
+            targets,
+            slot: None,
+            member: false,
+            passed_to: Some(b""),
+            external: false,
+            by_name: false,
+        });
     }
     out
 }
@@ -636,15 +694,28 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
                 continue;
             }
         }
-        let (edges, name_only) = caller_edges(rs, t);
+        let (edges, loose) = caller_edges(rs, t);
         let keep = |e: &&Edge| pf.matches(e.r.path()) && (common.tests || !ix.is_test_file(e.r.file) || ix.is_test_file(p.file()));
+        let mut loose: Vec<RefV> =
+            loose.into_iter().filter(|r| pf.matches(r.path()) && (common.tests || !ix.is_test_file(r.file) || ix.is_test_file(p.file()))).collect();
+        let list_loose = loose_is_likely(rs, t, loose.len());
         let mut direct: Vec<RefV> = edges.iter().filter(keep).filter(|e| matches!(e.via, Via::Call)).map(|e| e.r).collect();
         let mut values: Vec<RefV> = edges.iter().filter(keep).filter(|e| matches!(e.via, Via::Value)).map(|e| e.r).collect();
         let mut args: Vec<&Edge> = edges.iter().filter(keep).filter(|e| matches!(e.via, Via::Arg(_))).collect();
         let binds: Vec<&Edge> = edges.iter().filter(keep).filter(|e| matches!(e.via, Via::Bind(_))).collect();
         let mut slot_calls: Vec<&Edge> = edges.iter().filter(keep).filter(|e| matches!(e.via, Via::Slot(..))).collect();
         let nfiles = direct.iter().map(|r| r.file).collect::<FxHashSet<_>>().len();
-        let mut head = format!("{}  (all {} call sites, {} files", def_line(&p), count(direct.len()), count(nfiles));
+        let mut head = if loose.is_empty() {
+            format!("{}  (all {} call sites, {} files", def_line(&p), count(direct.len()), count(nfiles))
+        } else {
+            format!(
+                "{}  ({} call sites on a receiver of known type, {} files, {} more by name",
+                def_line(&p),
+                count(direct.len()),
+                count(nfiles),
+                count(loose.len())
+            )
+        };
         if !binds.is_empty() {
             head.push_str(&format!(", {} registrations / slot bindings", binds.len()));
         }
@@ -659,7 +730,8 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
         let def_path = p.path().to_string();
         if !direct.is_empty() {
             direct.sort_by_cached_key(|r| proximity_key(ix, &def_path, r));
-            let text = direct.len() <= 10;
+            // The source line of each call is what an edit needs: shown whenever it fits.
+            let text = direct.len() <= 30;
             list_refs(ix, &direct, text, out);
         }
         if !args.is_empty() {
@@ -723,14 +795,21 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
                 list_refs(ix, &rs_, rs_.len() <= 8, out);
             }
         }
-        if name_only > 0 {
+        if list_loose {
+            // Few types have a member of this name: a call of it is very likely a call of this.
+            loose.sort_by_cached_key(|r| proximity_key(ix, &def_path, r));
+            let lfiles = loose.iter().map(|r| r.file).collect::<FxHashSet<_>>().len();
+            out.push(&format!("called by name, receiver type not written in the code ({} call sites, {} files):", count(loose.len()), count(lfiles)));
+            let text = loose.len() <= 30;
+            list_refs(ix, &loose, text, out);
+        } else if !loose.is_empty() {
             out.push(&format!(
                 "(+{} more possible call sites matched by name only, receiver type unknown: `codefast refs {} --loose` lists them)",
-                count(name_only),
+                count(loose.len()),
                 s
             ));
         }
-        if direct.is_empty() && values.is_empty() && binds.is_empty() && args.is_empty() && slot_calls.is_empty() {
+        if direct.is_empty() && values.is_empty() && binds.is_empty() && args.is_empty() && slot_calls.is_empty() && loose.is_empty() {
             out.push("no callers found in indexed code");
         }
     }
@@ -896,7 +975,14 @@ pub fn callees(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, sig
             let times = if c.count > 1 { format!(" ×{}", c.count) } else { String::new() };
             if c.member && !c.targets.is_empty() {
                 let v = ix.def(c.targets[0]);
-                let more = c.slot.as_ref().map(|(_, b)| b.len()).filter(|&n| n > 0).map(|n| format!(" (+{n} overrides / bound)")).unwrap_or_default();
+                let more = if c.by_name {
+                    // Every candidate is named: there are at most a handful.
+                    let rest: Vec<String> =
+                        c.targets.iter().skip(1).take(3).map(|&d| format!("{} {}:{}", ix.def(d).qualified(), ix.def(d).path(), ix.def(d).rec.line)).collect();
+                    if rest.is_empty() { " [by name]".to_string() } else { format!(" [by name, or {}]", rest.join(", ")) }
+                } else {
+                    c.slot.as_ref().map(|(_, b)| b.len()).filter(|&n| n > 0).map(|n| format!(" (+{n} overrides / bound)")).unwrap_or_default()
+                };
                 let what = if sigs { format!(" {}", clip(&v.signature(), 140)) } else { String::new() };
                 out.line(&format!("  {} {}{} {}:{}{}{}", c.line, v.qualified(), times, v.path(), v.rec.line, what, more));
                 continue;
@@ -1029,7 +1115,7 @@ impl<'r, 'a> PathSearch<'r, 'a> {
                 let mut targets: Vec<(DefId, String)> = Vec::new();
                 if c.member {
                     for &t in c.targets.iter().take(4) {
-                        targets.push((t, String::new()));
+                        targets.push((t, if c.by_name { " (by name, receiver type not written)".to_string() } else { String::new() }));
                     }
                     if let Some((owner, bound)) = &c.slot {
                         let note = format!(" via {}.{}", String::from_utf8_lossy(owner).trim_start_matches('%'), String::from_utf8_lossy(c.name));

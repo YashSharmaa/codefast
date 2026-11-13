@@ -8,7 +8,7 @@ use super::show::{ShowOpts, outline, show, show_def};
 use super::{Common, PathFilter, Spec, def_line, parse_spec, targets_for};
 use crate::facts::DefKind;
 use crate::output::{Out, count};
-use crate::resolve::{Class, Conf, Resolver, Target};
+use crate::resolve::{Class, Resolver, Target};
 use crate::store::{FileId, Index};
 use rustc_hash::FxHashSet;
 
@@ -30,10 +30,14 @@ pub fn usage_line(ix: &Index, rs: &Resolver, t: &Target, max_names: usize) -> Ve
     if t.class == Class::Member {
         return lines;
     }
-    let (edges, _) = caller_edges(rs, t);
+    let (edges, loose) = caller_edges(rs, t);
     let def_path = p.path().to_string();
     let mut direct: Vec<_> = edges.iter().filter(|e| matches!(e.via, Via::Call)).map(|e| e.r).collect();
     direct.sort_by_cached_key(|r| proximity_key(ix, &def_path, r));
+    // Where receivers carry no type, a rare method name is the evidence there is.
+    let mut by_name: Vec<_> = if super::refs::loose_is_likely(rs, t, loose.len()) { loose } else { Vec::new() };
+    by_name.retain(|r| !ix.is_test_file(r.file) || ix.is_test_file(p.file()));
+    by_name.sort_by_cached_key(|r| proximity_key(ix, &def_path, r));
     if !direct.is_empty() {
         let mut names: Vec<String> = Vec::new();
         for r in &direct {
@@ -47,6 +51,23 @@ pub fn usage_line(ix: &Index, rs: &Resolver, t: &Target, max_names: usize) -> Ve
         let more = if total > shown.len() { format!(" (+{} more callers)", total - shown.len()) } else { String::new() };
         let label = if t.class == Class::Callable { "called by" } else { "used by" };
         lines.push(format!("{label}: {}{}", shown.join(", "), more));
+    }
+    if !by_name.is_empty() {
+        let mut names: Vec<String> = Vec::new();
+        for r in &by_name {
+            let n = format!("{} ({}:{})", encl_name(r), r.path(), r.line());
+            if !names.contains(&n) {
+                names.push(n);
+            }
+        }
+        let total = names.len();
+        let shown: Vec<String> = names.into_iter().take(max_names.min(4)).collect();
+        let more = if total > shown.len() {
+            format!(" (+{} more: codefast callers {})", total - shown.len(), String::from_utf8_lossy(&t.name))
+        } else {
+            String::new()
+        };
+        lines.push(format!("called by name (receiver type not written): {}{}", shown.join(", "), more));
     }
     let binds: Vec<_> = edges.iter().filter(|e| matches!(e.via, Via::Bind(_))).collect();
     if !binds.is_empty() {
@@ -107,7 +128,7 @@ pub fn usage_line(ix: &Index, rs: &Resolver, t: &Target, max_names: usize) -> Ve
     if values > 0 && t.class == Class::Callable {
         lines.push(format!("passed as a value at {values} sites (codefast callers {} for the list)", String::from_utf8_lossy(&t.name)));
     }
-    if direct.is_empty() && binds.is_empty() && values == 0 && !has_cb && t.class == Class::Callable {
+    if direct.is_empty() && binds.is_empty() && values == 0 && !has_cb && by_name.is_empty() && t.class == Class::Callable {
         lines.push("called by: no callers found in indexed code".to_string());
     }
     lines
@@ -120,10 +141,8 @@ pub fn text_only_mentions(ix: &Index, rs: &Resolver, t: &Target) -> Vec<FileId> 
     for &d in &t.defs {
         structural.insert(ix.def(d).file());
     }
-    rs.refs_to(t, |r, conf| {
-        if conf == Conf::Name && crate::resolve::scoped_language(ix.lang(r.file)) {
-            return;
-        }
+    // A reference that matches by name only is still code, not a comment or a string.
+    rs.refs_to(t, |r, _| {
         structural.insert(r.file);
     });
     ix.files_with(nid).filter(|f| !structural.contains(f)).collect()

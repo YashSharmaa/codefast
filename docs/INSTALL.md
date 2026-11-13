@@ -6,7 +6,7 @@ codefast is one binary. A coding harness uses it in up to four ways:
   `codefast` command in its shell. This is the main path and costs about 140 tokens per session.
 - **the MCP server**: the same binary started as `codefast mcp`, for harnesses that prefer tools.
 - **hooks**: optional. They add a line of context after a search or before a long file read.
-- **the rules block**: optional, fifteen lines in a project's `AGENTS.md` that say which command
+- **the rules block**: optional, sixteen lines in a project's `AGENTS.md` that say which command
   answers which question. It is always in the agent's context, where a skill has to be picked
   up first, and it reaches agents that have nothing else (`codefast setup agents-md`, section 2).
 

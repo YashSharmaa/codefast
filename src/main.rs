@@ -45,6 +45,9 @@ enum Cmd {
     Callers(CallersArgs),
     /// What a function calls, with where each callee is defined
     Callees(CalleesArgs),
+    /// Before changing a function: its body, its type, what it calls, who calls it, its tests
+    #[command(alias = "ctx")]
+    Context(ContextArgs),
     /// Shortest call chain between two functions
     Path(PathArgs),
     /// Regex search over all text, with the enclosing symbol of every match
@@ -157,6 +160,12 @@ struct CallersArgs {
     /// Expand callers of callers up to this depth
     #[arg(long, short = 'd', default_value_t = 1)]
     depth: u32,
+}
+
+#[derive(Args)]
+struct ContextArgs {
+    #[arg(required = true)]
+    targets: Vec<String>,
 }
 
 #[derive(Args)]
@@ -441,7 +450,9 @@ fn run(cli: Cli) -> Result<()> {
 
     let ix = codefast::fresh::open(&root, &codefast::fresh::OpenOptions::default())?;
     let rs = Resolver::new(&ix);
-    let mut out = Out::new(cli.budget);
+    // An edit context is several answers in one: its default budget is larger.
+    let budget = if matches!(cli.cmd, Cmd::Context(_)) && cli.budget == 1500 { 3000 } else { cli.budget };
+    let mut out = Out::new(budget);
     match &cli.cmd {
         Cmd::Search(a) => {
             for (i, q) in a.queries.iter().enumerate() {
@@ -473,6 +484,7 @@ fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Callers(a) => query::refs::callers(&ix, &rs, &a.targets, &common, a.depth, &mut out),
         Cmd::Callees(a) => query::refs::callees(&ix, &rs, &a.targets, &common, a.sigs, &mut out),
+        Cmd::Context(a) => query::context::context(&ix, &rs, &a.targets, &common, &mut out),
         Cmd::Path(a) => query::refs::path(&ix, &rs, &a.from, &a.to, &common, a.max_depth, &mut out),
         Cmd::Locate(a) => {
             let text = if a.text.len() == 1 && a.text[0] == "-" {

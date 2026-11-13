@@ -72,7 +72,7 @@ fn tools() -> Value {
     let root = json!({"type": "string", "description": "Absolute path of the repository, if the server runs outside it."});
     let budget = json!({"type": "integer", "description": "Answer size in tokens (default 1500, max 8000)."});
     let path = json!({"type": "string", "description": "Only paths containing this text, or a glob such as drivers/net/**."});
-    let tests = json!({"type": "boolean", "description": "Also look in test code, which is skipped by default."});
+    let tests = json!({"type": "boolean", "description": "Include test code (skipped by default)."});
     let hints = |title: &str| json!({"title": title, "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false});
     json!([
         {
@@ -87,10 +87,10 @@ fn tools() -> Value {
         },
         {
             "name": "show",
-            "description": "Print source precisely: a symbol's full body, a file's outline (signatures with line ranges), `path:line` (the enclosing symbol), or `path:start-end`. Cheaper than reading a whole file. Set `outline` for signatures only, `full` to lift the length cap.",
+            "description": "Print source precisely: a symbol's full body, a file's outline (signatures with line ranges), `path:line` (the enclosing symbol), or `path:start-end`. Cheaper than reading a whole file. Set `outline` for signatures only, `full` to lift the length cap. Set `context` before editing a function: adds its type, callee signatures, call sites and tests.",
             "inputSchema": {"type": "object", "properties": {
                 "targets": {"type": "array", "items": {"type": "string"}, "description": "Symbols, files, `path:line` or `path:start-end`."},
-                "outline": {"type": "boolean"}, "full": {"type": "boolean"}, "budget": budget, "root": root
+                "outline": {"type": "boolean"}, "full": {"type": "boolean"}, "context": {"type": "boolean"}, "budget": budget, "root": root
             }, "required": ["targets"]},
             "annotations": hints("Show source")
         },
@@ -221,6 +221,7 @@ pub fn call_tool(root: &Path, name: &str, args: &Value) -> Result<String> {
         Search(Vec<String>),
         Show(Vec<String>, query::show::ShowOpts),
         Refs(Vec<String>),
+        Context(Vec<String>),
         Callers(Vec<String>, u32),
         Callees(Vec<String>),
         Path(String, String),
@@ -230,7 +231,8 @@ pub fn call_tool(root: &Path, name: &str, args: &Value) -> Result<String> {
         "search" => Call::Search(required_list(args, "queries", "query")?),
         "show" => {
             let opts = query::show::ShowOpts { full: flag(args, "full")?, outline: flag(args, "outline")?, ..Default::default() };
-            Call::Show(required_list(args, "targets", "target")?, opts)
+            let targets = required_list(args, "targets", "target")?;
+            if flag(args, "context")? { Call::Context(targets) } else { Call::Show(targets, opts) }
         }
         "refs" => {
             let targets = required_list(args, "targets", "target")?;
@@ -273,6 +275,7 @@ pub fn call_tool(root: &Path, name: &str, args: &Value) -> Result<String> {
             }
         }
         Call::Show(targets, opts) => query::show::show(&ix, &rs, &targets, &common, &opts, &mut out),
+        Call::Context(targets) => query::context::context(&ix, &rs, &targets, &common, &mut out),
         Call::Refs(targets) => query::refs::refs(&ix, &rs, &targets, &common, &query::refs::RefsOpts::default(), &mut out),
         Call::Callers(targets, depth) => query::refs::callers(&ix, &rs, &targets, &common, depth, &mut out),
         Call::Callees(targets) => query::refs::callees(&ix, &rs, &targets, &common, false, &mut out),

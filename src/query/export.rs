@@ -58,7 +58,8 @@ pub fn export_edges(ix: &Index, rs: &Resolver, pf: &PathFilter, dynamic: bool, w
         for d in defs {
             let from = endpoint(&d);
             for c in callee_edges(rs, &d) {
-                if c.passed_to.is_some() {
+                // Only resolved edges are exported: a match by name alone is a hint, not an edge.
+                if c.passed_to.is_some() || c.by_name {
                     continue;
                 }
                 let mut targets: Vec<(DefId, &'static str)> = Vec::new();
