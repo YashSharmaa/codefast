@@ -33,7 +33,7 @@ when it debugs, changes code, writes new code or maintains a very large codebase
 
 Measured so far (the tables are under [Results](#results)):
 
-- **Cheaper sessions.** In real headless Claude Code sessions a question about who calls a method costs 0.30 of the same session without codefast, four such questions in one session 0.17 and a rename across the repository 0.29, with the results as good (checked against the Go type checker and compiler).
+- **Cheaper sessions.** In real headless Claude Code sessions a question about who calls a method costs 0.30 of the same session without codefast, four such questions in one session 0.17 and a rename across the repository 0.29, with the results as good (checked against the Go type checker and compiler). With Sonnet 5.5: 0.32, 0.25 and 0.46.
 - **Right in one call.** 0.96 out of 1 on 72 verified questions about the Linux kernel, at a median of 155 tokens per answer. Best-case ripgrep: 0.89, two calls, 384 tokens.
 - **Fast and exact.** The whole Linux kernel indexes in 7.6 s. The call graph agrees with
   compilers at a precision of 0.982 to 1.000 on four repositories.
@@ -215,6 +215,8 @@ the matches by name in syft from 399 to 19, with the type checker's call graph a
 and the caller questions to 0.30. The rename became a command: without any model, the
 compiler passes after `codefast rename` in 10 of the 11 rename tasks, and the eleventh leaves
 one call through a function-typed variable, which the command lists as not changed.
+
+The three kinds of task that gain were run again with Sonnet 5.5, a stronger model that needs fewer steps to begin with: a caller question costs 0.32 of the control (6.1 requests down to 2.9), a session of four costs 0.25 of the control (10.3 requests down to 3.3) and a rename costs 0.46 of the control (6.1 requests down to 3.5). The session with codefast was the cheaper one in 24 of 24 pairs, and the answers were as accurate in both arms (`bench/results/live-sonnet.jsonl`).
 
 ### Index a huge repository
 

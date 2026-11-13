@@ -6,7 +6,9 @@
    `Cargo.lock` follows.
 2. Run `cargo test --release` and the packaging checks in `packaging.md`.
 3. Update the numbers in `README.md` from `bench/results/` if a benchmark changed.
-4. Commit, push, and wait for the `ci` workflow to pass.
+4. Commit, push the commits to a branch and open a pull request: the `ci` workflow then runs
+   the suite on Linux and macOS before anything reaches `main`. When it is green, push the same
+   commits to `main`.
 5. Tag `vX.Y.Z` and push the tag. The `release` workflow builds the four targets and
    publishes them with `SHA256SUMS`. A release stays a draft until every asset is attached.
 6. The `install-check` workflow then installs the published release on Linux (x86-64 and

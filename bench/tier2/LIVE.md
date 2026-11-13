@@ -64,6 +64,9 @@ The table is put together from runs of one line of builds, all version 0.2.0, on
   sessions (0.56 of the control), with the second in 8 of 8. The second wording was chosen
   after reading those eight sessions, so this one figure is tuned on its own tasks.
 
+The three kinds of task that gain (N, L and R) were run once more with Sonnet 5.5 and the final
+build, both arms: `bench/results/live-sonnet.jsonl`.
+
 `bench/results/live-haiku.jsonl` holds every run of the table, and its `tag` field says which
 batch a run is from. `bench/results/rename-offline.jsonl` is the check of the rename command
 without a model (`rename_offline.py`), and `bench/results/by-name.jsonl` the count of matches
