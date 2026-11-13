@@ -257,13 +257,17 @@ fn a_method_that_an_interface_ties_to_its_name_is_not_renamed_alone() {
     // An interface of one method is fitted by accident as often as by design: the rename is
     // done, and the interface is named.
     let said = p.ask(&["rename", "Square.Grow", "Enlarge", "--dry-run"]);
-    has(&said, "would rename Square.Grow to Enlarge: its definition and 0 references in 1 file");
+    has(&said, "would rename Square.Grow to Enlarge: its definition and 1 reference in 1 file");
     has(
         &said,
         "(The type also fits the interface Grower at shapes/shapes.go:43, which declares `Grow`. Where it is passed as one, the interface needs the same rename.)",
     );
-    // The call of it stands on a line with another type's `Grow`, which is left to the reader.
-    has(&said, "  shapes/shapes.go:23: func (l Loud) Grow(by float64) Square { return l.Square.Grow(by * 2) }");
+    // The call of it stands on a line that also declares another type's `Grow`. In Go the
+    // declared name is where the syntax puts it, so the call is renamed and the declaration
+    // is not.
+    lacks(&said, "shapes/shapes.go:23: func (l Loud) Grow");
+    p.ask(&["rename", "Square.Grow", "Enlarge"]);
+    has(&p.read("shapes/shapes.go"), "func (l Loud) Grow(by float64) Square { return l.Square.Enlarge(by * 2) }");
     // A type that lacks a method of the interface is not bound by it.
     has(&p.ask(&["rename", "Circle.Area", "Surface"]), "renamed Circle.Area to Surface: its definition and 0 references in 1 file");
     has(&p.read("shapes/shapes.go"), "func (c Circle) Surface() float64 { return 3 * c.r * c.r }");

@@ -63,6 +63,38 @@ fn occurrences(line: &[u8], name: &[u8], lang: Lang) -> Vec<(usize, bool)> {
     out
 }
 
+/// Where a Go declaration on this line writes the name it declares: after `func` (with or
+/// without a receiver), or at the start of a method of an interface. A type and a method may
+/// share a name, and then one line carries both; this says which occurrence is the method's.
+fn go_declared_name_at(line: &[u8], name: &[u8]) -> Option<usize> {
+    let start = line.len() - line.trim_ascii_start().len();
+    let rest = &line[start..];
+    let at = if rest.starts_with(b"func ") {
+        let mut i = start + 5;
+        while i < line.len() && line[i] == b' ' {
+            i += 1;
+        }
+        // A method writes its receiver first: `func (t *Tree) Tree(...)`.
+        if line.get(i) == Some(&b'(') {
+            let close = line[i..].iter().position(|&c| c == b')')? + i;
+            i = close + 1;
+            while i < line.len() && line[i] == b' ' {
+                i += 1;
+            }
+        }
+        i
+    } else {
+        // `Tree() (*object.Tree, error)` in an interface body.
+        start
+    };
+    let end = at + name.len();
+    if line.get(at..end) != Some(name) || line.get(end).copied().is_some_and(|c| c == b' ') && !rest.starts_with(b"func ") {
+        return None;
+    }
+    // Followed by the parameter list, or by a type parameter list.
+    matches!(line.get(end), Some(b'(') | Some(b'[')).then_some(at)
+}
+
 /// What is to happen on one line of one file.
 #[derive(Default)]
 struct LinePlan {
@@ -301,11 +333,13 @@ pub fn rename(ix: &Index, rs: &Resolver, root: &Path, target: &str, new: &str, o
         let starts = super::show::line_starts(&src);
         // Everything else in this file that carries the name, by line.
         let mut named: FxHashMap<u32, usize> = FxHashMap::default();
+        let mut decls: FxHashMap<u32, usize> = FxHashMap::default();
         for r in ix.refs_of_file(*file).filter(|r| r.name() == old.as_slice()) {
             *named.entry(r.line()).or_default() += 1;
         }
         for d in ix.defs_of_file(*file).filter(|d| d.name() == old.as_slice() && !t.defs.contains(&d.id)) {
             *named.entry(d.rec.line).or_default() += 1;
+            *decls.entry(d.rec.line).or_default() += 1;
         }
         let mut text = src.to_vec();
         let mut changed: Vec<u32> = Vec::new();
@@ -319,11 +353,23 @@ pub fn rename(ix: &Index, rs: &Resolver, root: &Path, target: &str, new: &str, o
             let occ = occurrences(&src[s..e], &old, lang);
             let refs_here = sure.get(&(*file, line)).copied().unwrap_or(0);
             let others = named.get(&line).copied().unwrap_or(0).saturating_sub(refs_here);
+            let decls_here = decls.get(&line).copied().unwrap_or(0);
             // Which occurrences are ours: all of them when nothing else on the line has the
             // name, the member accesses when that is what our references are.
+            // A Go line that also declares something of this name (a method of a type that
+            // shares it): the declared name is at a place the syntax gives away, and the rest
+            // of the line is ours.
+            let declared = (others > 0 && lang == Lang::Go && decls_here == others)
+                .then(|| go_declared_name_at(&src[s..e], &old))
+                .flatten()
+                .filter(|_| others == 1);
+            let occ: Vec<(usize, bool)> = match declared {
+                Some(at) => occ.into_iter().filter(|o| o.0 != at).collect(),
+                None => occ,
+            };
             let members: Vec<usize> = occ.iter().filter(|o| o.1).map(|o| o.0).collect();
             let plain: Vec<usize> = occ.iter().filter(|o| !o.1).map(|o| o.0).collect();
-            let take: Option<Vec<usize>> = if others > 0 {
+            let take: Option<Vec<usize>> = if others > 0 && declared.is_none() {
                 None
             } else if occ.len() == plan.ours {
                 Some(occ.iter().map(|o| o.0).collect())
@@ -445,6 +491,20 @@ pub fn rename(ix: &Index, rs: &Resolver, root: &Path, target: &str, new: &str, o
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_go_declaration_writes_its_name_at_a_place_the_syntax_gives_away() {
+        let at = |line: &str| go_declared_name_at(line.as_bytes(), b"Tree");
+        assert_eq!(at("func (t *Tree) Tree(path string) (*Tree, error) {"), Some(15));
+        assert_eq!(at("func Tree(path string) *Tree {"), Some(5));
+        assert_eq!(at("\tTree() (*object.Tree, error)"), Some(1));
+        assert_eq!(at("func (t *Tree) Tree[T any](x T) {"), Some(15));
+        // Not a declaration of that name: a use, a field, a different name.
+        assert_eq!(at("\tTree *Tree"), None);
+        assert_eq!(at("\treturn t.Tree(path)"), None);
+        assert_eq!(at("func (t *Tree) Size() int64 {"), None);
+        assert_eq!(at("func (w *TreeWalker) Next() (string, TreeEntry, error) {"), None);
+    }
 
     #[test]
     fn occurrences_are_whole_words_in_code() {
