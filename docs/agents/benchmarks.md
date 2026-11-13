@@ -15,6 +15,16 @@ export CODEFAST_BIN=$PWD/target/release/codefast
 | Real sessions, with and without the plugin | `uv run bench/tier2/live.py run --tag T --n 13 --arms control,plugin --jobs 2`, then `score --tag T` | Claude Code and `CLAUDE_CONFIG_DIR` set to the login to use. This spends model usage |
 | The same on tasks no build has been looked at on | `uv run bench/tier2/live.py run --tag H --held K,N,E,R,D,I,L --arms control,plugin --reps 2 --jobs 2` | the same, plus the go-git checkout and its oracle |
 
+What has been tried on the file ranking and did not work, so that it is not tried again:
+
+- **Scoring a query word that is also a part of a file's path** (`iwlwifi`, `a4tech`,
+  `nouveau`). 53 of the 80 kernel reports whose file the ranking misses name a component of
+  that file's path, so the headroom is real, but adding the signal lowered every set: on the
+  development halves LinuxFLBench went from 0.370 to 0.303 (right file first), ContextBench
+  from 0.684 to 0.474, Loc-Bench 60 from 0.519 to 0.519 with a worse top 5. Restricting it to
+  components that name at most 64 files did not recover it (ContextBench 0.474, Loc-Bench 60
+  0.444). A path word promotes files that have no other evidence, and there are many of them.
+
 Rules for numbers:
 
 - A change to name linking must not lower precision or recall on any oracle. Run all four
