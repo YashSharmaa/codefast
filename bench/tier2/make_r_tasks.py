@@ -15,6 +15,8 @@ codefast. A task is kept when a fixer driven by the compiler's own error message
 build, which also tells how many places have to change.
 
 usage: uv run bench/tier2/make_r_tasks.py [--n 10]
+       uv run bench/tier2/make_r_tasks.py --repo go-git --repo-name go-git/go-git --out r2 --vet "go vet ./..."
+The second form builds the same kind of task from another repository that has an oracle.
 """
 import argparse, collections, gzip, json, os, re, shutil, subprocess
 from pathlib import Path
@@ -120,17 +122,24 @@ def fix_by_compiler(repo, c):
 
 
 def main():
+    global AB, REPO, ORACLE, VET
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=10)
     ap.add_argument("--rivals", type=int, default=1, help="how many other types must have a method of the same name")
+    ap.add_argument("--repo", default="syft", help="directory under bench/repos and bench/oracles")
+    ap.add_argument("--repo-name", default="anchore/syft")
+    ap.add_argument("--out", default="r", help="directory under target/ab")
+    ap.add_argument("--vet", default=VET, help="the vet command of the check")
     a = ap.parse_args()
+    AB, REPO, ORACLE, VET = ROOT / "target/ab" / a.out, ROOT / "bench/repos" / a.repo, ROOT / "bench/oracles" / a.repo, a.vet
+    tag = "" if a.repo == "syft" else a.repo.replace("-", "") + "-"
     AB.mkdir(parents=True, exist_ok=True)
     tasks = []
     for i, c in enumerate(candidates(a.rivals)):
         if len(tasks) >= a.n:
             break
         # A stable id, so that adding candidates never renumbers the tasks.
-        tid = "R-" + c["receiver"].lstrip("*") + "-" + c["name"]
+        tid = "R-" + tag + c["receiver"].lstrip("*") + "-" + c["name"]
         base, gold = AB / tid / "base", AB / tid / "gold"
         for d in (base, gold):
             if d.exists():
@@ -147,7 +156,7 @@ def main():
         if not ok or sites < 5:
             shutil.rmtree(base.parent)
             continue
-        tasks.append(dict(id=tid, family="R", repo_name="anchore/syft", base=str(base), receiver=c["receiver"], name=c["name"], new_name=new_name(c["name"]),
+        tasks.append(dict(id=tid, family="R", repo_name=a.repo_name, repo_dir=str(REPO), base=str(base), receiver=c["receiver"], name=c["name"], new_name=new_name(c["name"]),
                           file=c["file"], line=c["line"], sites=sites, files=files, rivals=c["rivals"],
                           check_cmd="cd {repo} && go build ./... && " + VET))
     json.dump(tasks, open(AB / "tasks.json", "w"), indent=1)

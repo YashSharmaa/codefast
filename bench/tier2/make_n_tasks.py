@@ -13,6 +13,8 @@ A long task (family L) is five of these questions in one session: what a session
 its context has grown.
 
 usage: python3 bench/tier2/make_n_tasks.py [--n 20]
+       python3 bench/tier2/make_n_tasks.py --repo go-git --repo-name go-git/go-git --out n2
+The second form builds the same kind of question from another repository that has an oracle.
 """
 import argparse, collections, gzip, hashlib, json
 from pathlib import Path
@@ -24,9 +26,15 @@ SKIP = {"String", "Name", "ID", "Error", "Len", "Less", "Swap", "MarshalJSON", "
 
 
 def main():
+    global ORACLE, OUT
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=20)
+    ap.add_argument("--repo", default="syft", help="directory under bench/repos and bench/oracles")
+    ap.add_argument("--repo-name", default="anchore/syft")
+    ap.add_argument("--out", default="n", help="directory under target/ab")
     a = ap.parse_args()
+    ORACLE, OUT = ROOT / "bench/oracles" / a.repo, ROOT / "target/ab" / a.out
+    tag = "" if a.repo == "syft" else a.repo.replace("-", "") + "-"
     E = [json.loads(l) for l in gzip.open(ORACLE / "edges.jsonl.gz", "rt")]
     F = [json.loads(l) for l in gzip.open(ORACLE / "functions.jsonl.gz", "rt")]
     byloc = {(f["file"], f["line"]): f for f in F}
@@ -52,7 +60,7 @@ def main():
                     others |= w2
             gold = sorted(who)
             wrong = sorted(o for o in others if o[0] not in {n for n, _ in who})
-            cands.append(dict(id=f"N-{recv}-{name}", family="N", repo_name="anchore/syft", receiver=recv, name=name, file=file, line=line,
+            cands.append(dict(id=f"N-{tag}{recv}-{name}", family="N", repo_name=a.repo_name, repo_dir=str(ROOT / "bench/repos" / a.repo), receiver=recv, name=name, file=file, line=line,
                               gold=[dict(name=n, file=f) for n, f in gold], wrong=[dict(name=n, file=f) for n, f in wrong], rivals=len(rivals)))
     cands.sort(key=lambda c: hashlib.sha256(c["id"].encode()).hexdigest())
     tasks = cands[: a.n]

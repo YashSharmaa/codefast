@@ -1,7 +1,7 @@
 #!/bin/bash
 # Rebuild every call-graph oracle from scratch.
 #
-#   bench/scripts/oracles/build_all.sh [gitleaks] [syft] [zod] [redis]
+#   bench/scripts/oracles/build_all.sh [gitleaks] [syft] [go-git] [zod] [redis]
 #
 # Prerequisites (see bench/oracles/README.md): go (brew install go), node + npm,
 # python3, Xcode command line tools (clang, libclang.dylib), git.
@@ -10,13 +10,13 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/env.sh"
-TARGETS=("$@"); [ ${#TARGETS[@]} -eq 0 ] && TARGETS=(gitleaks syft zod redis)
+TARGETS=("$@"); [ ${#TARGETS[@]} -eq 0 ] && TARGETS=(gitleaks syft go-git zod redis)
 want() { local t; for t in "${TARGETS[@]}"; do [ "$t" = "$1" ] && return 0; done; return 1; }
 
 bash "$HERE/fetch_repos.sh"
 
-# ---- Go: gitleaks, syft ------------------------------------------------------
-if want gitleaks || want syft; then
+# ---- Go: gitleaks, syft, go-git ----------------------------------------------
+if want gitleaks || want syft || want go-git; then
   mkdir -p "$ORACLE_WORK/bin"
   ( cd "$HERE/go" && go build -o "$ORACLE_WORK/bin/go-oracle" . )
   # One fixed target platform, so the answer key does not depend on the host.
@@ -26,7 +26,7 @@ if want gitleaks || want syft; then
   # under 5 GB (measured: 4.9 GB) for about 10 s more wall time. The output
   # does not depend on these two settings.
   export GOMEMLIMIT="${GOMEMLIMIT:-4500MiB}" GOGC="${GOGC:-40}"
-  for r in gitleaks syft; do
+  for r in gitleaks syft go-git; do
     want "$r" || continue
     ( cd "$ORACLE_REPOS/$r" && go mod download &&
       "$ORACLE_WORK/bin/go-oracle" -repo . -name "$r" -commit "$(git rev-parse HEAD)" -out "$ORACLE_OUT/$r" )

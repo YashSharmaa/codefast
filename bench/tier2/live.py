@@ -51,6 +51,9 @@ ARMS = {
     "lean": dict(plugin=True, lean=True),
     "nohooks": dict(plugin=True, env={"CODEFAST_HOOKS": "off"}),
     "rules": dict(plugin=True, rules=True),
+    # How a prompt card gives the uses of a symbol (an experiment, see LIVE.md).
+    "uses-count": dict(plugin=True, env={"CODEFAST_CARD_USES": "count"}),
+    "uses-list": dict(plugin=True, env={"CODEFAST_CARD_USES": "list"}),
 }
 BUDGET = {"haiku": 2.5, "sonnet": 8.0, "opus": 20.0}
 
@@ -69,9 +72,9 @@ def file_hash(repo, files):
     return h.hexdigest()
 
 
-def k_tasks():
+def k_tasks(key="kernel_questions_round2"):
     """The kernel questions of the pilot's second round, one of each family first."""
-    ids = json.load(open(ROOT / "bench/tier2/tasks.json"))["kernel_questions_round2"]
+    ids = json.load(open(ROOT / "bench/tier2/tasks.json")).get(key, [])
     qs = {}
     for line in open(ROOT / "bench/k3/questions.verified.jsonl"):
         q = json.loads(line)
@@ -87,14 +90,20 @@ def n_tasks():
     return n, long
 
 
+def held_out(name):
+    """Tasks that no build was looked at on before it was final (`tasks.json`, key `held_out`)."""
+    return json.load(open(ROOT / "bench/tier2/tasks.json")).get("held_out", {}).get(name, [])
+
+
 def choose(a):
-    d, r = load("d"), load("r")
-    k = k_tasks()
+    d, r, i, e = load("d"), load("r") + load("r2"), load("i"), load("e")
+    k = k_tasks() + k_tasks("kernel_questions_held_out")
     n, long = n_tasks()
-    if a.ids:
-        want = a.ids.split(",")
-        by = {t["id"]: t for t in d + r + k + n + long}
-        return [by[i] for i in want]
+    n2 = load("n2")
+    if a.ids or a.held:
+        want = a.ids.split(",") if a.ids else [x for fam in a.held.split(",") for x in held_out(fam)]
+        by = {t["id"]: t for t in d + r + k + n + long + i + n2 + e}
+        return [by[x] for x in want]
     order = lambda ts: sorted(ts, key=lambda t: hashlib.sha256(t["id"].encode()).hexdigest())
     if a.dev:
         return [t for t in order(d + r) if t["id"] in DEV_IDS]
@@ -110,12 +119,34 @@ def choose(a):
     return [t for t in mixed if t["id"] not in DEV_IDS][: a.d] + [t for t in order(r) if t["id"] not in DEV_IDS][: a.r] + k[: a.k] + n[: a.n] + long[: a.l]
 
 
+ABOUT = {
+    "anchore/syft": "syft, a Go project that lists the software packages inside container images and file systems",
+    "go-git/go-git": "go-git, an implementation of Git written in Go",
+}
+
+
+def repo_of(t):
+    """The checkout a question about a Go project is asked in, and where its shared index is kept."""
+    d = Path(t.get("repo_dir") or SYFT)
+    return d, (SYFT_INDEX if d == SYFT else ROOT / "target/bench-index" / f"live-{d.name}")
+
+
 def n_question(t):
     return (f"Which functions call the method {t['name']} of {t['receiver']} (defined in {t['file']})? Other types have a method called {t['name']} too: "
             f"calls of those do not count. Calls from test code do count.")
 
 
 def prompt_for(t, repo):
+    if t["family"] == "E":
+        return f"""You are in a checkout of {ABOUT[t['repo_name']]}. It is in the current directory ({repo}).
+
+A run of the program ended with this error:
+
+    {t['message']}
+
+Which function creates this error, and which functions call that function? Direct callers only. Callers in test code do not have to be listed.
+
+Rules: do not change any file and do not read anything outside {repo}. End with the complete list: first the function that creates the error, then one line per calling function, each with the file it is in."""
     if t["family"] in ("N", "L"):
         if t["family"] == "N":
             ask = f"Answer this question about the code:\n\n{n_question(t)}"
@@ -124,7 +155,8 @@ def prompt_for(t, repo):
             qs = "\n".join(f"{i + 1}. {n_question(p)}" for i, p in enumerate(t["parts"]))
             ask = f"Answer these {len(t['parts'])} questions about the code, one after the other:\n\n{qs}"
             end = "End with the complete lists: under a heading `## Question K` for each question, one line per calling function, with the file it is in."
-        return f"""You are in a checkout of syft, a Go project that lists the software packages inside container images and file systems. It is in the current directory ({repo}).
+        about = ABOUT[t["repo_name"]]
+        return f"""You are in a checkout of {about}. It is in the current directory ({repo}).
 
 {ask}
 
@@ -137,6 +169,21 @@ Answer this question about the code:
 {t['question']}
 
 Rules: do not change any file and do not read anything outside {repo}. Be exact and complete: name every function and every file path the question asks for, and give line numbers where they identify a place. End with the answer itself, not with an account of how you found it."""
+    if t["family"] == "I":
+        how = t["how"].replace("{repo}", str(repo))
+        return f"""You are working in a checkout of the {t['repo_name']} project, in the current directory ({repo}).
+
+This issue was reported against it:
+
+--- issue ---
+{t['issue'][:6000]}
+--- end of issue ---
+
+Fix it in the source code. The tests that the project added for this change are not in the tree: your fix is checked against them afterwards.
+
+How tests of this project are run: `{how}`
+
+Rules: work only inside {repo}. Do not read, list or run anything outside it, apart from the Python interpreter named in the command. Do not install anything. When you are done, say in one or two sentences what you changed."""
     if t["family"] == "D":
         cmd = t["test_cmd"].replace("{repo}", str(repo))
         return f"""You are working in a checkout of the {t['repo_name']} project, in the current directory ({repo}).
@@ -154,7 +201,8 @@ How to run them: `{cmd}`
 
 Rules: work only inside {repo}. Do not read, list or run anything outside it, apart from the Python interpreter named in the command. Do not edit these test files: {', '.join(t['test_files'])}. Do not install anything. Stop as soon as the command passes, and say in one or two sentences what you changed."""
     cmd = t["check_cmd"].replace("{repo}", str(repo))
-    return f"""You are working in a Go project: syft, a tool that lists the software packages inside container images and file systems. It is in the current directory ({repo}).
+    about = "syft, a tool that lists the software packages inside container images and file systems" if t["repo_name"] == "anchore/syft" else ABOUT[t["repo_name"]]
+    return f"""You are working in a Go project: {about}. It is in the current directory ({repo}).
 
 Rename the method {t['name']} of {t['receiver']} (defined in {t['file']}) to {t['new_name']}: the definition and every place that calls it, tests included. Other types have a method called {t['name']} too: those are different methods and must stay as they are.
 
@@ -208,14 +256,15 @@ def prepare(t, arm, rep, a, binary):
         (run / "prompt.txt").write_text(prompt_for(t, LINUX))
         json.dump(row, open(run / "task.json", "w"), indent=1)
         return row
-    if t["family"] in ("N", "L"):
-        parts = [t] if t["family"] == "N" else t["parts"]
-        row = dict(id=t["id"], family=t["family"], arm=arm, rep=rep, repo=str(SYFT), run=str(run), repo_name=t["repo_name"], model=a.model, tree_state=tree_state(SYFT),
-                   parts=[dict(gold=p["gold"], wrong=p["wrong"]) for p in parts])
-        (run / "prompt.txt").write_text(prompt_for(t, SYFT))
+    if t["family"] in ("N", "L", "E"):
+        parts = t["parts"] if t["family"] == "L" else [t]
+        where, index = repo_of(parts[0])
+        row = dict(id=t["id"], family=t["family"], arm=arm, rep=rep, repo=str(where), run=str(run), repo_name=t["repo_name"], model=a.model, tree_state=tree_state(where),
+                   index=str(index), parts=[dict(gold=p["gold"], wrong=p["wrong"]) for p in parts])
+        (run / "prompt.txt").write_text(prompt_for(t, where))
         json.dump(row, open(run / "task.json", "w"), indent=1)
         return row
-    src = SYFT if t["family"] == "R" else t["base"]
+    src = repo_of(t)[0] if t["family"] == "R" else t["base"]
     shutil.copytree(src, repo, symlinks=True, ignore=shutil.ignore_patterns(".git", ".codefast", "__pycache__"))
     if spec.get("rules"):
         with open(repo / "CLAUDE.md", "a") as f:
@@ -228,6 +277,8 @@ def prepare(t, arm, rep, a, binary):
     row = dict(id=t["id"], family=t["family"], arm=arm, rep=rep, repo=str(repo), run=str(run), repo_name=t["repo_name"], model=a.model)
     if t["family"] == "D":
         row.update(check=t["test_cmd"].replace("{repo}", str(repo)), test_files=t["test_files"], tests_hash=file_hash(repo, t["test_files"]))
+    elif t["family"] == "I":
+        row.update(check=t["test_cmd"].replace("{repo}", str(repo)), test_files=t["test_files"], tests_from=t["tests_from"], gold_files=t["gold_files"])
     else:
         row.update(check=t["check_cmd"].replace("{repo}", str(repo)), name=t["name"], new_name=t["new_name"], base=t["base"])
     if spec["plugin"]:
@@ -289,7 +340,7 @@ def score_callers(text, part):
 
 def verify_n(row):
     text = final_text(row["run"])
-    if row["family"] == "N":
+    if row["family"] in ("N", "E"):
         return score_callers(text, row["parts"][0])
     # One section per question. An answer that has no headings is read as a whole for each.
     cuts = [m.start() for m in re.finditer(r"(?m)^#+\s*Question\s+\d+", text)]
@@ -298,7 +349,7 @@ def verify_n(row):
 
 
 def verify(row):
-    if row["family"] in ("N", "L"):
+    if row["family"] in ("N", "L", "E"):
         s = verify_n(row)
         row["kscore"] = s
         return s >= 0.9, row.get("tree_state") in (None, tree_state(row["repo"]))
@@ -307,11 +358,19 @@ def verify(row):
         row["kscore"] = s
         # The tree is shared: a run that changed it would spoil the others.
         return s >= 0.999, row.get("tree_state") in (None, tree_state(row["repo"]))
+    if row["family"] == "I":
+        # The tests of the real fix come into the tree now, over whatever the agent left there.
+        for f in row["test_files"]:
+            dst = Path(row["repo"]) / f
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(Path(row["tests_from"]) / f, dst)
     try:
         rc, _ = sh(row["check"], timeout=1800)
         ok = rc == 0
     except Exception:
         ok = False
+    if row["family"] == "I":
+        return ok, True
     if row["family"] == "D":
         return ok, file_hash(row["repo"], row["test_files"]) == row["tests_hash"]
     defs = lambda root: sorted(
@@ -334,8 +393,8 @@ def session(row, a, binary, plug):
     env.pop("CODEFAST_INDEX_DIR", None)
     if row["family"] == "K" and spec["plugin"]:
         env["CODEFAST_INDEX_DIR"] = str(LINUX_INDEX)
-    if row["family"] in ("N", "L") and spec["plugin"]:
-        env["CODEFAST_INDEX_DIR"] = str(SYFT_INDEX)
+    if row["family"] in ("N", "L", "E") and spec["plugin"]:
+        env["CODEFAST_INDEX_DIR"] = row.get("index") or str(SYFT_INDEX)
     env.update(spec.get("env", {}))
     cmd = [
         a.claude, "-p", "--model", a.model, "--output-format", "stream-json", "--verbose", "--include-hook-events",
@@ -502,12 +561,13 @@ def cmd_run(a):
     if any(t["family"] == "K" for t, _, _ in todo) and any(ARMS[arm]["plugin"] for _, arm, _ in todo):
         e = dict(os.environ, CODEFAST_INDEX_DIR=str(LINUX_INDEX))
         subprocess.run([str(binary), "--root", str(LINUX), "status"], capture_output=True, text=True, env=e)
-    if any(t["family"] in ("N", "L") for t, _, _ in todo) and any(ARMS[arm]["plugin"] for _, arm, _ in todo):
-        e = dict(os.environ, CODEFAST_INDEX_DIR=str(SYFT_INDEX))
-        subprocess.run([str(binary), "--root", str(SYFT), "index"], capture_output=True, text=True, env=e)
-    if any(t["family"] == "R" for t, _, _ in todo):
-        rc, out = sh("go build ./... && go vet -composites=false -unreachable=false ./...", cwd=SYFT)
-        print("  compiler cache warmed" if rc == 0 else "  WARM FAILED: " + out[-300:], flush=True)
+    if any(ARMS[arm]["plugin"] for _, arm, _ in todo):
+        for where, index in {repo_of((t.get("parts") or [t])[0]) for t, _, _ in todo if t["family"] in ("N", "L", "E")}:
+            e = dict(os.environ, CODEFAST_INDEX_DIR=str(index))
+            subprocess.run([str(binary), "--root", str(where), "index"], capture_output=True, text=True, env=e)
+    for where, check in {(repo_of(t)[0], t["check_cmd"]) for t, _, _ in todo if t["family"] == "R"}:
+        rc, out = sh(check.replace("{repo}", str(where)), cwd=where)
+        print(f"  compiler cache warmed for {where.name}" if rc == 0 else "  WARM FAILED: " + out[-300:], flush=True)
     rows = [prepare(t, arm, rep, a, binary) for t, arm, rep in todo]
     stop = False
 
@@ -712,6 +772,7 @@ def main():
     p.add_argument("--model", default="haiku", choices=sorted(BUDGET))
     p.add_argument("--dev", action="store_true")
     p.add_argument("--ids", default="")
+    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,D,I,N,R")
     p.add_argument("--d", type=int, default=16)
     p.add_argument("--r", type=int, default=8)
     p.add_argument("--k", type=int, default=0, help="kernel questions")

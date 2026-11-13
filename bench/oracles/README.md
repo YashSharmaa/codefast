@@ -14,6 +14,13 @@ Built 2026-11-12 on macOS 27.2 (arm64), Xcode 27.2.
 | zod | TypeScript | `bbc68f990c7e6a5e3f506c56fb04bd0279b9c9b5` | 116 | 1,157 (+49 classes, +352 variables) | 3,120 | 2,512 | 648 interface rows (class-hierarchy fold) |
 | redis | C | `498ecd0d6d007db11ddb3aea9428552598a78622` (8.10.2) | 335 | 6,947 | 35,365 (30,853 static + 4,512 macro) | 24,223 | none in `edges.jsonl` beyond 68 link-variant rows, 1,559 function-pointer sites listed as unresolved |
 
+A fifth oracle, **go-git** (Go, `12b788e49978b5807b748e425de6fba31af979c9`, 349 analysed
+files, 2,704 function definitions, 5,412 static edge rows), was added on 2026-11-13 with the
+same program. It is the answer key of the held-out tasks of `bench/tier2` and a repository that
+codefast had not been run on before. go-git is a library without a `main` to start a reachability
+analysis from, so the file holds static edges only and lists all 1,637 dynamic call sites as
+unresolved. It was not checked by hand like the four above.
+
 Scored tiers (`score.py` defaults, function-level pairs):
 
 | repo | must | candidate | dynamic sites | judged functions |
