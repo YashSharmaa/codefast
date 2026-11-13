@@ -355,6 +355,42 @@ the tests-given family at 0.93, `i5` and `inc` for the issue-only family at 0.92
 the four control runs. Their median tasks are 0.99 and 1.03, so what the totals save sits in a
 few long sessions and not in the typical one.
 
+### Why the line stops here, and it is the input and not the ranking
+
+Six arms had moved nothing, so the last question was asked of the text rather than of the
+ranker: what does a bug report name that an index can state as a fact? Measured on the 14
+development reports, with the repository indexed (`exact.py` and `sel.py` of this directory):
+
+| What the report names | Reports |
+|---|---:|
+| a file path that exists in the tree | **1** of 14 |
+| that path is a file the real fix changed | 1 of 14 |
+| an identifier the index resolves to exactly one definition | 14 of 14 |
+| one of those definitions is in a file the real fix changed | 11 of 14 |
+| one of them **is** a function the real fix changed | 4 of 14 |
+
+So a report does name symbols, and the index does resolve them, but which of the ten or twelve
+it names is the one that matters is not in the text. Eight ways of choosing one were scored:
+
+| Which named symbol the card would carry | Fires | Its file is a gold file | It is a gold function |
+|---|---:|---:|---:|
+| the first in the title | 12 | **0.58** | 0.17 |
+| the first in the report | 14 | 0.50 | 0.14 |
+| the most mentioned | 14 | 0.50 | 0.14 |
+| the first that is called, as `f(` | 11 | 0.18 | 0.00 |
+| the first after a dot, as `x.f` | 10 | 0.10 | 0.00 |
+| the first in backticks or quotes | 3 | 0.00 | 0.00 |
+
+The best of them, 0.58 at the file, sits inside the break-even band of the push study (0.45 to
+0.68), and an arm already measured at 0.55 bought nothing. At the function, which is where the
+oracle's 14% lives, the best selector is right 0.17 of the time. One of its picks is the word
+`recursively`, which happens to be a symbol name in Django, so even the exactness is thin.
+
+That is the finding: for an issue text of this kind the information a push would need is not in
+the prompt, and no ranking of the index can put it there. It is not a tuning failure. The
+families where codefast saves 0.15 to 0.63 are the ones whose prompt names what it is about,
+and this one does not.
+
 ## One meaning or nothing
 
 The note after a search picked the first of several things a name stands for when none of them
