@@ -1,0 +1,126 @@
+lang=swift ok=true lines=135 errors=0
+--- defs (75)
+  0 iface   Shape                        L8-16 parent=- type=- arity=0..0 flags=0x04 | public protocol Shape: AnyObject, Drawable
+  1 type    Unit                         L9-9 parent=Shape type=- arity=0..0 flags=0x01 | associatedtype Unit: Measure
+  2 prop    area                         L10-10 parent=Shape type=Double arity=0..0 flags=0x45 | var area: Double
+  3 prop    label                        L11-11 parent=Shape type=String arity=0..0 flags=0x45 | var label: String
+  4 method  draw                         L12-12 parent=Shape type=Bool arity=2..2 flags=0xc5 | func draw(in context: Context, scale: Int) async throws -> Bool
+  5 method  make                         L13-13 parent=Shape type=Shape arity=0..0 flags=0x45 | static func make() -> Self
+  6 method  init                         L14-14 parent=Shape type=- arity=1..1 flags=0x45 | init(size: Int)
+  7 method  subscript                    L15-15 parent=Shape type=Int arity=1..1 flags=0x45 | subscript(index: Int) -> Int
+  8 class   Base                         L18-71 parent=- type=- arity=0..0 flags=0x04 | open class Base<T: Equatable>: NSObject, Shape where T: Hashable
+  9 field   count                        L20-20 parent=Base type=Int arity=0..0 flags=0x02 | private var count: Int
+ 10 field   name                         L21-21 parent=Base type=String arity=0..0 flags=0x02 | fileprivate let name: String
+ 11 field   visible                      L22-22 parent=Base type=- arity=0..0 flags=0x00 | private(set) var visible
+ 12 field   cache                        L23-23 parent=Base type=Cache arity=0..0 flags=0x00 | lazy var cache
+ 13 field   value                        L24-27 parent=Base type=Int arity=0..0 flags=0x04 | public var value: Int
+ 14 prop    computed                     L28-31 parent=Base type=Int arity=0..0 flags=0x00 | var computed: Int
+ 15 prop    readOnly                     L32-32 parent=Base type=Int arity=0..0 flags=0x00 | var readOnly: Int
+ 16 field   delegate                     L33-33 parent=Base type=Delegate arity=0..0 flags=0x00 | weak var delegate: Delegate?
+ 17 field   shared                       L34-34 parent=Base type=Base arity=0..0 flags=0x00 | static let shared
+ 18 field   onTap                        L35-35 parent=Base type=- arity=2..2 flags=0x20 | var onTap: ((Int, String) -> Void)?
+ 19 field   items                        L36-36 parent=Base type=Array arity=0..0 flags=0x00 | var items: [Item]
+ 20 field   lookup                       L37-37 parent=Base type=Dictionary arity=0..0 flags=0x00 | var lookup: [String: Item]
+ 21 method  init                         L39-42 parent=Base type=- arity=1..255 flags=0x04 | public init(name: String = "x", _ extra: Int...)
+ 22 method  init                         L44-46 parent=Base type=- arity=1..1 flags=0x00 | convenience init?(other: Base)
+ 23 method  deinit                       L48-50 parent=Base type=- arity=0..0 flags=0x00 | deinit
+ 24 method  draw                         L52-54 parent=Base type=Bool arity=1..2 flags=0x84 | public func draw(in context: Context, scale: Int = 1) async throws -> Bool
+ 25 method  make                         L56-56 parent=Base type=Base arity=0..0 flags=0x00 | static func make() -> Self
+ 26 method  classMethod                  L57-57 parent=Base type=- arity=0..0 flags=0x00 | class func classMethod()
+ 27 method  subscript                    L58-61 parent=Base type=Int arity=1..1 flags=0x00 | subscript(index: Int) -> Int
+ 28 method  helper                       L62-62 parent=Base type=- arity=1..2 flags=0x02 | private func helper(_ a: Int, _ b: Int = 0)
+ 29 method  outer                        L64-68 parent=Base type=- arity=0..0 flags=0x00 | func outer()
+ 30 fn      inner                        L65-65 parent=outer type=Int arity=1..1 flags=0x00 | func inner(_ x: Int) -> Int
+ 31 struct  Local                        L66-66 parent=outer type=- arity=0..0 flags=0x02 | struct Local
+ 32 field   v                            L66-66 parent=Local type=Int arity=0..0 flags=0x00 | var v: Int
+ 33 method  ==                           L70-70 parent=Base type=Bool arity=2..2 flags=0x00 | static func == (lhs: Base, rhs: Base) -> Bool
+ 34 impl    Base                         L73-80 parent=- type=- arity=0..0 flags=0x00 | extension Base: CustomStringConvertible, Printable where T == Int
+ 35 prop    description                  L74-74 parent=Base type=String arity=0..0 flags=0x04 | public var description: String
+ 36 method  extra                        L75-75 parent=Base type=- arity=0..0 flags=0x00 | func extra()
+ 37 struct  Nested                       L76-79 parent=Base type=- arity=0..0 flags=0x00 | struct Nested
+ 38 field   q                            L77-77 parent=Nested type=Int arity=0..0 flags=0x00 | var q: Int
+ 39 enum    Mode                         L78-78 parent=Nested type=- arity=0..0 flags=0x00 | enum Mode
+ 40 enumval on                           L78-78 parent=Mode type=- arity=0..0 flags=0x00 | case on, off
+ 41 enumval off                          L78-78 parent=Mode type=- arity=0..0 flags=0x00 | case on, off
+ 42 impl    Inner                        L82-84 parent=- type=- arity=0..0 flags=0x00 | extension Outer.Inner
+ 43 method  deep                         L83-83 parent=Inner type=- arity=0..0 flags=0x00 | func deep()
+ 44 impl    String                       L86-88 parent=- type=- arity=0..0 flags=0x00 | extension String
+ 45 method  shout                        L87-87 parent=String type=String arity=0..0 flags=0x00 | func shout() -> String
+ 46 enum    Kind                         L90-93 parent=- type=- arity=0..0 flags=0x04 | public enum Kind: String, Codable
+ 47 enumval alpha                        L91-91 parent=Kind type=- arity=0..0 flags=0x04 | case alpha, beta
+ 48 enumval beta                         L91-91 parent=Kind type=- arity=0..0 flags=0x04 | case alpha, beta
+ 49 enumval gamma                        L92-92 parent=Kind type=- arity=0..0 flags=0x04 | case gamma = "g"
+ 50 enum    Tree                         L95-99 parent=- type=- arity=0..0 flags=0x00 | indirect enum Tree
+ 51 enumval leaf                         L96-96 parent=Tree type=- arity=0..0 flags=0x00 | case leaf
+ 52 enumval node                         L97-97 parent=Tree type=- arity=3..3 flags=0x00 | case node(Tree, value: Int, Tree)
+ 53 method  depth                        L98-98 parent=Tree type=Int arity=0..0 flags=0x00 | func depth() -> Int
+ 54 struct  Point                        L101-104 parent=- type=- arity=0..0 flags=0x00 | struct Point: Hashable
+ 55 field   x                            L102-102 parent=Point type=Double arity=0..0 flags=0x00 | var x, y: Double
+ 56 field   y                            L102-102 parent=Point type=Double arity=0..0 flags=0x00 | var x, y: Double
+ 57 field   z                            L103-103 parent=Point type=- arity=0..0 flags=0x00 | let z
+ 58 class   Counter                      L106-109 parent=- type=- arity=0..0 flags=0x00 | actor Counter
+ 59 field   n                            L107-107 parent=Counter type=- arity=0..0 flags=0x00 | var n
+ 60 method  increment                    L108-108 parent=Counter type=- arity=0..0 flags=0x80 | func increment() async
+ 61 type    Handler                      L111-111 parent=- type=- arity=0..0 flags=0x00 | typealias Handler = (Int) -> Void
+ 62 type    Points                       L112-112 parent=- type=Array arity=0..0 flags=0x00 | typealias Points = [Point]
+ 63 const   globalConstant               L113-113 parent=- type=- arity=0..0 flags=0x04 | public let globalConstant
+ 64 var     globalVariable               L114-114 parent=- type=Array arity=0..0 flags=0x00 | var globalVariable: [String]
+ 65 const   firstPart                    L115-115 parent=- type=- arity=0..0 flags=0x00 | let (firstPart, secondPart)
+ 66 const   secondPart                   L115-115 parent=- type=- arity=0..0 flags=0x00 | let (firstPart, secondPart)
+ 67 fn      freeFunction                 L117-117 parent=- type=- arity=2..255 flags=0x00 | func freeFunction<U>(_ u: U, label l: Int = 1, rest: Int...) -> U
+ 68 fn      <~>                          L121-121 parent=- type=Int arity=2..2 flags=0x00 | func <~> (lhs: Int, rhs: Int) -> Int
+ 69 struct  Clamped                      L123-126 parent=- type=- arity=0..0 flags=0x00 | struct Clamped
+ 70 field   wrappedValue                 L125-125 parent=Clamped type=Int arity=0..0 flags=0x00 | var wrappedValue: Int
+ 71 class   ViewController               L128-135 parent=- type=- arity=0..0 flags=0x00 | final class ViewController: UIViewController, UITableViewDelegate, ModelDelegate
+ 72 field   table                        L129-129 parent=ViewController type=UITableView arity=0..0 flags=0x00 | weak var table: UITableView!
+ 73 field   level                        L130-130 parent=ViewController type=Int arity=0..0 flags=0x00 | var level: Int
+ 74 method  viewDidLoad                  L132-134 parent=ViewController type=- arity=0..0 flags=0x00 | override func viewDidLoad()
+--- refs (42)
+L4    import  ByteBuffer                   in <file> qual=NIO
+L8    extends Drawable                     in Shape
+L9    type    Measure                      in Unit
+L12   type    Context                      in draw
+L19   impl    Shape                        in Base
+L23   new     Cache                        in cache nargs=0
+L24   annot   Published                    in value
+L25   call    log                          in value qual=Base nargs=1
+L26   call    update                       in value qual=Base nargs=1
+L29   mread   count                        in computed qual=Base
+L30   mwrite  count                        in computed qual=Base
+L32   mread   count                        in readOnly qual=Base
+L33   type    Delegate                     in delegate
+L34   new     Base                         in shared nargs=1
+L36   type    Item                         in items
+L37   type    Item                         in lookup
+L40   mwrite  name                         in init qual=Base
+L41   mcall   init                         in init qual=^Base nargs=0
+L44   type    Base                         in init
+L45   mcall   init                         in init qual=Base nargs=1
+L45   mread   name                         in init qual=Base
+L49   call    cleanup                      in deinit qual=Base nargs=0
+L52   type    Context                      in draw
+L60   mwrite  count                        in subscript qual=Base
+L67   call    inner                        in outer nargs=1
+L70   type    Base                         in ==
+L70   type    Base                         in ==
+L73   type    Base                         in Base
+L73   impl    Printable                    in Base
+L82   type    Inner                        in Inner qual=Outer
+L82   type    Outer                        in Inner
+L97   type    Tree                         in node
+L97   type    Tree                         in node
+L108  mwrite  n                            in increment qual=Counter
+L112  type    Point                        in Points
+L128  extends UIViewController             in ViewController
+L128  impl    ModelDelegate                in ViewController
+L128  impl    UITableViewDelegate          in ViewController
+L129  type    UITableView                  in table
+L129  annot   IBOutlet                     in table
+L130  annot   Clamped                      in level
+L133  mcall   viewDidLoad                  in viewDidLoad qual=^ViewController nargs=0
+--- imports (5)
+L1    target=Foundation name=- alias=- flags=3
+L2    target=Networking name=- alias=- flags=2
+L3    target=NIOCore name=- alias=- flags=6
+L4    target=NIO name=ByteBuffer alias=- flags=0
+L5    target=Darwin.C name=- alias=- flags=3

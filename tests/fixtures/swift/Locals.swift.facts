@@ -1,0 +1,46 @@
+lang=swift ok=true lines=56 errors=0
+--- defs (4)
+  0 fn      scopes                       L1-47 parent=- type=- arity=3..3 flags=0x00 | func scopes(items: [Item], maybe: Item?, table: [String: Item]) throws
+  1 struct  Holder                       L49-56 parent=- type=- arity=0..0 flags=0x00 | struct Holder
+  2 field   value                        L50-50 parent=Holder type=Item arity=0..0 flags=0x00 | var value: Item
+  3 method  work                         L51-55 parent=Holder type=- arity=0..0 flags=0x00 | func work()
+--- refs (38)
+L1    type    Item                         in scopes
+L1    type    Item                         in scopes
+L1    type    Item                         in scopes
+L2    new     Item                         in scopes nargs=0
+L3    mcall   use                          in scopes qual=Item nargs=0
+L7    mcall   use                          in scopes qual=Item nargs=0
+L9    mcall   enumerated                   in scopes qual=Array nargs=0
+L10   mcall   use                          in scopes nargs=1
+L13   mcall   use                          in scopes qual=Item nargs=0
+L16   mcall   use                          in scopes qual=Item nargs=0
+L18   mread   first                        in scopes qual=Array
+L19   mcall   use                          in scopes qual=Item nargs=0
+L20   mcall   next                         in scopes qual=$iterator nargs=0
+L20   read    iterator                     in scopes
+L21   mcall   use                          in scopes qual=$iterator::next() nargs=0
+L24   mcall   use                          in scopes nargs=0
+L26   mcall   use                          in scopes qual=Item nargs=0
+L27   mcall   use                          in scopes qual=Item nargs=0
+L29   call    risky                        in scopes nargs=0
+L30   type    NetworkError                 in scopes
+L31   mcall   retry                        in scopes qual=NetworkError nargs=0
+L33   mcall   report                       in scopes nargs=0
+L35   type    Item                         in scopes
+L36   mcall   use                          in scopes qual=Item nargs=0
+L37   mcall   use                          in scopes nargs=0
+L39   mcall   forEach                      in scopes qual=Array nargs=1
+L39   mcall   use                          in scopes nargs=0
+L40   mcall   forEach                      in scopes qual=Array nargs=1
+L41   mcall   use                          in scopes nargs=0
+L42   mcall   use                          in scopes nargs=0
+L43   mcall   done                         in scopes nargs=0
+L46   mcall   use                          in scopes qual=$unknownGlobal nargs=0
+L46   read    unknownGlobal                in scopes
+L50   type    Item                         in value
+L52   mcall   use                          in work qual=Holder::value nargs=0
+L52   mread   value                        in work qual=Holder
+L53   new     Other                        in work nargs=0
+L54   mcall   use                          in work qual=Other nargs=0
+--- imports (0)

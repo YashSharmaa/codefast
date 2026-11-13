@@ -200,6 +200,8 @@ pub struct Resolver<'a> {
     exports: RefCell<FxHashMap<(FileId, Vec<u8>), Rc<Vec<DefId>>>>,
     packages: RefCell<FxHashMap<FileId, Option<Rc<Vec<u8>>>>>,
     gomods: RefCell<FxHashMap<String, Option<Rc<(String, String)>>>>,
+    swift_mods: RefCell<FxHashMap<String, Rc<(String, String)>>>,
+    swift_manifests: RefCell<FxHashMap<String, Option<Rc<Vec<(String, String)>>>>>,
     file_names: RefCell<FxHashMap<FileId, Rc<FxHashMap<Vec<u8>, Vec<DefId>>>>>,
     pkg_idx: RefCell<Option<Rc<FxHashMap<String, Vec<FileId>>>>>,
     pkg_defs: RefCell<FxHashMap<(String, Vec<u8>), Rc<Vec<DefId>>>>,
@@ -331,6 +333,7 @@ fn strict_scoping(lang: Lang) -> bool {
             | Lang::Scala
             | Lang::Php
             | Lang::CSharp
+            | Lang::Swift
     )
 }
 
@@ -383,6 +386,8 @@ impl<'a> Resolver<'a> {
             exports: RefCell::new(FxHashMap::default()),
             packages: RefCell::new(FxHashMap::default()),
             gomods: RefCell::new(FxHashMap::default()),
+            swift_mods: RefCell::new(FxHashMap::default()),
+            swift_manifests: RefCell::new(FxHashMap::default()),
             file_names: RefCell::new(FxHashMap::default()),
             pkg_idx: RefCell::new(None),
             pkg_defs: RefCell::new(FxHashMap::default()),
@@ -631,9 +636,13 @@ impl<'a> Resolver<'a> {
                 continue;
             }
             let path = ix.path(f);
-            let key: String = match (lang, self.go_import_path(path)) {
-                (Lang::Go, Some(ip)) => linkx::last_segment(&ip).to_string(),
-                _ => linkx::module_key(lang, path).to_string(),
+            let key: String = if lang == Lang::Swift {
+                self.swift_module(path).1.clone()
+            } else {
+                match (lang, self.go_import_path(path)) {
+                    (Lang::Go, Some(ip)) => linkx::last_segment(&ip).to_string(),
+                    _ => linkx::module_key(lang, path).to_string(),
+                }
             };
             if !key.is_empty() {
                 map.entry(key.into_bytes()).or_default().push(f);
@@ -692,9 +701,65 @@ impl<'a> Resolver<'a> {
         Some(if rel.is_empty() { m.1.clone() } else { format!("{}/{}", m.1, rel) })
     }
 
+    /// The Swift module a file belongs to: (its directory, its name). The nearest
+    /// `Package.swift` above the file says, through the target whose directory holds it; files
+    /// no manifest places follow the SwiftPM and Xcode layouts (`linkx::swift_module_by_convention`).
+    pub fn swift_module(&self, path: &str) -> Rc<(String, String)> {
+        let dir = match path.rfind('/') {
+            Some(i) => &path[..i],
+            None => "",
+        };
+        if let Some(hit) = self.swift_mods.borrow().get(dir) {
+            return hit.clone();
+        }
+        let mut found: Option<(String, String)> = None;
+        let mut d = dir;
+        loop {
+            if let Some(targets) = self.swift_manifest(d) {
+                // The longest target directory that holds the file.
+                let mut best: Option<&(String, String)> = None;
+                for t in targets.iter() {
+                    let inside = t.0.is_empty() || dir == t.0 || (dir.starts_with(t.0.as_str()) && dir.as_bytes().get(t.0.len()) == Some(&b'/'));
+                    if inside && best.is_none_or(|b| b.0.len() < t.0.len()) {
+                        best = Some(t);
+                    }
+                }
+                if let Some(b) = best {
+                    found = Some(b.clone());
+                }
+                break;
+            }
+            match d.rfind('/') {
+                Some(i) => d = &d[..i],
+                None if !d.is_empty() => d = "",
+                None => break,
+            }
+        }
+        let rc = Rc::new(found.unwrap_or_else(|| linkx::swift_module_by_convention(path)));
+        self.swift_mods.borrow_mut().insert(dir.to_string(), rc.clone());
+        rc
+    }
+
+    /// The targets of the `Package.swift` in directory `dir`, when there is one.
+    fn swift_manifest(&self, dir: &str) -> Option<Rc<Vec<(String, String)>>> {
+        if let Some(hit) = self.swift_manifests.borrow().get(dir) {
+            return hit.clone();
+        }
+        let ix = self.ix;
+        let p = if dir.is_empty() { "Package.swift".to_string() } else { format!("{dir}/Package.swift") };
+        let out = ix.file_by_path(&p).and_then(|f| ix.source(f)).map(|src| Rc::new(linkx::swift_manifest_targets(dir, &String::from_utf8_lossy(&src))));
+        self.swift_manifests.borrow_mut().insert(dir.to_string(), out.clone());
+        out
+    }
+
     /// Does the file at `def_path` belong to module `target` as written in `from_path`? Path
     /// arithmetic, made exact for Go by the repository's `go.mod` files.
     fn mfit(&self, lang: Lang, from_path: &str, target: &str, def_path: &str) -> Fit {
+        if lang == Lang::Swift {
+            // `import M` names a module, `import Darwin.C` a submodule of one.
+            let m = target.split('.').next().unwrap_or("");
+            return if !m.is_empty() && self.swift_module(def_path).1 == m { Fit::Exact } else { Fit::No };
+        }
         if lang == Lang::Go {
             if let Some(ip) = self.go_import_path(def_path) {
                 return if ip == target { Fit::Exact } else { Fit::No };
@@ -1249,6 +1314,9 @@ impl<'a> Resolver<'a> {
                 ns = v.name();
             }
             out = Some(Rc::new(ns.to_vec()));
+        } else if ix.lang(f) == Lang::Swift {
+            // All files of a module share its names, whatever directory they are in.
+            out = Some(Rc::new(self.swift_module(ix.path(f)).0.clone().into_bytes()));
         } else if matches!(ix.lang(f), Lang::Java | Lang::Kotlin | Lang::Scala | Lang::Php) {
             if let Some(v) = ix.defs_of_file(f).next() {
                 if v.kind() == DefKind::Namespace && v.parent().is_none() {
@@ -2098,7 +2166,7 @@ impl<'a> Resolver<'a> {
         let ix = self.ix;
         let v = ix.def(d);
         let mut out: Vec<DefId> = Vec::new();
-        if ix.lang(v.file()) == Lang::Rust && v.kind() != DefKind::Impl {
+        if matches!(ix.lang(v.file()), Lang::Rust | Lang::Swift) && v.kind() != DefKind::Impl {
             if let Some(list) = self.impl_map(v.name()).get(&d) {
                 out = list.clone();
             }
@@ -2121,7 +2189,11 @@ impl<'a> Resolver<'a> {
             if iv.kind() != DefKind::Impl {
                 continue;
             }
-            for t in self.scoped_defs(name, None, iv.file(), &|x| x.kind().is_type()) {
+            let mut tys = self.scoped_defs(name, None, iv.file(), &|x| x.kind().is_type());
+            if tys.is_empty() && self.ix.lang(iv.file()) == Lang::Swift {
+                tys = self.swift_nested_types(name, iv.file());
+            }
+            for t in tys {
                 map.entry(t).or_default().push(i);
             }
         }
@@ -2161,11 +2233,16 @@ impl<'a> Resolver<'a> {
             return vec![Ty::named(&self.canon_type(name))];
         };
         let mut out = Vec::new();
-        for d in self.scoped_defs(name, module, from, &|v| v.kind().is_type()) {
+        let mut defs = self.scoped_defs(name, module, from, &|v| v.kind().is_type());
+        if defs.is_empty() && module.is_none() && self.ix.lang(from) == Lang::Swift {
+            defs = self.swift_nested_types(name, from);
+        }
+        for d in defs {
             self.add_type_def(d, 3, &mut out);
         }
-        if out.is_empty() && module.is_none() && self.ix.lang(from) == Lang::Rust {
-            // A primitive (`str`, `u32`) that this repository implements: its impl blocks.
+        if out.is_empty() && module.is_none() && matches!(self.ix.lang(from), Lang::Rust | Lang::Swift) {
+            // A primitive (`str`, `u32`) or a Swift type of another module (`String`) that this
+            // repository implements or extends: its impl blocks.
             let ix = self.ix;
             let all = ix.defs_named(name);
             if !all.is_empty() && all.iter().all(|&d| ix.def(d).kind() == DefKind::Impl) {
@@ -2177,6 +2254,29 @@ impl<'a> Resolver<'a> {
         out
     }
 
+    /// Types named `name` nested in a type of the module of `from` or of a module it imports:
+    /// `extension Outer.Inner` in another module names `Inner` without its outer type, and a
+    /// module exports only its top-level names.
+    fn swift_nested_types(&self, name: &[u8], from: FileId) -> Vec<DefId> {
+        let ix = self.ix;
+        let cands = ix.defs_named(name);
+        if cands.len() > 512 {
+            return Vec::new();
+        }
+        let imps = self.file_imports(from);
+        cands
+            .into_iter()
+            .filter(|&d| {
+                let v = ix.def(d);
+                v.kind().is_type()
+                    && ix.lang(v.file()) == Lang::Swift
+                    && v.parent().is_some_and(|p| p.kind().is_type() || p.kind() == DefKind::Impl)
+                    && (self.same_package(from, v.file())
+                        || imps.iter().any(|i| i.name.is_none() && i.flags & iflag::WILDCARD != 0 && self.module_files(from, &i.target).contains(&v.file())))
+            })
+            .collect()
+    }
+
     /// The type a definition is: itself with its impl blocks, or for an impl block the type it
     /// implements.
     pub fn ty_of_def(&self, v: &DefV) -> Ty {
@@ -2186,7 +2286,11 @@ impl<'a> Resolver<'a> {
         }
         if v.kind() == DefKind::Impl {
             let mut out = Vec::new();
-            for d in self.scoped_defs(v.name(), None, v.file(), &|x| x.kind().is_type()) {
+            let mut defs = self.scoped_defs(v.name(), None, v.file(), &|x| x.kind().is_type());
+            if defs.is_empty() && ix.lang(v.file()) == Lang::Swift {
+                defs = self.swift_nested_types(v.name(), v.file());
+            }
+            for d in defs {
                 self.add_type_def(d, 0, &mut out);
             }
             return out.into_iter().find(|t| t.name == v.name()).unwrap_or_else(|| Ty { name: v.name().to_vec(), defs: vec![v.id] });
@@ -2967,6 +3071,15 @@ impl<'a> Resolver<'a> {
                             return;
                         }
                     }
+                    // A Swift initialiser runs where it is named: it does not dispatch to an
+                    // override. (Neither does a `super` call, in any language: below.)
+                    let swift_init_call = ix.lang(r.file) == Lang::Swift && t.name.as_slice() == b"init";
+                    // Swift overloads methods by argument labels, and the extractor counts the
+                    // arguments of a call exactly (defaults and trailing closures included): a
+                    // call with a count no definition accepts is a call of another overload.
+                    if t.class == Class::Callable && k.is_call() && !arity_fits(ix, &t.defs, r.rec.nargs) && ix.lang(r.file) == Lang::Swift {
+                        return;
+                    }
                     if k.is_member() {
                         let types = self.owners_for_ref(&r);
                         if types.is_empty() {
@@ -2977,10 +3090,13 @@ impl<'a> Resolver<'a> {
                             Conf::Name
                         } else if types.iter().any(|x| x.same(owner)) {
                             Conf::Exact
-                        } else if !r.qual().is_some_and(|q| q.starts_with(b"^")) && types.iter().any(|x| owner_up.iter().any(|a| a.same(x))) {
+                        } else if !r.qual().is_some_and(|q| q.starts_with(b"^")) && !swift_init_call && types.iter().any(|x| owner_up.iter().any(|a| a.same(x)))
+                        {
                             // A call on a supertype may dispatch to this override. A `super` /
                             // `parent::` call does not dispatch: it runs the ancestor's method.
                             Conf::Likely
+                        } else if k.is_call() && ix.lang(r.file) == Lang::Swift && self.swift_overload_owner(&r).is_some_and(|o| o.same(owner)) {
+                            Conf::Exact
                         } else {
                             return;
                         }
@@ -3064,8 +3180,10 @@ impl<'a> Resolver<'a> {
         });
         // A constructor under a fixed name (`__init__`, `constructor`) runs where its class is
         // instantiated.
-        if let Some(owner) =
-            owner_canon.as_ref().filter(|_| matches!(t.name.as_slice(), b"__init__" | b"constructor" | b"__new__" | b"__construct" | b"initialize"))
+        let swift_init = t.name.as_slice() == b"init" && t.defs.iter().any(|&d| ix.lang(ix.def(d).file()) == Lang::Swift);
+        if let Some(owner) = owner_canon
+            .as_ref()
+            .filter(|_| swift_init || matches!(t.name.as_slice(), b"__init__" | b"constructor" | b"__new__" | b"__construct" | b"initialize"))
         {
             if let Some(oid) = ix.name_id(&owner.name) {
                 ix.for_each_ref_named(oid, |r| {
@@ -3079,6 +3197,7 @@ impl<'a> Resolver<'a> {
                         || (matches!(r.kind(), RefKind::New | RefKind::Call)
                             && t.name.as_slice() != b"initialize"
                             && strict_scoping(lang)
+                            && (!swift_init || arity_fits(ix, &t.defs, r.rec.nargs))
                             && self.denotes(&r).iter().any(|d| owner.defs.contains(d)))
                     {
                         emit(r, Conf::Exact);
@@ -3217,14 +3336,66 @@ impl<'a> Resolver<'a> {
             // A bound value or a callback argument carries the slot or the callee as its
             // qualifier: the name itself is written bare.
             RefKind::Bind | RefKind::Arg => self.named_defs(name, None, from),
-            _ => self.named_defs(name, qual, from),
+            _ => {
+                let out = self.named_defs(name, qual, from);
+                if out.is_empty() && self.swift_implicit_self(r) {
+                    // A bare name inside a type that is no member of it: a global of the module.
+                    return self.named_defs(name, None, from);
+                }
+                out
+            }
         }
+    }
+
+    /// The type whose method a Swift member call runs when the nearest type that declares a
+    /// member of that name has no overload taking that many arguments: the first type up the
+    /// receiver's ancestors that has one (`d.stop()` on a subclass that only adds
+    /// `stop(force:)`).
+    fn swift_overload_owner(&self, r: &RefV) -> Option<Ty> {
+        let q = r.qual()?;
+        let (strict_up, path) = match q.strip_prefix(b"^") {
+            Some(rest) => (true, rest),
+            None => (false, q),
+        };
+        let ix = self.ix;
+        for t in self.type_path_from(path, Some(r.file)).iter() {
+            let mut chain: Vec<Ty> = if strict_up { Vec::new() } else { vec![t.clone()] };
+            chain.extend(self.ancestors(t));
+            for a in chain {
+                let ms: Vec<DefId> = self.members_of(&a, r.name()).into_iter().filter(|&d| ix.def(d).kind().is_callable()).collect();
+                if !ms.is_empty() && arity_fits(ix, &ms, r.rec.nargs) {
+                    return Some(a);
+                }
+            }
+        }
+        None
+    }
+
+    /// A Swift reference written as a bare name inside a type, which the extractor qualifies by
+    /// that type (implicit `self`): its qualifier names a type or extension around it.
+    fn swift_implicit_self(&self, r: &RefV) -> bool {
+        if self.ix.lang(r.file) != Lang::Swift || !matches!(r.kind(), RefKind::Call | RefKind::Read | RefKind::Write) {
+            return false;
+        }
+        let Some(q) = r.qual() else { return false };
+        let mut cur = r.encl();
+        for _ in 0..16 {
+            let Some(e) = cur else { break };
+            if (e.kind().is_type() || e.kind() == DefKind::Impl) && e.name() == q {
+                return true;
+            }
+            cur = e.parent();
+        }
+        false
     }
 
     /// The definitions a name used as a value denotes: bare, or after a module or type qualifier.
     fn named_defs(&self, name: &[u8], qual: Option<&[u8]>, from: FileId) -> Vec<DefId> {
         let ix = self.ix;
-        let bare_members = !matches!(ix.lang(from), Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust | Lang::Php);
+        // The Swift extractor qualifies every bare name inside a type by the type: one written
+        // without a qualifier is outside any type and never an implicit `self` member.
+        let bare_members =
+            !matches!(ix.lang(from), Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust | Lang::Php | Lang::Swift);
         let Some(q) = qual else {
             return self.scoped_defs(name, None, from, &|v| bare_members || !type_member(v));
         };
@@ -3442,6 +3613,10 @@ impl<'a> Resolver<'a> {
     pub fn resolve_ref_at(&self, r: &RefV) -> Vec<DefId> {
         let ix = self.ix;
         let mut t = self.resolve_ref(r.name(), r.qual(), r.file, r.rec.nargs);
+        if t.is_empty() && self.swift_implicit_self(r) {
+            // `f()` inside a type that has no member `f`: a function of the module.
+            t = self.resolve_ref(r.name(), None, r.file, r.rec.nargs);
+        }
         if t.len() > 1 || t.first().is_some_and(|&d| ix.def(d).parent().is_some_and(|p| matches!(p.kind(), DefKind::Function | DefKind::Method))) {
             let mut around: Vec<DefId> = Vec::new();
             let mut cur = r.encl();
@@ -3516,9 +3691,10 @@ impl<'a> Resolver<'a> {
         let from_path = ix.path(from);
         let lang = ix.lang(from);
         let strict = strict_scoping(lang);
-        // Without implicit `this`, a bare `name()` never denotes a method of a type.
+        // Without implicit `this`, a bare `name()` never denotes a method of a type. (Swift has
+        // one, but its extractor writes it out: a bare call there is outside every type.)
         let no_bare_members =
-            qual.is_none() && matches!(lang, Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust | Lang::Php);
+            qual.is_none() && matches!(lang, Lang::Python | Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Go | Lang::Rust | Lang::Php | Lang::Swift);
         if strict {
             let wanted = |v: &DefV| {
                 if no_bare_members && !want_type && type_member(v) {
@@ -4300,6 +4476,15 @@ fn split_path(path: &[u8]) -> Vec<&[u8]> {
     }
     parts.push(&path[start..]);
     parts
+}
+
+/// Does some definition accept `nargs` arguments (255: not known)?
+fn arity_fits(ix: &Index, defs: &[DefId], nargs: u8) -> bool {
+    nargs == 255
+        || defs.iter().any(|&d| {
+            let v = ix.def(d);
+            nargs >= v.rec.arity_min && (v.rec.arity_max == 255 || nargs <= v.rec.arity_max)
+        })
 }
 
 /// Number of leading directories two paths share.

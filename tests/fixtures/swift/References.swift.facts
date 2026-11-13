@@ -1,0 +1,129 @@
+lang=swift ok=true lines=93 errors=0
+--- defs (17)
+  0 class   Controller                   L4-87 parent=- type=- arity=0..0 flags=0x00 | final class Controller: Base
+  1 field   session                      L5-5 parent=Controller type=Session arity=0..0 flags=0x00 | let session
+  2 field   state                        L6-6 parent=Controller type=State arity=0..0 flags=0x00 | var state: State
+  3 field   registry                     L7-7 parent=Controller type=Registry arity=0..0 flags=0x00 | var registry: Registry?
+  4 field   onDone                       L8-8 parent=Controller type=- arity=0..0 flags=0x20 | var onDone: (() -> Void)?
+  5 method  run                          L10-35 parent=Controller type=- arity=2..2 flags=0x80 | func run(url: URL, helper: Helper) async throws
+  6 method  callbacks                    L37-51 parent=Controller type=- arity=2..2 flags=0x00 | func callbacks(button: Button, list: [Int])
+  7 method  contextual                   L53-67 parent=Controller type=State arity=0..0 flags=0x00 | func contextual() -> State
+  8 method  casts                        L69-80 parent=Controller type=- arity=1..1 flags=0x00 | func casts(value: Any)
+  9 method  handle                       L82-82 parent=Controller type=- arity=1..1 flags=0x00 | func handle(_ v: Int)
+ 10 method  finish                       L83-83 parent=Controller type=- arity=0..0 flags=0x00 | func finish()
+ 11 method  tapped                       L84-84 parent=Controller type=- arity=0..0 flags=0x00 | func tapped()
+ 12 method  factory                      L85-85 parent=Controller type=- arity=0..0 flags=0x00 | static func factory()
+ 13 method  convert                      L86-86 parent=Controller type=Int arity=1..1 flags=0x00 | static func convert(_ v: Int) -> Int
+ 14 fn      transform                    L89-89 parent=- type=Int arity=1..1 flags=0x00 | func transform(_ v: Int) -> Int
+ 15 fn      fetch                        L90-90 parent=- type=Response arity=0..0 flags=0x00 | func fetch() -> Response
+ 16 const   topLevel                     L92-92 parent=- type=Controller arity=0..0 flags=0x00 | let topLevel
+--- refs (106)
+L4    extends Base                         in Controller
+L5    new     Session                      in session nargs=0
+L6    type    State                        in state
+L6    mread   idle                         in state qual=State
+L7    type    Registry                     in registry
+L10   type    Helper                       in run
+L11   new     Session                      in run nargs=0
+L12   mcall   request                      in run qual=Session nargs=1
+L12   mcall   validate                     in run qual=Session::request() nargs=0
+L13   call    make                         in run qual=Helper nargs=1
+L13   type    Helper                       in run
+L13   type    Helper                       in run
+L14   mcall   go                           in run qual=Helper nargs=0
+L15   mcall   go                           in run qual=Helper nargs=0
+L16   mcall   lookup                       in run qual=Controller::registry nargs=1
+L16   mread   registry                     in run qual=Controller
+L17   mcall   lookup                       in run qual=Controller::registry nargs=1
+L17   mread   registry                     in run qual=Controller
+L18   call    reload                       in run qual=Controller nargs=0
+L19   mcall   reload                       in run qual=Controller nargs=0
+L20   mcall   prepare                      in run qual=^Controller nargs=0
+L21   call    factory                      in run qual=Controller nargs=0
+L21   type    Controller                   in run
+L22   call    factory                      in run qual=Controller nargs=0
+L23   mcall   resume                       in run qual=Controller::session::task nargs=0
+L23   mread   session                      in run qual=Controller
+L23   mread   task                         in run qual=Controller::session
+L24   mcall   start                        in run qual=Controller::session nargs=0
+L24   mread   session                      in run qual=Controller
+L25   call    fetch                        in run nargs=0
+L25   mcall   decode                       in run qual=fetch() nargs=0
+L26   new     ByteBuffer                   in run qual=NIOCore nargs=0
+L27   type    Channel                      in run qual=NIOCore
+L28   mcall   close                        in run qual=NIOCore|Channel nargs=0
+L30   mcall   download                     in run qual=Session nargs=2
+L31   mcall   report                       in run nargs=0
+L33   mcall   done                         in run nargs=0
+L33   mcall   upload                       in run qual=Session nargs=3
+L37   type    Button                       in callbacks
+L38   mread   handle                       in callbacks qual=Controller
+L38   mwrite  onTap                        in callbacks qual=Button
+L38   bind    handle                       in callbacks qual=Button.onTap
+L39   mread   handle                       in callbacks qual=Controller
+L39   mwrite  onTap                        in callbacks qual=Button
+L39   bind    handle                       in callbacks qual=Button.onTap
+L40   mread   finish                       in callbacks qual=Controller
+L40   mwrite  onDone                       in callbacks qual=Controller
+L40   bind    finish                       in callbacks qual=Controller.onDone
+L41   mcall   map                          in callbacks qual=Array nargs=1
+L41   read    transform                    in callbacks
+L41   arg     transform                    in callbacks qual=map
+L42   mcall   map                          in callbacks qual=Array nargs=1
+L42   type    Controller                   in callbacks
+L42   mread   convert                      in callbacks qual=Controller
+L42   arg     convert                      in callbacks qual=map
+L43   call    register                     in callbacks qual=Controller nargs=1
+L43   mread   handle                       in callbacks qual=Controller
+L43   arg     handle                       in callbacks qual=register
+L44   type    Controller                   in callbacks
+L44   mread   handle                       in callbacks qual=Controller
+L44   arg     handle                       in callbacks qual=selector
+L45   mcall   addTarget                    in callbacks qual=Button nargs=3
+L45   mread   tapped                       in callbacks qual=Controller
+L45   mread   touchUpInside                in callbacks
+L45   arg     tapped                       in callbacks qual=addTarget
+L47   mcall   map                          in callbacks qual=Controller::items nargs=1
+L47   read    items                        in callbacks qual=Controller
+L47   mread   name                         in callbacks
+L48   type    Item                         in callbacks
+L48   mread   count                        in callbacks qual=Item::name
+L48   mread   name                         in callbacks qual=Item
+L53   type    State                        in contextual
+L54   mread   running                      in contextual qual=Controller::state
+L54   mwrite  state                        in contextual qual=Controller
+L55   mread   idle                         in contextual qual=Controller::state
+L55   mread   state                        in contextual qual=Controller
+L56   mread   state                        in contextual qual=Controller
+L57   mread   idle                         in contextual qual=Controller::state
+L58   mread   running                      in contextual qual=Controller::state
+L59   mcall   log                          in contextual nargs=0
+L59   mread   failed                       in contextual qual=Controller::state
+L61   type    State                        in contextual
+L61   new     State                        in contextual nargs=1
+L62   call    make                         in contextual qual=State nargs=0
+L62   type    State                        in contextual
+L63   new     Point                        in contextual nargs=2
+L64   type    Point                        in contextual
+L64   new     Point                        in contextual nargs=2
+L66   mread   idle                         in contextual qual=State
+L70   mcall   draw                         in casts qual=Circle nargs=0
+L70   type    Circle                       in casts
+L71   type    Square                       in casts
+L72   mcall   draw                         in casts qual=Square nargs=0
+L73   type    Triangle                     in casts
+L74   type    Kind                         in casts
+L74   mread   alpha                        in casts qual=Kind
+L76   read    globalConstant               in casts qual=Controller
+L77   mcall   append                       in casts qual=Controller::globalVariable nargs=1
+L77   read    globalVariable               in casts qual=Controller
+L78   call    freeFunction                 in casts qual=Controller nargs=1
+L79   mcall   shout                        in casts qual=String nargs=0
+L90   type    Response                     in fetch
+L90   new     Response                     in fetch nargs=0
+L92   new     Controller                   in topLevel nargs=0
+L93   mcall   reload                       in <file> qual=$topLevel nargs=0
+L93   read    topLevel                     in <file>
+--- imports (2)
+L1    target=Foundation name=- alias=- flags=3
+L2    target=NIOCore name=- alias=- flags=2

@@ -64,6 +64,7 @@ default = [
     "lang-php",
     "lang-csharp",
     "lang-ruby",
+    "lang-swift",
 ]
 lang-c = ["dep:tree-sitter-c"]
 lang-cpp = ["dep:tree-sitter-cpp"]

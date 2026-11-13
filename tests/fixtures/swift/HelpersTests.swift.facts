@@ -1,0 +1,24 @@
+lang=swift ok=true lines=28 errors=0
+--- defs (12)
+  0 class   BaseTestCase                 L5-8 parent=- type=- arity=0..0 flags=0x00 | class BaseTestCase: XCTestCase
+  1 method  testBase                     L6-6 parent=BaseTestCase type=- arity=0..0 flags=0x08 | func testBase()
+  2 method  helperMethod                 L7-7 parent=BaseTestCase type=- arity=1..1 flags=0x00 | func helperMethod(_ x: Int)
+  3 class   SessionTests                 L10-16 parent=- type=- arity=0..0 flags=0x00 | final class SessionTests: BaseTestCase
+  4 method  testRequest                  L11-13 parent=SessionTests type=- arity=0..0 flags=0x08 | func testRequest()
+  5 method  testWithArgument             L14-14 parent=SessionTests type=- arity=1..1 flags=0x00 | func testWithArgument(_ x: Int)
+  6 method  notATest                     L15-15 parent=SessionTests type=- arity=0..0 flags=0x00 | func notATest()
+  7 struct  Plain                        L18-20 parent=- type=- arity=0..0 flags=0x00 | struct Plain
+  8 method  testLooksLikeOne             L19-19 parent=Plain type=- arity=0..0 flags=0x00 | func testLooksLikeOne()
+  9 fn      standalone                   L22-24 parent=- type=- arity=0..0 flags=0x88 | func standalone() async throws
+ 10 struct  Grouped                      L26-28 parent=- type=- arity=0..0 flags=0x00 | struct Grouped
+ 11 method  inside                       L27-27 parent=Grouped type=- arity=0..0 flags=0x08 | func inside()
+--- refs (5)
+L5    extends XCTestCase                   in BaseTestCase
+L10   extends BaseTestCase                 in SessionTests
+L12   mcall   request                      in testRequest qual=Session nargs=0
+L12   new     Session                      in testRequest nargs=0
+L23   call    compute                      in standalone nargs=0
+--- imports (3)
+L1    target=XCTest name=- alias=- flags=3
+L2    target=Testing name=- alias=- flags=3
+L3    target=App name=- alias=- flags=2

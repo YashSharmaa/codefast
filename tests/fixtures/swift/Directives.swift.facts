@@ -1,0 +1,13 @@
+lang=swift ok=true lines=19 errors=0
+--- defs (4)
+  0 class   Socket                       L1-19 parent=- type=- arity=0..0 flags=0x00 | final class Socket
+  1 method  option                       L2-15 parent=Socket type=Int arity=1..1 flags=0x00 | func option(_ kind: Kind) -> Int
+  2 method  timeout                      L17-17 parent=Socket type=Int arity=0..0 flags=0x00 | func timeout() -> Int
+  3 method  address                      L18-18 parent=Socket type=Int arity=0..0 flags=0x00 | func address() -> Int
+--- refs (5)
+L2    type    Kind                         in option
+L4    mread   timeout                      in option qual=Kind
+L5    call    timeout                      in option qual=Socket nargs=0
+L6    mread   address                      in option qual=Kind
+L10   call    address                      in option qual=Socket nargs=0
+--- imports (0)

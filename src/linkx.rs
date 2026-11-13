@@ -324,6 +324,8 @@ pub fn target_key(lang: Lang, from_path: &str, target: &str) -> Option<String> {
             t
         }
         Lang::Java | Lang::Kotlin | Lang::Scala => target.replace('.', "/"),
+        // `import Darwin.C` names the module `Darwin`.
+        Lang::Swift => return target.split('.').next().filter(|m| !m.is_empty()).map(|m| m.to_string()),
         _ => return None,
     };
     let last = full.rsplit('/').next().unwrap_or("");
@@ -333,7 +335,82 @@ pub fn target_key(lang: Lang, from_path: &str, target: &str) -> Option<String> {
 /// Languages where every file of a directory shares one namespace (unqualified names resolve
 /// across the files of the package). PHP files share the namespace they declare instead.
 pub fn dir_is_package(lang: Lang) -> bool {
-    matches!(lang, Lang::Go | Lang::Java | Lang::Kotlin | Lang::Scala | Lang::Php)
+    matches!(lang, Lang::Go | Lang::Java | Lang::Kotlin | Lang::Scala | Lang::Php | Lang::Swift)
+}
+
+/// The targets a `Package.swift` in directory `dir` declares: (directory of the target's
+/// sources, module name). A target without `path:` lives where SwiftPM looks for it:
+/// `Sources/NAME`, `Tests/NAME` for a test target, `Plugins/NAME` for a plugin. The manifest
+/// is Swift code, so this is a scan for the target constructors, not an evaluation.
+pub fn swift_manifest_targets(dir: &str, text: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    let b = text.as_bytes();
+    let string_after = |region: &str, label: &str| -> Option<String> {
+        let i = region.find(label)?;
+        let rest = region[i + label.len()..].trim_start();
+        let rest = rest.strip_prefix('"')?;
+        let end = rest.find('"')?;
+        Some(rest[..end].to_string())
+    };
+    for (ctor, default_dir) in [
+        (".target(", "Sources"),
+        (".executableTarget(", "Sources"),
+        (".macro(", "Sources"),
+        (".systemLibrary(", "Sources"),
+        (".testTarget(", "Tests"),
+        (".plugin(", "Plugins"),
+    ] {
+        let mut from = 0;
+        while let Some(i) = text[from..].find(ctor) {
+            let start = from + i + ctor.len();
+            from = start;
+            // The arguments, up to the matching parenthesis.
+            let mut depth = 1usize;
+            let mut j = start;
+            while j < b.len() && depth > 0 {
+                match b[j] {
+                    b'(' => depth += 1,
+                    b')' => depth -= 1,
+                    _ => {}
+                }
+                j += 1;
+            }
+            let region = &text[start..j.saturating_sub(1).max(start)];
+            let Some(name) = string_after(region, "name:") else { continue };
+            let rel = string_after(region, "path:").unwrap_or_else(|| format!("{default_dir}/{name}"));
+            let rel = rel.trim_end_matches('/');
+            let full = if dir.is_empty() {
+                rel.to_string()
+            } else if rel.is_empty() {
+                dir.to_string()
+            } else {
+                format!("{dir}/{rel}")
+            };
+            if !out.iter().any(|(d, n)| *d == full && *n == name) {
+                out.push((full, name));
+            }
+        }
+    }
+    out
+}
+
+/// The Swift module of a file no manifest places: the directory below `Sources/` or `Tests/`
+/// (the SwiftPM layout), else the top directory of the path (the folder of an Xcode target).
+/// Returns (the module's directory, its name).
+pub fn swift_module_by_convention(path: &str) -> (String, String) {
+    let dir = parent_dir(path);
+    let comps: Vec<&str> = dir.split('/').filter(|c| !c.is_empty()).collect();
+    if let Some(i) = comps.iter().rposition(|c| matches!(*c, "Sources" | "Tests" | "Source")) {
+        if i + 1 < comps.len() {
+            return (comps[..=i + 1].join("/"), comps[i + 1].to_string());
+        }
+        let name = if i > 0 { comps[i - 1] } else { comps[i] };
+        return (comps[..=i].join("/"), name.to_string());
+    }
+    match comps.first() {
+        Some(first) => (first.to_string(), first.to_string()),
+        None => (String::new(), String::new()),
+    }
 }
 
 pub fn same_dir(a: &str, b: &str) -> bool {
@@ -427,6 +504,25 @@ mod tests {
         assert_eq!(target_key(Lang::Rust, "src/query/find.rs", "crate::store").as_deref(), Some("store"));
         assert_eq!(target_key(Lang::Rust, "src/query/find.rs", "crate"), None);
         assert_eq!(target_key(Lang::Java, "x/A.java", "org.acme.io.Channel").as_deref(), Some("Channel"));
+    }
+
+    #[test]
+    fn swift_modules() {
+        let manifest = r#"let package = Package(name: "Alamofire",
+            targets: [.target(name: "Alamofire", path: "Source", exclude: ["Info.plist"]),
+                      .testTarget(name: "AlamofireTests", dependencies: [.target(name: "Alamofire")], path: "Tests"),
+                      .target(name: "NIOCore", dependencies: ["X"])])"#;
+        let t = swift_manifest_targets("", manifest);
+        assert!(t.contains(&("Source".to_string(), "Alamofire".to_string())));
+        assert!(t.contains(&("Tests".to_string(), "AlamofireTests".to_string())));
+        assert!(t.contains(&("Sources/NIOCore".to_string(), "NIOCore".to_string())));
+        assert_eq!(swift_manifest_targets("pkg", manifest)[0].0, "pkg/Source");
+        let c = |p: &str| swift_module_by_convention(p);
+        assert_eq!(c("Sources/NIOCore/Channel/Channel.swift"), ("Sources/NIOCore".to_string(), "NIOCore".to_string()));
+        assert_eq!(c("Tests/NIOCoreTests/A.swift"), ("Tests/NIOCoreTests".to_string(), "NIOCoreTests".to_string()));
+        assert_eq!(c("MyApp/Views/Home.swift"), ("MyApp".to_string(), "MyApp".to_string()));
+        assert_eq!(c("main.swift"), (String::new(), String::new()));
+        assert_eq!(target_key(Lang::Swift, "a.swift", "Darwin.C").as_deref(), Some("Darwin"));
     }
 
     #[test]
