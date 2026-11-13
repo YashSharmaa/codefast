@@ -7,11 +7,17 @@
 2. Run `cargo test --release` and the packaging checks in `packaging.md`.
 3. Update the numbers in `README.md` from `bench/results/` if a benchmark changed.
 4. Commit, push the commits to a branch and open a pull request: the `ci` workflow then runs
-   the suite on Linux and macOS before anything reaches `main`. When it is green, push the same
-   commits to `main`.
+   the suite on Linux. When it is green, push the same commits to `main`, where the same
+   workflow runs it on Linux and macOS. A change that only touches documentation, results or
+   licence files runs no workflow at all.
 5. Tag `vX.Y.Z` and push the tag. The `release` workflow builds the four targets and
    publishes them with `SHA256SUMS`. A release stays a draft until every asset is attached.
 6. The `install-check` workflow then installs the published release on Linux (x86-64 and
    arm64) and macOS (Apple silicon and Intel). The release is done when it is green.
 
 Never move a tag that people may already have installed from. Publish a new version instead.
+
+Workflows run on GitHub's standard machines only (`ubuntu-latest`, `ubuntu-24.04-arm`,
+`macos-latest`), which are free for a public repository. A larger runner (`-4-cores`,
+`-xlarge`, a GPU) is billed even here, so none is used. Ask the owner of the repository before
+changing anything in `.github/workflows` that could cost money.

@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: install-check-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   install:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
