@@ -57,7 +57,7 @@ curl -fsSL https://raw.githubusercontent.com/YashSharmaa/codefast/main/install.s
 # 2. Register it with your harness
 claude plugin install codefast --marketplace YashSharmaa/codefast   # Claude Code
 codefast setup codex --hooks --apply                                # Codex
-codefast setup --all --apply                                        # every harness found on this machine
+codefast setup --all --apply                                        # every harness found
 ```
 
 That is all. The index builds itself on first use, and the agent reaches codefast through its
