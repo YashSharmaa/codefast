@@ -425,7 +425,7 @@ fn a_large_conversation_carried_for_long() {
     assert!(text.contains("Carried context: 22 of 31 requests (71%) carried more than 500k tokens, at most 600k.\n"), "{text}");
     assert!(text.contains("Compacting at 500k instead: 1 more compaction for about 14"), "{text}");
     assert!(text.contains(", and about 935k less to pay for after them, so about 79"), "{text}");
-    assert!(text.contains("At 300k: 2 more compactions, about 835k less in all.\n"), "{text}");
+    assert!(!text.contains("At 300k"), "the best length is named only where it gains a tenth more: {text}");
     assert!(
         text.contains("Start a fresh session at a natural break, or compact earlier, when the context stays far above what the next step needs.\n"),
         "{text}"

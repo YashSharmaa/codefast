@@ -1940,8 +1940,8 @@ fn carried_finding(carry: &Carry, title: &str, of: &str, advice: &str, push: &mu
     );
     push(false, &compacting(w));
     if w.gain() > 0.0 {
-        // Where a shorter length gains more, at the price of more compactions.
-        if let Some(best) = carry.cheapest().filter(|b| b.threshold != w.threshold) {
+        // Where a shorter length gains a tenth more, at the price of more compactions.
+        if let Some(best) = carry.cheapest().filter(|b| b.threshold != w.threshold && w.gain() < 0.9 * b.gain()) {
             push(
                 false,
                 &format!(
@@ -2890,7 +2890,15 @@ mod tests {
         finding(&mut out, &all, "carried_context", all.carry.cost(), &Ctx::new(Path::new("/")), false);
         assert!(out.contains("Carried context: 22 of 31 requests (71%) carried more than 500k tokens, at most 600k.\n"), "{out}");
         assert!(out.contains("Compacting at 500k instead: 1 more compaction for about 14"), "{out}");
-        assert!(out.contains("At 300k: 2 more compactions, about 835k less in all.\n"), "{out}");
+        // The best is named beside it only where it gains a tenth more.
+        assert!(!out.contains("At 300k"), "{out}");
+        let mut carry = Carry { peak: 900_000, windows: Vec::new() };
+        *carry.window(200_000) = Window { threshold: 200_000, requests: 10, above: 9, saved: 10_000.0, compactions: 6, ..Default::default() };
+        *carry.window(400_000) = Window { threshold: 400_000, requests: 10, above: 5, saved: 8_500.0, compactions: 2, ..Default::default() };
+        let mut lines = Vec::new();
+        carried_finding(&carry, "Carried context", "requests", "Advice.", &mut |_, text| lines.push(text.to_string()));
+        assert_eq!(lines[0], "Carried context: 5 of 10 requests (50%) carried more than 400k tokens, at most 900k.");
+        assert_eq!((lines[2].as_str(), lines[3].as_str()), ("At 200k: 6 more compactions, about 10k less in all.", "Advice."));
         // A session of a model whose price steps is tried at that step, with that finding.
         let mut stepped = Stats::new(Kind::ClaudeCode, None);
         let haiku = |minute: i64, usage: Usage| req("claude-haiku-5-5", minute, usage);
