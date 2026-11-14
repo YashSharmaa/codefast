@@ -55,5 +55,5 @@
     <text x="268.00" y="603" fill="#e6edf3" textLength="493.15" xml:space="preserve">syft/file/location_set.go: -LocationSet.Add +LocationSet.Insert</text>
   </g>
 
-  <text x="28" y="650" font-size="13.5" fill="#9198a1">The lines are what codefast 0.2.9 printed on the syft repository, shortened to fit.</text>
+  <text x="28" y="650" font-size="13.5" fill="#9198a1">The lines are what codefast 0.2.10 printed on the syft repository, shortened to fit.</text>
 </svg>
