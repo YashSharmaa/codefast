@@ -37,10 +37,11 @@ of a project from its second session on.
 | D | Make failing tests pass: issues of Django and sqlglot from Loc-Bench, at the commit before the fix, with the tests of the fix added | the tests of the fix pass and are unchanged |
 | I | The same issues without their tests: the issue text alone | the tests of the real fix, copied into the tree after the session, pass |
 | R | Rename one Go method everywhere, where other types have a method of the same name | `go build` and `go vet` pass, and no other definition was renamed |
+| C | Which functions of this repository does this function call? The mirror of N, on go-git | the call graph the Go type checker built: F1 of the callees named with their file on one line, against all real callees and against functions that have the name of a callee and are another |
 | W | Write code: one well-tested function of gitleaks has its body replaced by a panic, and the session has to write it again from what the rest of the project expects of it | the tests of that function's package pass, and no test file and no file of test data changed |
 
-`make_n_tasks.py`, `make_e_tasks.py`, `make_d_tasks.py`, `make_i_tasks.py`, `make_r_tasks.py`
-and `make_w_tasks.py` build them. None of the builders uses codefast to choose a task or to
+`make_n_tasks.py`, `make_c_tasks.py`, `make_e_tasks.py`, `make_d_tasks.py`, `make_i_tasks.py`,
+`make_r_tasks.py` and `make_w_tasks.py` build them. None of the builders uses codefast to choose a task or to
 judge an answer. A W task has to compile with the body gone and has to fail its package's
 tests, and the package's tests have to pass with the body there, so the failing tests are the
 whole of what the session is told.
@@ -87,6 +88,21 @@ kind of question on zod, a repository no session had used, two runs per task and
 costs 0.53 of the control and is cheaper in 8 of 8 pairs, with the answers as good. Four of the
 eight questions are about the `create` of a v3 class, a name 34 other classes carry: both arms
 score about 0.4 on those and 1.00 on the rest, which is where the 0.62 in the table comes from.
+
+**Kernel questions, version 0.3.0** (`bench/results/live-heldout-haiku.jsonl`, tag `k2new`): the
+18 of the 72 verified questions that no session had been run on, four runs per task and arm.
+The README's kernel row is this batch. The row it replaces (0.86, tag `h1`, version 0.2.2) was
+the 18 questions held out before these, and its sessions have been read since. The same 18
+questions were run with the plugin of 0.2.10 right after, tag `k2old`, and all three arms are in
+`bench/results/live-answer-cards.jsonl`. The section "A card that answers the question" reads
+them.
+
+**Callee questions, version 0.3.0** (`bench/results/live-heldout-haiku.jsonl`, tag `cnew`):
+twelve functions of go-git, four runs per task and arm, and the plugin of 0.2.10 on the same
+twelve after it (tag `cold`, in `live-answer-cards.jsonl`). The twelve prompts were used
+without a model while the card for them was made: how "the method X of Y" is read was fixed on
+them, and the card was scored against the compiler's lists. No session was run on them until
+the build was final.
 
 **Writing code, versions 0.2.9 and 0.2.10** (`bench/results/live-heldout-haiku.jsonl`, tags
 `w1` and `w2h`): eight functions of gitleaks on 0.2.9, and twelve of go-git on 0.2.10, whose
@@ -280,6 +296,127 @@ What it found does stay, in the command an agent asks for by name. `codefast con
 prints the types a function's signature names, and it finds the tests that reach a function
 through two calls where it found them through one: for a helper deep in a package, that is
 the test of the function the package offers, and it was missing.
+
+## A card that answers the question
+
+The split above says where a session's saving is made, and it says something about a call. On
+the kernel questions the sessions that got the hooks and did not call codefast cost 0.82 of
+the control. The ones that also called it cost 0.97. A kernel question is three or four
+requests long, a call is one of them, and what it brings back is read on top of what the model
+already knew. So what the card for the prompt can say, it should say, and a pointer to a
+command is a request the card could have saved.
+
+For three kinds of question the index has the whole answer and the card of 0.2.10 did not
+give it: what a function calls, how one function reaches another, and where a member is
+written. The card named the function, its place and its callers, and the session then called
+`callees`, `path` or `refs` for the answer, or read the code. Version 0.3.0 reads the question
+from the shape of the sentence and puts the answer in the card: what the command for it
+prints, about the one definition the prompt can mean.
+
+Three more things came out of the same reading, each of them about which definition is meant:
+
+* A name with a definition per architecture or per driver was left alone, because nothing
+  said which one. A word of the same sentence that is a directory of exactly one of them does
+  say it (`copy_thread on x86`, `ext4's init_once`), and the card says how it chose: "of 22
+  definitions of copy_thread, the one whose path has `x86`, a word of the prompt". Words that
+  ask rather than name (`function`, `driver`, `file`) pick nothing: `function` is a directory
+  of the kernel, and the first version of this picked a USB gadget for "which function".
+* A slot of an operations table has a hundred bindings. The same words pick the ones that are
+  asked about: "of its 104 bindings, under `ext4`: ext4_file_read_iter".
+* A type said with its kind word (`struct kiocb`) is a type, though the word alone is prose.
+
+### Measured without a model
+
+`card_k.py` hands the prompt of each of the 72 verified kernel questions to the prompt hook
+and scores what it prints with the scorer of the live sessions. A card that scores 1.00 has
+answered the question before the session starts.
+
+| Kind of question (8 of each) | Answered by the card, 0.2.10 | 0.3.0 |
+|---|---:|---:|
+| Where is it defined? | 5 | 6 |
+| What is its signature, what are its members? | 4 | 7 |
+| Who calls it? | 8 | 8 |
+| What does it call? | 0 | 8 |
+| Which function is behind this slot, which table holds this function? | 3 | 5 |
+| Where is it reached from, when nothing calls it by name? | 8 | 8 |
+| How does A get to B? | 0 | 4 |
+| Where does this log line come from? | 5 | 5 |
+| Who writes this member? | 0 | 8 |
+| **All 72** | **33** | **59** |
+
+The 54 questions that sessions had been run on before were there to develop on: 26 answered
+became 48. The 18 that no session had seen were not looked at while the card was shaped: 7
+became 11. A card is 555 bytes on average where it was 412.
+
+`card_diff.py` runs both builds over the prompts of every other family: 155 prompts of the
+caller, error, rename, bug-fix and code-writing tasks. The two builds print the same thing for
+every one of them. On the kernel tree the hook answers a prompt in 0.08 seconds at the median
+and 0.17 at the ninetieth percentile. A search for a call path gives up after half a second
+of work, and a path that is not found is not mentioned.
+
+### Measured in sessions, on questions no session had seen
+
+The 18 kernel questions that had never been run, four runs per task and arm, the control and
+the plugin of 0.3.0 in one batch and the plugin of 0.2.10 on the same questions after it. In
+both plugin arms every session got a prompt card exactly where the check without a model said
+it would.
+
+| Arm | Cost | Median task | Requests | Right | Sessions that called codefast |
+|---|---:|---:|---:|---:|---:|
+| control | 1.00 | | 4.2 | 0.97 | |
+| the plugin of 0.2.10 | 0.79 | 0.75 | 2.9 | 1.00 | 46 of 72 |
+| the plugin of 0.3.0 | **0.71** | 0.66 | 2.7 | 1.00 | 33 of 72 |
+
+By what the card holds, which was known before a session ran:
+
+| The card | Questions | Cost with 0.2.10 | Cost with 0.3.0 |
+|---|---:|---:|---:|
+| answers the question in 0.3.0 and did not in 0.2.10 | 4 | 0.95 | **0.64** |
+| answers the question in both | 7 | 0.60 | 0.61 |
+| says something, and not the whole answer | 3 | 0.79 | 0.81 |
+| says nothing | 4 | 0.86 | 0.99 |
+
+The four questions the new card answers went from 0.95 to 0.64, each of the four on its own
+(0.76 to 0.60, 1.07 to 0.76, 0.82 to 0.56, 1.49 to 0.81). Their sessions made 2.8 requests
+where they had made 4.0 and the control made 5.1, and called codefast 0.2 times a session
+where they had called it 1.3 times. The questions whose card did not change did not move. So the gain is
+where the change is, and it is the size the split predicted: a session whose card is the
+answer costs about 0.6 of the control, whichever build wrote the card.
+
+The totals are 18 questions each, of which four changed. Resampling questions and runs, 0.3.0
+is 0.59 to 0.88 of the control and 0.2.10 is 0.66 to 0.93, and the difference between them is
+below zero in 83% of the resamples: likely, and not settled by this batch alone. The last row
+is the price of saying nothing. A question of 6,000 tokens that gets no card and one call
+costs twice the control.
+
+### The same on a second repository, against a compiler
+
+Four changed questions of eighteen do not settle much, and the kernel is one repository. So
+the kind of question the new card answers was built as a family of its own on go-git: which
+functions of the repository does this function call? The answer is the Go type checker's
+call graph, twelve functions with five to seven callees each, and an answer has to name each
+callee with its file on one line. Without a model, the card of 0.2.10 names none of the
+callees that way (it is the definition and who calls it) and the card of 0.3.0 scores 0.98
+against the compiler, with ten of the twelve lists complete, at 1,072 bytes where the old
+card was 891 (`bench/results/card-c.jsonl`).
+
+| Arm | Cost | Median task | Requests | Right | Sessions that called codefast | Calls in a session |
+|---|---:|---:|---:|---:|---:|---:|
+| control | 1.00 | | 5.0 | 0.98 | | |
+| the plugin of 0.2.10 | 1.14 | 1.01 | 4.2 | 0.97 | 48 of 48 | 2.9 |
+| the plugin of 0.3.0 | **0.56** | 0.54 | 2.4 | 0.98 | 12 of 48 | 0.3 |
+
+Every one of the twelve is cheaper with 0.3.0, from 0.41 to 0.84 of the control, and the
+answers are as right as the control's. Resampling tasks and runs, 0.3.0 is 0.49 to 0.64 and
+0.2.10 is 0.97 to 1.33, and the difference is below zero every time.
+
+The middle row is the finding that was not looked for. Before this change the plugin made a
+callee question cost more than no plugin at all. Its card named the function and its callers,
+the session called codefast three times on top of its own reading, and it read 9.5 thousand
+characters of tool output where the control read 4.4. It is the split of the previous section
+in one family: a call that does not replace the reading is paid for twice. The family was
+never measured before, because the questions that were measured are the ones the tool was
+built around.
 
 ## What a bug fix costs
 

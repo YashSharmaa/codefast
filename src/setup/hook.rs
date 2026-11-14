@@ -1231,7 +1231,8 @@ fn bound_where(ix: &Index, rs: &Resolver, t: &Target, beside: &[String]) -> Opti
         return None;
     }
     let here: Vec<&crate::store::RefV> = binds.iter().filter(|r| words_of(r.path()).len() == best).collect();
-    let by: Vec<String> = words_of(here[0].path()).into_iter().map(|w| format!("`{w}`")).collect();
+    // Every word that did the picking, in the order the prompt has them.
+    let by: Vec<String> = beside.iter().filter(|w| here.iter().any(|r| words_of(r.path()).contains(w))).map(|w| format!("`{w}`")).collect();
     // One entry per bound function, with the places that bind it.
     let mut funcs: Vec<(String, String, Vec<String>)> = Vec::new();
     for r in &here {

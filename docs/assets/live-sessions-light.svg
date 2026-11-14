@@ -1,51 +1,55 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="580" viewBox="0 0 880 580" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="626" viewBox="0 0 880 626" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
   <title id="t">The same session, with and without codefast</title>
-  <desc id="d">What a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final: who calls this method 0.30, the same question in typescript 0.53, four such questions in one session 0.15, where does this error come from 0.63, rename a go method everywhere 0.51, a question about the linux kernel 0.86, write a function that was taken out 1.03, fix a bug, failing tests given 0.93, fix a bug from the issue text alone 0.92.</desc>
-  <rect x="0.5" y="0.5" width="879" height="579" rx="12" fill="#f6f8fa" stroke="#d1d9e0"/>
+  <desc id="d">What a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final: who calls this method 0.30, what does this function call 0.56, the same question in typescript 0.53, four such questions in one session 0.15, where does this error come from 0.63, rename a go method everywhere 0.51, a question about the linux kernel 0.71, write a function that was taken out 1.03, fix a bug, failing tests given 0.93, fix a bug from the issue text alone 0.92.</desc>
+  <rect x="0.5" y="0.5" width="879" height="625" rx="12" fill="#f6f8fa" stroke="#d1d9e0"/>
 
   <text x="28" y="42" font-size="20" font-weight="600" fill="#1f2328">The same session, with and without codefast</text>
   <text x="28" y="66" font-size="15" fill="#59636e">Cost of a Claude Code session with the plugin, as a share of the same session without it.</text>
 
   <!-- bench/results/live-heldout-haiku.jsonl, the table 'In real sessions' of the README. bars start at x=348, 330 px stand for a cost of 1.00 -->
-  <path d="M347.5 110V522" stroke="#afb8c1"/>
-  <path d="M678.5 110V522" stroke="#afb8c1"/>
+  <path d="M347.5 110V568" stroke="#afb8c1"/>
+  <path d="M678.5 110V568" stroke="#afb8c1"/>
   <text x="678" y="102" font-size="14" fill="#59636e" text-anchor="middle">without codefast = 1.00</text>
   <text x="332" y="130" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Who calls this method?</text>
   <text x="332" y="148" font-size="13.5" fill="#59636e" text-anchor="end">12 questions about go-git</text>
   <path fill="#2a78d6" d="M348 122h95.00a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-95.00z"/>
   <text x="457.00" y="135.5" font-size="16" font-weight="600" fill="#1f2328">0.30</text>
-  <text x="332" y="176" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">The same question in TypeScript</text>
-  <text x="332" y="194" font-size="13.5" fill="#59636e" text-anchor="end">8 questions about zod</text>
-  <path fill="#2a78d6" d="M348 168h170.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-170.90z"/>
-  <text x="532.90" y="181.5" font-size="16" font-weight="600" fill="#1f2328">0.53</text>
-  <text x="332" y="222" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Four such questions in one session</text>
-  <text x="332" y="240" font-size="13.5" fill="#59636e" text-anchor="end">3 sessions</text>
-  <path fill="#2a78d6" d="M348 214h45.50a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-45.50z"/>
-  <text x="407.50" y="227.5" font-size="16" font-weight="600" fill="#1f2328">0.15</text>
-  <text x="332" y="268" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Where does this error come from?</text>
-  <text x="332" y="286" font-size="13.5" fill="#59636e" text-anchor="end">12 error messages, two Go repositories</text>
-  <path fill="#2a78d6" d="M348 260h203.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-203.90z"/>
-  <text x="565.90" y="273.5" font-size="16" font-weight="600" fill="#1f2328">0.63</text>
-  <text x="332" y="314" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Rename a Go method everywhere</text>
-  <text x="332" y="332" font-size="13.5" fill="#59636e" text-anchor="end">10 renames in go-git</text>
-  <path fill="#2a78d6" d="M348 306h164.30a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-164.30z"/>
-  <text x="526.30" y="319.5" font-size="16" font-weight="600" fill="#1f2328">0.51</text>
-  <text x="332" y="360" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">A question about the Linux kernel</text>
-  <text x="332" y="378" font-size="13.5" fill="#59636e" text-anchor="end">18 questions</text>
-  <path fill="#2a78d6" d="M348 352h279.80a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-279.80z"/>
-  <text x="688.00" y="365.5" font-size="16" font-weight="600" fill="#1f2328">0.86</text>
-  <text x="332" y="406" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Write a function that was taken out</text>
-  <text x="332" y="424" font-size="13.5" fill="#59636e" text-anchor="end">20 functions, two Go repositories</text>
-  <path fill="#2a78d6" d="M348 398h335.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-335.90z"/>
-  <text x="697.90" y="411.5" font-size="16" font-weight="600" fill="#1f2328">1.03</text>
-  <text x="332" y="452" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Fix a bug, failing tests given</text>
-  <text x="332" y="470" font-size="13.5" fill="#59636e" text-anchor="end">15 issues</text>
-  <path fill="#2a78d6" d="M348 444h302.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-302.90z"/>
-  <text x="688.00" y="457.5" font-size="16" font-weight="600" fill="#1f2328">0.93</text>
-  <text x="332" y="498" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Fix a bug from the issue text alone</text>
+  <text x="332" y="176" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">What does this function call?</text>
+  <text x="332" y="194" font-size="13.5" fill="#59636e" text-anchor="end">12 questions about go-git</text>
+  <path fill="#2a78d6" d="M348 168h180.80a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-180.80z"/>
+  <text x="542.80" y="181.5" font-size="16" font-weight="600" fill="#1f2328">0.56</text>
+  <text x="332" y="222" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">The same question in TypeScript</text>
+  <text x="332" y="240" font-size="13.5" fill="#59636e" text-anchor="end">8 questions about zod</text>
+  <path fill="#2a78d6" d="M348 214h170.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-170.90z"/>
+  <text x="532.90" y="227.5" font-size="16" font-weight="600" fill="#1f2328">0.53</text>
+  <text x="332" y="268" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Four such questions in one session</text>
+  <text x="332" y="286" font-size="13.5" fill="#59636e" text-anchor="end">3 sessions</text>
+  <path fill="#2a78d6" d="M348 260h45.50a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-45.50z"/>
+  <text x="407.50" y="273.5" font-size="16" font-weight="600" fill="#1f2328">0.15</text>
+  <text x="332" y="314" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Where does this error come from?</text>
+  <text x="332" y="332" font-size="13.5" fill="#59636e" text-anchor="end">12 error messages, two Go repositories</text>
+  <path fill="#2a78d6" d="M348 306h203.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-203.90z"/>
+  <text x="565.90" y="319.5" font-size="16" font-weight="600" fill="#1f2328">0.63</text>
+  <text x="332" y="360" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Rename a Go method everywhere</text>
+  <text x="332" y="378" font-size="13.5" fill="#59636e" text-anchor="end">10 renames in go-git</text>
+  <path fill="#2a78d6" d="M348 352h164.30a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-164.30z"/>
+  <text x="526.30" y="365.5" font-size="16" font-weight="600" fill="#1f2328">0.51</text>
+  <text x="332" y="406" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">A question about the Linux kernel</text>
+  <text x="332" y="424" font-size="13.5" fill="#59636e" text-anchor="end">18 questions</text>
+  <path fill="#2a78d6" d="M348 398h230.30a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-230.30z"/>
+  <text x="592.30" y="411.5" font-size="16" font-weight="600" fill="#1f2328">0.71</text>
+  <text x="332" y="452" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Write a function that was taken out</text>
+  <text x="332" y="470" font-size="13.5" fill="#59636e" text-anchor="end">20 functions, two Go repositories</text>
+  <path fill="#2a78d6" d="M348 444h335.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-335.90z"/>
+  <text x="697.90" y="457.5" font-size="16" font-weight="600" fill="#1f2328">1.03</text>
+  <text x="332" y="498" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Fix a bug, failing tests given</text>
   <text x="332" y="516" font-size="13.5" fill="#59636e" text-anchor="end">15 issues</text>
-  <path fill="#2a78d6" d="M348 490h299.60a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-299.60z"/>
-  <text x="688.00" y="503.5" font-size="16" font-weight="600" fill="#1f2328">0.92</text>
+  <path fill="#2a78d6" d="M348 490h302.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-302.90z"/>
+  <text x="688.00" y="503.5" font-size="16" font-weight="600" fill="#1f2328">0.93</text>
+  <text x="332" y="544" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Fix a bug from the issue text alone</text>
+  <text x="332" y="562" font-size="13.5" fill="#59636e" text-anchor="end">15 issues</text>
+  <path fill="#2a78d6" d="M348 536h299.60a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-299.60z"/>
+  <text x="688.00" y="549.5" font-size="16" font-weight="600" fill="#1f2328">0.92</text>
 
-  <text x="28" y="560" font-size="13.5" fill="#59636e">Haiku 5.5 in Claude Code 2.1.323, held-out tasks, two to four runs per task and arm. Cost is priced from the size of every request.</text>
+  <text x="28" y="606" font-size="13.5" fill="#59636e">Haiku 5.5 in Claude Code 2.1.323, held-out tasks, two to four runs per task and arm. Cost is priced from the size of every request.</text>
 </svg>
