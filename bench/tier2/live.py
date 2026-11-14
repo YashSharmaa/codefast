@@ -104,7 +104,7 @@ def held_out(name):
 
 
 def choose(a):
-    d, r, i, e, w = load("d"), load("r") + load("r2"), load("i"), load("e"), load("w")
+    d, r, i, e, w = load("d"), load("r") + load("r2"), load("i"), load("e"), load("w") + load("w2")
     k = k_tasks() + k_tasks("kernel_questions_held_out")
     n, long = n_tasks()
     n2 = load("n2") + load("nz")
@@ -845,7 +845,7 @@ def main():
     p.add_argument("--model", default="haiku", choices=sorted(BUDGET))
     p.add_argument("--dev", action="store_true")
     p.add_argument("--ids", default="")
-    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,D,I,N,R,E,L,NZ,W")
+    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,D,I,N,R,E,L,NZ,W,W2")
     p.add_argument("--d", type=int, default=16)
     p.add_argument("--r", type=int, default=8)
     p.add_argument("--k", type=int, default=0, help="kernel questions")

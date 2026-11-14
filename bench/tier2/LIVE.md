@@ -88,11 +88,13 @@ costs 0.53 of the control and is cheaper in 8 of 8 pairs, with the answers as go
 eight questions are about the `create` of a v3 class, a name 34 other classes carry: both arms
 score about 0.4 on those and 1.00 on the rest, which is where the 0.62 in the table comes from.
 
-**Writing code, version 0.2.9** (`bench/results/live-heldout-haiku.jsonl`, tag `w1`): the eight
-functions of gitleaks, four runs per task and arm, on the released build. No session of this
-family had been run before, on any build, so nothing in the plugin was shaped on it. Two of
-the eight were run once beforehand to see that the harness worked, and only their pass or fail
-was looked at. The section "Writing code" below reads the result.
+**Writing code, versions 0.2.9 and 0.2.10** (`bench/results/live-heldout-haiku.jsonl`, tags
+`w1` and `w2h`): eight functions of gitleaks on 0.2.9, and twelve of go-git on 0.2.10, whose
+hooks are those of 0.2.9. Four runs per task and arm. No session of this family had been run
+before, on any build, so nothing in the plugin was shaped on it. Two of the gitleaks tasks
+were run once beforehand to see that the harness worked, and only their pass or fail was
+looked at. The go-git tasks were built to check the gitleaks result and run once, after the
+build was final. The section "Writing code" below reads both.
 
 **Held-out tasks, version 0.2.2** (`bench/results/live-heldout-haiku.jsonl`, tag `h1`): one
 batch of both arms on Haiku 5.5, two runs per task and arm, interleaved so that a change in the
@@ -138,25 +140,65 @@ checker.
 
 ## Writing code
 
-Every family above asks the session something. This one asks it to write: a function of
-gitleaks has its body replaced by `panic("not implemented")`, and the session writes the body
-again. What the function has to do is in the repository and nowhere else: its signature, its
-doc comment, the table it is registered in, the places that call it and the tests that reach
-it. All 64 sessions wrote a body that passes the tests of its package, 32 of each arm.
+Every family above asks the session something. This one asks it to write: a function has its
+body replaced by `panic("not implemented")`, and the session writes the body again. What the
+function has to do is in the repository and nowhere else: its signature, its doc comment, the
+table it is registered in, the places that call it and the tests that reach it.
 
-| | Without | With codefast | |
+It was measured on gitleaks first, eight functions. The result was a saving, and a family of
+eight tasks on one repository is not much to stand on, so twelve functions of go-git were
+built with the same builder and run once. They said the opposite.
+
+| | gitleaks (8) | go-git (12) | Both (20) |
 |---|---:|---:|---:|
-| Cost of the session | 48.6k | 46.2k | **0.95** |
-| Requests | 7.5 | 5.9 | 0.79 |
-| Shell commands | 5.2 | 3.8 | 0.73 |
-| Tokens written by the model | 3,512 | 3,554 | 1.01 |
-| Tool output read, characters | 14.8k | 15.3k | 1.03 |
+| Cost with codefast | 0.95 | 1.08 | **1.03** |
+| The same at 95%, resampling tasks and runs | 0.83 to 1.08 | 0.97 to 1.19 | 0.94 to 1.12 |
+| Median task | 0.90 | 1.12 | 1.02 |
+| Tasks cheaper with codefast | 6 of 8 | 3 of 12 | 9 of 20 |
+| Requests, without and with | 7.5 and 5.9 | 7.2 and 7.4 | 7.3 and 6.8 |
+| Tokens written by the model, without and with | 3,512 and 3,554 | 3,779 and 4,294 | 3,672 and 3,998 |
+| Sessions whose function passes its tests | 32 and 32 of 32 | 48 and 46 of 48 | 80 and 78 of 80 |
 
-A fifth of the requests go, and a twentieth of the cost. The reason is the one the bug-fix
-families gave: what the model writes is over a third of such a session (0.36 of the cost) and
-is as long either way, so taking out a lookup or two leaves most of the bill standing.
+So writing a function costs the same with the plugin as without it. Neither repository's
+figure can be told from 1.00 at this size, nor the two from each other, and the first eight
+tasks alone would have gone into the README as a saving. They did, for some hours.
 
-| Task | Lines taken out | Cost with codefast | Requests, without and with | Sessions that called codefast |
+The two sessions that failed are both of the plugin arm, on tasks the control solved four
+times of four. In each the model wrote a body, saw a test fail, and stopped with an account of
+why the project's own tests contradict each other. Nothing codefast had said in them was
+wrong. Two of 48 against none of 48 is not a difference a batch of this size establishes, and
+it is in the table because it happened.
+
+### Where the cost goes: a call that does not replace the reading
+
+The 80 plugin sessions split in two, each compared with the control runs of its own task:
+
+| Plugin sessions | Sessions | Cost against the control | Requests against it | Tokens written |
+|---|---:|---:|---:|---:|
+| the card for the prompt, and no call to codefast | 55 | **0.96** | 0.9 fewer | 1.02 |
+| the card, and a call to codefast as well | 25 | **1.12** | 0.2 more | 1.19 |
+
+On gitleaks the two rows are 0.86 and 1.11, on go-git 1.04 and 1.13. A session that struggles
+may be what reaches for a tool, so the second row is not the price of a call. But the sessions
+show what a call bought. In one, the agent had to write `Branch.marshal` and asked for
+`Remote.marshal` to copy from. There is no such method (the type is `RemoteConfig`), the
+answer was "no matches", and the session went on to read the same lines with `grep` and `sed`
+that the control read, one request later. In a navigation task the answer of a call is the
+answer of the task. Here it is one more thing read before the file that has to be read anyway.
+
+That dead end is closed in 0.2.10: a member asked for on a type that does not have it is
+answered with the member of the type whose name is like it (`RemoteConfig.marshal`, with its
+body), or with every type that has one. It was not measured in sessions. A third of these
+sessions call the tool at all, so it can move the family by a few percent at most, which is
+inside the band of the table above and would take ten times the runs to see.
+
+What the card does for this family is small and real where the function hangs in a table: for
+`decodePercent` of gitleaks it says the function is registered as `encoding.decode` in
+`encodings` and reached through that table from `findEncodedSegments`, which no text search
+for its name finds. The functions of go-git here are mostly methods with common names
+(`Write`, `get`, `Match`, `marshal`), and for those the card has a count and a command.
+
+| gitleaks | Lines taken out | Cost with codefast | Requests, without and with | Sessions that called codefast |
 |---|---:|---:|---|---:|
 | `Detector.DetectReader` | 24 | 0.76 | 6.2 and 3.5 | 0 of 4 |
 | `decodePercent` | 29 | 0.85 | 6.0 and 4.0 | 0 of 4 |
@@ -167,18 +209,52 @@ is as long either way, so taking out a lookup or two leaves most of the bill sta
 | `Config.extendPath` | 18 | 1.04 | 8.8 and 7.5 | 4 of 4 |
 | `toOriginal` | 34 | 1.16 | 6.8 and 7.8 | 2 of 4 |
 
-The median task is 0.90 and six of the eight are cheaper. What does the work is the card for
-the prompt (the hooks add about 600 bytes to such a session in all): for `decodePercent` it
-says the function is registered
-as `encoding.decode` in the table `encodings` and reached through that table from
-`findEncodedSegments`, which is what the function is for and which no text search for its name
-finds. On the four tasks where no session called codefast at all, the card alone took the
-session to 0.76 to 0.93. The two tasks that came out dearer are the two where the sessions
-called the tool most. That is eight tasks and not a cause: a function that is harder to write
-may be what sends a session looking in the first place.
+| go-git | Lines taken out | Cost with codefast | Requests, without and with | Sessions that called codefast |
+|---|---:|---:|---|---:|
+| `Encoder.encodeOptions` | 14 | 0.84 | 7.5 and 5.8 | 0 of 4 |
+| `RefSpec.matchGlob` | 13 | 0.85 | 4.5 and 4.0 | 0 of 4 |
+| `ctxWriter.Write` | 54 | 0.93 | 8.0 and 6.5 | 0 of 4 |
+| `hexDecode` | 13 | 1.01 | 8.2 and 7.8 | 0 of 4 |
+| `bracketSet.addRange` | 14 | 1.02 | 3.5 and 4.0 | 0 of 4 |
+| `matcher.Match` | 24 | 1.08 | 14.5 and 13.0 | 3 of 4 |
+| `bracketCache.get` | 22 | 1.16 | 3.2 and 5.2 | 2 of 4 |
+| `Config.Marshal` | 26 | 1.16 | 8.8 and 9.8 | 0 of 4 |
+| `Config.unmarshalUser` | 12 | 1.17 | 7.0 and 7.8 | 3 of 4 |
+| `Branch.marshal` | 32 | 1.19 | 6.2 and 7.0 | 3 of 4 |
+| `newIter` | 15 | 1.19 | 7.8 and 8.2 | 2 of 4 |
+| `decodeLine` | 55 | 1.24 | 7.5 and 9.5 | 3 of 4 |
 
-This family is now a development family for every later build, like any held-out family that
-has been read.
+What the model writes is 0.36 to 0.40 of the cost of such a session and is as long either
+way, so there was never much to take out. Both sets of tasks are development tasks for every
+later build, like any held-out family that has been read.
+
+### A larger card for a function that is not written yet, tried and not kept
+
+Reading those sessions showed what a session goes and gets before it writes: the lines that
+call the function, the test that reaches it, and the types its signature names. So a card was
+built for a prompt that names a function whose whole body is a placeholder
+(`panic("not implemented")`, `todo!()`, `raise NotImplementedError`): its comment and
+signature, the line of each call, the tests that reach it with the command that runs them, a
+short type of its signature whole and a long one by its place. All of it exact, about one
+symbol the index resolves. On the eight gitleaks tasks, four runs, against the same control,
+before the go-git tasks were run:
+
+| The card for the function to write | Cost | Median task | Requests | Shell commands | Files read | Bytes from hooks |
+|---|---:|---:|---:|---:|---:|---:|
+| as released: its lines, and where it is called from | 0.95 | 0.90 | 5.9 | 3.8 | 1.3 | 622 |
+| and the calling lines, the tests, the types | 0.94 | 1.00 | 5.6 | 2.8 | 2.4 | 1,307 |
+
+A shell command went and a file read came: the card named the test file and the files of the
+types, and the session opened them. Two tasks that need those types fell a long way (0.87 to
+0.68 and 1.16 to 0.91), four that do not rose, and the total stood still at twice the bytes.
+Every function was written correctly in every arm, so nothing the larger card said was needed
+to get it right. It was not kept, by the rule this file keeps arriving at: what is true and
+not needed costs what it weighs.
+
+What it found does stay, in the command an agent asks for by name. `codefast context` now
+prints the types a function's signature names, and it finds the tests that reach a function
+through two calls where it found them through one: for a helper deep in a package, that is
+the test of the function the package offers, and it was missing.
 
 ## What a bug fix costs
 
@@ -505,7 +581,7 @@ The prompt card of version 0.2.2 was settled by three small experiments on devel
   bug-fix families show what the plugin costs or saves there, and the answer is that it costs
   nothing and saves little. Their medians are level with the control and the totals, 0.93 and
   0.92, come from a few long sessions. Six attempts to make that figure move are above.
-* The code-writing family is one repository, one language and eight functions of 15 to 44
+* The code-writing family is two repositories, one language and twenty functions of 12 to 55
   lines whose body was taken out of a project that already has their callers and their tests.
   Writing a new function into a project that has neither is a different task, and nothing here
   measures it.
