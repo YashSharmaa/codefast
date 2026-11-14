@@ -1,0 +1,74 @@
+{
+ "date": "2026-11-14",
+ "versions": {
+  "codex": "codex-cli 0.164.0",
+  "codefast": "codefast 0.3.0"
+ },
+ "model": "gpt-6.1-sol",
+ "tools": "not in the request: Codex gives this model one `exec` tool and the server's tools are functions it can call there (`tools.mcp__codefast__search`), found through `ALL_TOOLS`",
+ "checks": [
+  {
+   "what": "the start hook builds the index, though the session's sandbox is read-only",
+   "ok": true
+  },
+  {
+   "what": "and the prompt of that same session already gets its card",
+   "ok": true
+  },
+  {
+   "what": "SessionStart fires, and its line is in the first request",
+   "ok": true
+  },
+  {
+   "what": "UserPromptSubmit fires, and the card with the answer is in the first request",
+   "ok": true
+  },
+  {
+   "what": "the card comes after the prompt it belongs to",
+   "ok": true
+  },
+  {
+   "what": "the skill is in the list of skills",
+   "ok": true
+  },
+  {
+   "what": "a tool of the MCP server answers (`search`)",
+   "ok": true
+  },
+  {
+   "what": "the command line answers inside the read-only sandbox (`codefast callees`)",
+   "ok": true
+  },
+  {
+   "what": "UserPromptSubmit: the card names the rename command",
+   "ok": true
+  },
+  {
+   "what": "PostToolUse after a search for a name: where it is defined and who calls it",
+   "ok": true
+  },
+  {
+   "what": "PreToolUse before a long file is printed whole: its length and the outline command",
+   "ok": true
+  },
+  {
+   "what": "PostToolUse after an edit: the use it left behind",
+   "ok": true
+  },
+  {
+   "what": "it answers with the change in it",
+   "ok": true
+  },
+  {
+   "what": "and wrote nothing into the index, which the profile forbids",
+   "ok": true
+  }
+ ],
+ "bytes": {
+  "skill_listing": 620,
+  "session_line": 168,
+  "card_for_the_question": 369,
+  "mcp_tool_definitions": 0,
+  "request_without_them": 56777
+ }
+}

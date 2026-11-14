@@ -173,7 +173,7 @@ Codex has is the plugin's, which needs `root` with every call, it says that too
 **Tested in a sandbox** with Claude Code 2.1.323 and codex-cli 0.164.0: every command above, the
 dry runs, `--apply` running the real `claude mcp add` and `codex mcp add`, project scope, hooks,
 and `doctor` before and after. Then `claude mcp list` reported the server as connected and the
-Codex app server listed the skill, the server's five tools and the three hooks without warnings.
+Codex app server listed the skill, the server's five tools and the hooks without warnings.
 For every other harness setup writes the file format that harness documents, and its own tests
 read the result back. None of those files has been loaded by the harness itself, and the
 commands of `gemini`, `qwen`, `copilot`, `amp`, `cline`, `droid`, `devin`, `openclaw`, `vibe`,
@@ -258,9 +258,33 @@ manifest, so they are registered in a configuration layer. Setup writes `~/.code
 alone. By hand, merge the `hooks` object of [`hooks/codex.json`](../hooks/codex.json) into the
 same file. It is what setup writes at project scope. Either way Codex runs new hooks only after
 you review and trust them once, with `/hooks` in a session. Codex's own parser accepts both
-forms (the app server's `hooks/list` reports the three hooks without warnings), and each command
-line was run by hand with a payload in the shape Codex documents. No hook was fired by Codex
-itself, because that needs a model session.
+forms (the app server's `hooks/list` reports the hooks without warnings).
+
+**Tested with codex-cli 0.164.0 itself, without a model.** `bench/codex/wiring.py` runs
+`codefast setup codex --hooks --apply` in a sandbox home and then `codex exec` against a local
+stand-in for the model, which answers from a script and keeps every request Codex sends. What
+those requests show:
+
+- Codex fires `SessionStart`, `UserPromptSubmit`, `PreToolUse` and `PostToolUse` (after a shell
+  command and after `apply_patch`), and the text of each hook is in the next request as a
+  developer message. The card for a prompt comes right after the prompt.
+- The payloads have the documented shape. The shell is reported as `Bash` with the command as
+  one string, also when the model reaches it through Codex's `exec` tool.
+- Hooks run outside the session's sandbox and with the environment Codex was started in. So the
+  start hook builds a missing index in a read-only session, and `CODEFAST_HOOKS=off` reaches
+  them.
+- The command line answers inside the read-only sandbox, also about a file that changed after
+  the index was written. It cannot store the refreshed part there and works it out again per
+  call.
+- The five MCP tools answer. For the default model of this Codex they are not in the request at
+  all: Codex gives that model one `exec` tool that runs JavaScript, and the server's tools are
+  functions it can call there (`tools.mcp__codefast__search`). For a model entry that lists
+  tools one by one (`-m gpt-5`), their definitions are about 4,600 bytes of every request.
+- What the plugin adds to every request is the skill's line in the list of skills (620 bytes)
+  and the line of the start hook (168 bytes).
+
+What a model in Codex then does with the cards was not measured: that needs a model session,
+and every figure in `bench/tier2/LIVE.md` is from Claude Code.
 
 MCP server only, by hand (**tested in a sandbox**):
 
@@ -723,8 +747,8 @@ Registry, [`server.json`](../server.json) is **validated against a schema** (202
 
 Hooks are optional: codefast works without them. They only add context, never block or rewrite a
 tool call, and `CODEFAST_HOOKS=off` turns them off. The variable has to reach the hook: Claude
-Code runs hooks with your environment. Whether Codex does was not verified, and there `/hooks`
-disables a hook in any case.
+Code and Codex both run hooks with your environment (Codex seen with codex-cli 0.164.0), and in
+Codex `/hooks` disables a hook as well.
 
 What they add, each said once per session:
 
@@ -785,17 +809,20 @@ configuration (7 plugins, 43 skills, 3 loaded files): the total was 4% higher. T
 found two things, which the report now handles: an `AGENTS.md` is not loaded unless an
 instruction file imports it, and the skills of the signed-in claude.ai account are loaded too.
 For Codex the figures rest on its documentation, since Codex has no command that shows them.
+The parts that are codefast's own were read from a real request (`bench/codex/wiring.py`, see
+the Codex section).
 
 | Harness | How the hooks are registered |
 |---|---|
 | Claude Code, with the plugin | Automatically (`hooks/claude-code.json`). **Tested in a sandbox**: `claude plugin details` lists the four events, and each command line was run by hand from the plugin cache with a payload in the shape Claude Code documents. |
 | Claude Code, without the plugin | `codefast setup claude-code --hooks --apply` writes them into `~/.claude/settings.json` (`.claude/settings.json` with `--scope project`), next to hooks of your own. **Tested in a sandbox** the same way. With the plugin installed setup leaves them out: both copies would run. |
-| Codex, with or without the plugin | `codefast setup codex --hooks --apply`, or merge `hooks/codex.json` into `~/.codex/hooks.json` by hand. Then trust them in `/hooks`. **Tested in a sandbox** (see the Codex section). |
+| Codex, with or without the plugin | `codefast setup codex --hooks --apply`, or merge `hooks/codex.json` into `~/.codex/hooks.json` by hand. Then trust them in `/hooks`. **Tested with Codex itself** (see the Codex section). |
 | Others | Setup registers no hooks. `codefast hook` also understands the payloads of Cursor (`sessionStart`, `postToolUse`) and Gemini CLI (`SessionStart`, `AfterTool`), built from their documentation. Nothing in this repository registers those, and neither harness was run. |
 
 In a real session of Claude Code 2.1.323 (headless, the plugin loaded with `--plugin-dir`, 2026-11-13)
-the session-start hook and the hook after a search fired, and their text reached the model. No
-hook has yet been fired by Codex itself.
+the session-start hook and the hook after a search fired, and their text reached the model. In
+codex-cli 0.164.0 every hook fired and its text was in the next request (2026-11-14, with a
+stand-in for the model: `bench/codex/wiring.py`).
 
 ## 5. Release assets
 
