@@ -958,7 +958,7 @@ fn haiku_steps_up_over_a_prompt_of_100k() {
         "{text}"
     );
     assert!(
-        text.contains("`/autocompact 100k` does that for a whole conversation: the harness compacts about 33k tokens under the window it is given.\n"),
+        text.contains("`/autocompact 125k` does that for a whole conversation: the harness compacts about 33k tokens under the window it is given.\n"),
         "{text}"
     );
     assert!(!text.contains("Carried context"), "{text}");

@@ -1072,14 +1072,15 @@ fn carried_note(model: &str, context: u64, one_hour: bool, cli: &str) -> String 
 fn step_note(model: &str, context: u64, tier: super::sessions::Tier) -> String {
     let size = super::sessions::short(context as f64);
     let over = super::sessions::short(tier.over as f64);
+    let window = super::sessions::short(super::sessions::step_window(tier.over) as f64);
     let rule = format!("{}a request whose prompt is over {over} tokens pays {:.0} times the price for every token of it", with_model(model), tier.times);
     if context > tier.over {
         format!(
-            "codefast: this conversation is {size} tokens long, and {rule}: every request does now. `/compact` brings it back under, and so does `/clear` where the next job does not need the conversation. `/autocompact {over}` keeps a conversation under it from its start."
+            "codefast: this conversation is {size} tokens long, and {rule}: every request does now. `/compact` brings it back under, and so does `/clear` where the next job does not need the conversation. `/autocompact {window}` keeps a conversation under it from its start."
         )
     } else {
         format!(
-            "codefast: this conversation is {size} tokens long, and {rule}. `/compact` before it gets there, or `/clear` where the next job does not need the conversation, keeps the next requests at the lower price. `/autocompact {over}` does it for the whole conversation."
+            "codefast: this conversation is {size} tokens long, and {rule}. `/compact` before it gets there, or `/clear` where the next job does not need the conversation, keeps the next requests at the lower price. `/autocompact {window}` does it for the whole conversation."
         )
     }
 }

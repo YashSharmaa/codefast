@@ -84,6 +84,11 @@ ARMS = {
     "plugin-ac": dict(plugin=True, env={"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "100000"}),
     "control-ac125": dict(plugin=False, env={"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "125000"}),
     "plugin-ac125": dict(plugin=True, env={"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "125000"}),
+    # The same with the harness keeping the session's transcript, as it does for a person. The
+    # hook after a compaction reads the last request from it and gives it back word for word.
+    # The other arms run without a transcript, where that hook has nothing to read.
+    "plugin-ac-keep": dict(plugin=True, transcript=True, env={"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "100000"}),
+    "plugin-ac125-keep": dict(plugin=True, transcript=True, env={"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "125000"}),
     # How a prompt card gives the uses of a symbol (an experiment, see LIVE.md).
     "uses-count": dict(plugin=True, env={"CODEFAST_CARD_USES": "count"}),
     "uses-list": dict(plugin=True, env={"CODEFAST_CARD_USES": "list"}),
@@ -869,9 +874,11 @@ def session(row, a, binary, plug):
     env.update(spec.get("env", {}))
     cmd = [
         a.claude, "-p", "--model", a.model, "--output-format", "stream-json", "--verbose", "--include-hook-events",
-        "--no-session-persistence", "--setting-sources", "project", "--dangerously-skip-permissions",
+        "--setting-sources", "project", "--dangerously-skip-permissions",
         "--disallowedTools", DENY, "--max-turns", str(a.max_turns), "--max-budget-usd", str(a.budget or BUDGET[a.model]), "--no-chrome",
     ]
+    if not spec.get("transcript"):
+        cmd += ["--no-session-persistence"]
     if a.effort:
         cmd += ["--effort", a.effort]
     if a.tools:
@@ -904,6 +911,8 @@ def session(row, a, binary, plug):
             except subprocess.TimeoutExpired:
                 rc = 124
     secs = round(time.time() - t0)
+    if spec.get("transcript"):
+        keep_transcripts(a.config_dir, row["repo"], run)
     try:
         ok, clean = verify(row)
     except Exception as e:  # the session is on disk: `live.py verify` can check it again
@@ -1030,6 +1039,23 @@ def parse(path):
     r["sizes"] = sizes
     r["early_chars"] = early
     return r
+
+
+def keep_transcripts(config_dir, repo, run):
+    """Move the transcripts of a session that ran in `repo` out of the account's projects folder
+    and into the run's own directory. The folder is named after the directory the session ran
+    in, which is this run's alone."""
+    slug = "".join(c if c.isalnum() else "-" for c in str(repo))
+    proj = Path(config_dir) / "projects" / slug
+    if not proj.is_dir() or not slug.startswith(str(LIVE).replace("/", "-")):
+        return
+    dest = Path(run) / "transcripts"
+    dest.mkdir(exist_ok=True)
+    for p in list(proj.iterdir()):
+        if p.suffix == ".jsonl" or (p.is_dir() and (p / "subagents").is_dir()):
+            shutil.move(str(p), str(dest / p.name))
+    if not [p for p in proj.rglob("*") if p.is_file()]:
+        shutil.rmtree(proj)
 
 
 def cleanup_projects(config_dir):

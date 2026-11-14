@@ -886,7 +886,10 @@ are those of the model the conversation runs on. Each is said once per occasion,
   tokens. `CODEFAST_CARRY=N` sets another length.
 - When a conversation on Claude Haiku 5.5 comes within a fifth of 100,000 tokens, and again when
   it is over: that a request whose prompt is over that length pays five times the price for
-  every token of it.
+  every token of it, and that `/autocompact 125k` keeps a conversation under it. The harness
+  compacts about 33,000 tokens under the window it is given. In the staged benchmark that
+  window cost 0.46 of the dollars of the same conversation left alone, and no request had a
+  prompt over 91,000 tokens (`bench/tier2/LIVE.md`).
 - When you come back to a conversation of 60,000 tokens or more after its prompt cache has run
   out (an hour, or five minutes where the transcript shows the five-minute cache), or resume
   such a conversation: that the next request sends all of it again as new input. That is 20

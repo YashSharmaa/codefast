@@ -63,6 +63,15 @@ const START_TOKENS: u64 = 25_000;
 /// The hooks speak of a long conversation from where a compaction would pay for itself within
 /// this many requests ([`carry_from`]).
 const PAYBACK: f64 = 12.0;
+/// The window that keeps a conversation under a step in price at `over` tokens. The harness
+/// compacts about 33,000 tokens under the window it is given, so this one compacts 8,000 under
+/// the step. Measured with Claude Haiku 5.5 and its step at 100,000: with a window of 125,000
+/// no request of eight conversations had a prompt over 91,000 tokens, and they took half as
+/// many compactions as with a window of 100,000.
+pub fn step_window(over: u64) -> u64 {
+    over + 25_000
+}
+
 /// The lengths at which an earlier compaction is tried for a session (`--carry N` tries one).
 const WINDOWS: [u64; 7] = [150_000, 200_000, 300_000, 400_000, 500_000, 600_000, 800_000];
 /// Every compaction loses some of the conversation, so the length the report speaks of is the
@@ -2404,7 +2413,10 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
             if s.kind == Kind::ClaudeCode {
                 push(
                     false,
-                    &format!("`/autocompact {over}` does that for a whole conversation: the harness compacts about 33k tokens under the window it is given."),
+                    &format!(
+                        "`/autocompact {}` does that for a whole conversation: the harness compacts about 33k tokens under the window it is given.",
+                        short(step_window(st.over) as f64)
+                    ),
                 );
             }
             if st.window.above > 0 {
