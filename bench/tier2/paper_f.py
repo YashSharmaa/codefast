@@ -245,7 +245,8 @@ def one(a, t, arm, rep, binary, run_dir):
         execute(a, t, arm, binary, run_dir)
     seconds = json.load(open(meta)).get("seconds", 0) if meta.exists() else 0
     out = raw.read_text() if raw.exists() else ""
-    row: dict = dict(id=t["id"], arm=arm, rep=rep, tag=a.tag, version=t["version"], seconds=seconds, answer="", subtype="", tokens=0, cost=0.0, turns=0, mcp=0, native=0, tools={})
+    day = time.strftime("%Y-%m-%d", time.localtime(meta.stat().st_mtime if meta.exists() else time.time()))
+    row: dict = dict(id=t["id"], arm=arm, rep=rep, tag=a.tag, date=day, version=t["version"], seconds=seconds, answer="", subtype="", tokens=0, cost=0.0, turns=0, mcp=0, native=0, tools={})
     for line in out.splitlines():
         try:
             ev = json.loads(line)

@@ -34,8 +34,12 @@ AB = ROOT / "target/ab"
 LIVE = ROOT / "target/live"
 SYFT = ROOT / "bench/repos/syft"
 LINUX = ROOT / "bench/repos/linux"
-LINUX_INDEX = ROOT / "target/bench-index/final-linux"
-SYFT_INDEX = ROOT / "target/bench-index/live-syft"
+# The indexes of the shared trees. An index belongs to the version of codefast that wrote it,
+# and a build that finds another version's index rebuilds it. Two builds that are measured
+# side by side therefore each get directories of their own: BENCH_INDEX_SUFFIX names them.
+INDEX_SUFFIX = os.environ.get("BENCH_INDEX_SUFFIX", "")
+LINUX_INDEX = ROOT / ("target/bench-index/final-linux" + INDEX_SUFFIX)
+SYFT_INDEX = ROOT / ("target/bench-index/live-syft" + INDEX_SUFFIX)
 DEV_IDS = {"django__django-18850", "tobymao__sqlglot-4519", "R-Collection-Add"}
 W_READ, W_WRITE, W_OUT = 0.1, 1.25, 5.0
 # Variables of the session this script may be started from: a child session must not inherit them.
@@ -147,7 +151,7 @@ ABOUT = {
 def repo_of(t):
     """The checkout a question about a Go project is asked in, and where its shared index is kept."""
     d = Path(t.get("repo_dir") or SYFT)
-    return d, (SYFT_INDEX if d == SYFT else ROOT / "target/bench-index" / f"live-{d.name}")
+    return d, (SYFT_INDEX if d == SYFT else ROOT / "target/bench-index" / f"live-{d.name}{INDEX_SUFFIX}")
 
 
 def n_question(t):
@@ -320,7 +324,7 @@ def _rules_block(binary):
 
 def f_index(tree):
     """Where the index of one kernel version is kept."""
-    return ROOT / "target/bench-index" / f"lfl-{Path(tree).name}"
+    return ROOT / "target/bench-index" / f"lfl-{Path(tree).name}{INDEX_SUFFIX}"
 
 
 def ranked_files(text, tree):
@@ -841,7 +845,9 @@ def rows_of(tag):
         res = json.load(open(out))
         r = parse(out.parent / "run.jsonl")
         u = r["usage"] or dict(input=0, cache_read=0, cache_write=0, output=0)
-        row = dict(tag=tag, id=res["id"], family=res["family"], arm=res["arm"], model=res["model"], requests=r["requests"], sub_requests=r["sub_requests"], **u)
+        # The day the session ended, which is when its outcome was written.
+        day = time.strftime("%Y-%m-%d", time.localtime(out.stat().st_mtime))
+        row = dict(tag=tag, date=day, id=res["id"], family=res["family"], arm=res["arm"], model=res["model"], requests=r["requests"], sub_requests=r["sub_requests"], **u)
         row["processed"] = u["input"] + u["cache_read"] + u["cache_write"]
         row["weighted"] = round(u["input"] + W_READ * u["cache_read"] + W_WRITE * u["cache_write"] + W_OUT * u["output"])
         row["cost"] = r["cost"]
