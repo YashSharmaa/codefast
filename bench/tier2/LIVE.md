@@ -37,9 +37,13 @@ of a project from its second session on.
 | D | Make failing tests pass: issues of Django and sqlglot from Loc-Bench, at the commit before the fix, with the tests of the fix added | the tests of the fix pass and are unchanged |
 | I | The same issues without their tests: the issue text alone | the tests of the real fix, copied into the tree after the session, pass |
 | R | Rename one Go method everywhere, where other types have a method of the same name | `go build` and `go vet` pass, and no other definition was renamed |
+| W | Write code: one well-tested function of gitleaks has its body replaced by a panic, and the session has to write it again from what the rest of the project expects of it | the tests of that function's package pass, and no test file and no file of test data changed |
 
-`make_n_tasks.py`, `make_e_tasks.py`, `make_d_tasks.py`, `make_i_tasks.py` and `make_r_tasks.py`
-build them. None of the builders uses codefast to choose a task or to judge an answer.
+`make_n_tasks.py`, `make_e_tasks.py`, `make_d_tasks.py`, `make_i_tasks.py`, `make_r_tasks.py`
+and `make_w_tasks.py` build them. None of the builders uses codefast to choose a task or to
+judge an answer. A W task has to compile with the body gone and has to fail its package's
+tests, and the package's tests have to pass with the body there, so the failing tests are the
+whole of what the session is told.
 
 ## Development tasks and held-out tasks
 
@@ -52,9 +56,10 @@ little. So the tasks are split.
   more (`DEV_IDS` in `live.py`) were used before any table existed and are never reported.
 * **Held-out tasks** (`held_out` in `tasks.json`): tasks no session had been run on. N, L, R
   and half of E are on go-git, a repository nothing in codefast had been run on. The others are
-  18 more kernel questions, the 15 bug-fix tasks not used before (as D and as I), and E on
-  syft. They are run when a build is final, with `live.py run --held K,N,E,R,D,I,L`. Once a
-  held-out session has been read, its task is a development task for every later build.
+  18 more kernel questions, the 15 bug-fix tasks not used before (as D and as I), E on syft,
+  and the 8 code-writing tasks (W), which no build was looked at on at all. They are run when a
+  build is final, with `live.py run --held K,N,E,R,D,I,L,W`. Once a held-out session has been
+  read, its task is a development task for every later build.
 
 Two things were looked at on held-out tasks before the batch of version 0.2.2 ran, and neither
 changed the build: whether the hook printed anything at all for a prompt (a count per family),

@@ -10,15 +10,17 @@ would have it, the plugin with its hooks switched off, ...). The session's own e
 gives the cost: requests, tokens by kind, list-price dollars, every tool call and every hook
 that fired. The outcome is checked afterwards in the run's copy (tests or compiler).
 
-    live.py run   --tag T --arms control,plugin --model haiku [--dev | --d N --r N | --ids a,b] [--jobs 4]
+    live.py run   --tag T --arms control,plugin --model haiku [--dev | --d N --r N --w N | --ids a,b | --held W] [--jobs 4]
     live.py verify --tag T                         check again the outcome of runs already made
     live.py score --tag T [--out FILE]
     live.py show  --tag T --id ID --arm ARM        one run, step by step
 
-Tasks come from make_d_tasks.py (D: make failing tests pass), make_r_tasks.py (R: carry a
-rename through its call sites, Go) and bench/k3 (K: a question about the Linux kernel, answered
-in the shared kernel checkout and scored against the verified answer). Development tasks
-(DEV_IDS) are never reported.
+Tasks come from make_d_tasks.py (D: make failing tests pass), make_i_tasks.py (I: the same
+issues without their tests), make_r_tasks.py (R: carry a rename through its call sites, Go),
+make_n_tasks.py (N and L: who calls this), make_e_tasks.py (E: where does this error come
+from), make_w_tasks.py (W: write a function whose body was taken out) and bench/k3 (K: a
+question about the Linux kernel, answered in the shared kernel checkout and scored against the
+verified answer). Development tasks (DEV_IDS) are never reported.
 
 Environment: CLAUDE_BIN (default ~/.local/bin/claude), CLAUDE_CONFIG_DIR (which login to use,
 required), CODEFAST_BIN (the binary under test, default target/release/codefast).
@@ -102,7 +104,7 @@ def held_out(name):
 
 
 def choose(a):
-    d, r, i, e = load("d"), load("r") + load("r2"), load("i"), load("e")
+    d, r, i, e, w = load("d"), load("r") + load("r2"), load("i"), load("e"), load("w")
     k = k_tasks() + k_tasks("kernel_questions_held_out")
     n, long = n_tasks()
     n2 = load("n2") + load("nz")
@@ -111,7 +113,7 @@ def choose(a):
     long2 = [dict(id=f"L-gogit-{j // 4 + 1}", family="L", repo_name="go-git/go-git", parts=held_n[j : j + 4]) for j in range(0, len(held_n) - 3, 4)]
     if a.ids or a.held:
         want = a.ids.split(",") if a.ids else [x for fam in a.held.split(",") for x in held_out(fam)]
-        by = {t["id"]: t for t in d + r + k + n + long + i + n2 + e + long2}
+        by = {t["id"]: t for t in d + r + k + n + long + i + n2 + e + long2 + w}
         return [by[x] for x in want]
     order = lambda ts: sorted(ts, key=lambda t: hashlib.sha256(t["id"].encode()).hexdigest())
     if a.dev:
@@ -125,13 +127,14 @@ def choose(a):
         for g in groups:
             if g:
                 mixed.append(g.pop(0))
-    return [t for t in mixed if t["id"] not in DEV_IDS][: a.d] + [t for t in order(r) if t["id"] not in DEV_IDS][: a.r] + k[: a.k] + n[: a.n] + long[: a.l]
+    return [t for t in mixed if t["id"] not in DEV_IDS][: a.d] + [t for t in order(r) if t["id"] not in DEV_IDS][: a.r] + k[: a.k] + n[: a.n] + long[: a.l] + w[: a.w]
 
 
 ABOUT = {
     "anchore/syft": "syft, a Go project that lists the software packages inside container images and file systems",
     "go-git/go-git": "go-git, an implementation of Git written in Go",
     "colinhacks/zod": "zod, a TypeScript library for describing data and checking that it has the shape it should",
+    "zricethezav/gitleaks": "gitleaks, a Go tool that finds secrets committed to a git repository",
 }
 
 
@@ -213,6 +216,16 @@ Failing tests: {', '.join(t['f2p'][:8])}
 How to run them: `{cmd}`
 
 Rules: work only inside {repo}. Do not read, list or run anything outside it, apart from the Python interpreter named in the command. Do not edit these test files: {', '.join(t['test_files'])}. Do not install anything. Stop as soon as the command passes, and say in one or two sentences what you changed."""
+    if t["family"] == "W":
+        cmd = t["check_cmd"].replace("{repo}", str(repo))
+        which = (t["owner"] + "." if t["owner"] else "") + t["name"]
+        return f"""You are working in a Go project: {ABOUT[t['repo_name']]}. It is in the current directory ({repo}).
+
+The body of {which}, in {t['file']}, has been taken out and replaced with `panic("not implemented")`. Write the body again, so that it does what the rest of the project expects of it.
+
+How to check: `{cmd}` (the first run takes about a minute). It has to pass when you are done.
+
+Rules: work only inside {repo}. Do not read, list or run anything outside it. Do not install anything. Change nothing but the body of this one function, and change no test file and no file under a testdata directory. Stop as soon as the check passes, and say in one or two sentences what you wrote."""
     cmd = t["check_cmd"].replace("{repo}", str(repo))
     about = "syft, a tool that lists the software packages inside container images and file systems" if t["repo_name"] == "anchore/syft" else ABOUT[t["repo_name"]]
     return f"""You are working in a Go project: {about}. It is in the current directory ({repo}).
@@ -322,6 +335,9 @@ def prepare(t, arm, rep, a, binary):
         row.update(check=t["test_cmd"].replace("{repo}", str(repo)), test_files=t["test_files"], tests_hash=file_hash(repo, t["test_files"]))
     elif t["family"] == "I":
         row.update(check=t["test_cmd"].replace("{repo}", str(repo)), test_files=t["test_files"], tests_from=t["tests_from"], gold_files=t["gold_files"])
+    elif t["family"] == "W":
+        row.update(check=t["check_cmd"].replace("{repo}", str(repo)), file=t["file"], name=t["name"], owner=t["owner"],
+                   removed_lines=t["removed_lines"], covered=t["covered"], tests_hash=test_tree_hash(repo), base=t["base"])
     else:
         row.update(check=t["check_cmd"].replace("{repo}", str(repo)), name=t["name"], new_name=t["new_name"], base=t["base"])
     if spec["plugin"]:
@@ -391,6 +407,17 @@ def verify_n(row):
     return sum(score_callers(s, p) for s, p in zip(sections, row["parts"])) / len(row["parts"])
 
 
+def test_tree_hash(repo):
+    """Every test file and every file of test data, so an edit to one of them is visible."""
+    h = hashlib.sha256()
+    for p in sorted(Path(repo).rglob("*")):
+        rel = str(p.relative_to(repo))
+        if p.is_file() and (rel.endswith("_test.go") or rel.startswith("testdata/") or "/testdata/" in rel):
+            h.update(rel.encode())
+            h.update(p.read_bytes())
+    return h.hexdigest()
+
+
 def verify(row):
     if row["family"] in ("N", "L", "E"):
         s = verify_n(row)
@@ -416,6 +443,9 @@ def verify(row):
         return ok, True
     if row["family"] == "D":
         return ok, file_hash(row["repo"], row["test_files"]) == row["tests_hash"]
+    if row["family"] == "W":
+        # The tests are the judge, so a run that edited them or their data does not count.
+        return ok, test_tree_hash(row["repo"]) == row["tests_hash"]
     defs = lambda root: sorted(
         (str(p.relative_to(root)), m.group(0))
         for p in Path(root).rglob("*.go")
@@ -815,12 +845,13 @@ def main():
     p.add_argument("--model", default="haiku", choices=sorted(BUDGET))
     p.add_argument("--dev", action="store_true")
     p.add_argument("--ids", default="")
-    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,D,I,N,R")
+    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,D,I,N,R,E,L,NZ,W")
     p.add_argument("--d", type=int, default=16)
     p.add_argument("--r", type=int, default=8)
     p.add_argument("--k", type=int, default=0, help="kernel questions")
     p.add_argument("--n", type=int, default=0, help="who-calls-this questions on syft")
     p.add_argument("--l", type=int, default=0, help="sessions of four such questions")
+    p.add_argument("--w", type=int, default=0, help="code-writing tasks: write a removed function body")
     p.add_argument("--jobs", type=int, default=4)
     p.add_argument("--reps", type=int, default=1, help="runs per task and arm")
     p.add_argument("--resume", action="store_true", help="skip runs that already have an outcome")
