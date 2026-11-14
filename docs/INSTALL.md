@@ -45,7 +45,7 @@ replaces a codefast that works.
 
 ```sh
 sh install.sh --dry-run                 # print every action, download and write nothing
-sh install.sh --version 0.2.10          # a specific release instead of the latest
+sh install.sh --version 0.3.0           # a specific release instead of the latest
 sh install.sh --bin-dir /opt/tools/bin  # another directory
 ```
 
@@ -64,7 +64,7 @@ Windows, and the npm package below is not published yet.
 With Node.js, once the npm packages are published (`npm/` holds them, and nothing is published yet):
 
 ```sh
-npx -y @yashsharmaa/codefast@0.2.10 mcp       # or: npm install -g @yashsharmaa/codefast
+npx -y @yashsharmaa/codefast@0.3.0 mcp        # or: npm install -g @yashsharmaa/codefast
 ```
 
 ### The launcher
@@ -737,6 +737,18 @@ What they add, each said once per session:
   listed when nothing else in the repository has its name, and counted otherwise, with the
   command that prints each one. At most two symbols, and the failing test when the prompt
   names one.
+- For a prompt that asks one of three questions about a symbol it names, the answer itself, as
+  the command for it prints it: what a function calls ("What does `vfs_get_tree()` call?"), how
+  one function reaches another ("How does `submit_bio()` get to `blk_mq_submit_bio()`?", with
+  the place of every hop), and where a member is written ("Which functions set the `mnt_ns`
+  field of `struct mount`?"). The question is read from the shape of the sentence, in a prompt
+  of up to 2,000 bytes. A search for a call path that takes more than half a second of work is
+  given up, and a path that is not found is not mentioned.
+- Where a name has several definitions (one per architecture, one per driver) and a word of
+  the same sentence is a directory of exactly one of them, the card is about that one and says
+  how it was picked: "of 22 definitions of `copy_thread`, the one whose path has `x86`, a word
+  of the prompt". Without such a word there is no card. For a slot of an operations table, the
+  same words pick its bindings: "of its 104 bindings, under `ext4`: `ext4_file_read_iter`".
 - For a prompt that quotes a message (an error text, a log line): the line that writes it, the
   function around that line and who calls it. Only when the words stand in one string literal
   of the source and in no other file.
