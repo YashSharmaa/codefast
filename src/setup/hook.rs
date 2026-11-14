@@ -1604,8 +1604,9 @@ fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id:
     let mut docs = crate::query::card::Docs::new(&ix);
     // Names written as code first, tests last: a failing test is where the agent starts
     // anyway, the function it is about is what it has to find.
+    // And first of all what the prompt is about: the thing whose definition it writes out.
     let mut order: Vec<&Mention> = found.symbols.iter().collect();
-    order.sort_by_key(|m| (m.name.starts_with("test") || m.name.starts_with("Test"), !m.explicit));
+    order.sort_by_key(|m| (m.name.starts_with("test") || m.name.starts_with("Test"), !found.subjects.contains(&m.name), !m.explicit));
     let mut sent = 0;
     let mut tests_sent = 0;
     // The prompt wrote a function of this repository as code: in backticks, with its

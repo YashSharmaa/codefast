@@ -51,6 +51,9 @@ pub struct Mentions {
     pub symbols: Vec<Mention>,
     /// The renames a prompt asks for, where it says both names: "`Step` to `Action`".
     pub renames: Vec<Rename>,
+    /// The symbols the prompt is about: a name whose definition the prompt writes out in a
+    /// code block and also speaks of in its own words ("`FromFile` takes the goals").
+    pub subjects: Vec<String>,
     /// Words that look like file paths (`pkg/collection.go`, `collection.go`).
     pub paths: Vec<String>,
     /// The prompt asks for something to be renamed.
@@ -514,6 +517,33 @@ fn sentence(out: &mut Mentions, text: &str, ask: bool) {
     }
 }
 
+/// The thing a line of a code block defines, where the line begins a definition: `func
+/// FromFile(f *File, goals []string) *Graph`, `def expand(rule)`, `func (g *Graph) Order(`.
+fn defined_by(line: &str) -> Option<(Option<String>, String)> {
+    let mut t = line.trim_start();
+    for lead in ["export ", "default ", "pub ", "pub(crate) ", "public ", "private ", "protected ", "internal ", "static ", "async ", "abstract ", "final "] {
+        t = t.strip_prefix(lead).unwrap_or(t);
+    }
+    let kw = ["func ", "def ", "fn ", "function ", "class ", "struct ", "type ", "interface ", "trait ", "enum "].into_iter().find(|k| t.starts_with(k))?;
+    let mut rest = &t[kw.len()..];
+    let mut owner = None;
+    // A Go method names its receiver first.
+    if kw == "func " && rest.starts_with('(') {
+        let close = rest.find(')')?;
+        owner = rest[1..close].split_whitespace().last().map(|r| r.trim_start_matches('*').to_string()).filter(|r| is_ident(r));
+        rest = rest[close + 1..].trim_start();
+    }
+    let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '$')).collect();
+    (is_ident(&name) && name.len() >= 2).then_some((owner, name))
+}
+
+/// How often `name` stands in `text` as a word of its own.
+fn occurrences(text: &str, name: &str) -> u32 {
+    let b = text.as_bytes();
+    let part = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+    text.match_indices(name).filter(|(i, _)| (*i == 0 || !part(b[i - 1])) && b.get(i + name.len()).is_none_or(|c| !part(*c))).count() as u32
+}
+
 /// The symbols and paths a prompt names, in the order they appear.
 pub fn mentions(prompt: &str) -> Mentions {
     let mut end = prompt.len().min(MAX_PROMPT);
@@ -524,6 +554,29 @@ pub fn mentions(prompt: &str) -> Mentions {
     let mut out = Mentions::default();
     out.rename = text.split(|c: char| !c.is_alphanumeric()).any(|w| ["rename", "renames", "renamed", "renaming"].iter().any(|r| w.eq_ignore_ascii_case(r)));
     phrases(&mut out, text);
+    // What a code block of the prompt defines is what the prompt is about: a signature that
+    // is to change, a function that is to be written.
+    // A report quotes code of its own in such blocks too, so the name has to stand in the
+    // prose as well.
+    let mut fenced = false;
+    let mut prose = String::with_capacity(text.len());
+    let mut defined: Vec<(Option<String>, String)> = Vec::new();
+    for line in text.lines() {
+        if line.trim_start().starts_with("```") {
+            fenced = !fenced;
+        } else if !fenced {
+            prose.push_str(line);
+            prose.push('\n');
+        } else if let Some(d) = defined_by(line) {
+            defined.push(d);
+        }
+    }
+    for (owner, name) in defined {
+        if occurrences(&prose, &name) > 0 && !out.subjects.contains(&name) {
+            push(&mut out, Mention { owner, name: name.clone(), explicit: true, is_type: false });
+            out.subjects.push(name);
+        }
+    }
     // Backtick spans first: what the author marked as code.
     let mut rest = text;
     let mut plain = String::with_capacity(text.len());
@@ -533,8 +586,15 @@ pub fn mentions(prompt: &str) -> Mentions {
         let after = &rest[a + 1..];
         match after.find('`') {
             Some(b) if b <= 160 && !after[..b].contains('\n') => {
+                // One word in backticks is a name. Several are a line of something (a
+                // command, a line of a build file, a signature): of those only a word that
+                // is called, or shaped like code, names a symbol.
+                let single = after[..b].split_whitespace().count() == 1;
                 for w in after[..b].split_whitespace() {
-                    word(&mut out, w, true);
+                    match w.find('(').filter(|_| !single) {
+                        Some(i) if i > 0 => word(&mut out, &format!("{}()", &w[..i]), false),
+                        _ => word(&mut out, w, single),
+                    }
                 }
                 rest = &after[b + 1..];
             }
@@ -645,6 +705,22 @@ mod tests {
         // A member that is read, or a set that is a noun, is not that question.
         assert_eq!(asks("Which functions read the mnt_ns field of struct mount?"), []);
         assert_eq!(asks("What is the set of flags in struct mount?"), []);
+    }
+
+    #[test]
+    fn what_a_prompt_is_about() {
+        let text = "## Interface changes\n\n```go\n// package graph, replaces FromFile(f *parse.File) *Graph\nfunc FromFile(f *parse.File, goals []string) *Graph\n```\n\nEvery caller passes its goals: `plan.Make` passes the goals it got from `DefaultGoals`, and `cycles` passes none.\n\nAfter its two passes, `FromFile` takes the goals in the given order.";
+        let m = mentions(text);
+        assert_eq!(m.subjects, ["FromFile"], "{:?}", m.symbols);
+        assert!(m.symbols.iter().any(|s| s.name == "FromFile" && s.explicit), "{:?}", m.symbols);
+        // A Go method in a code block comes with its receiver.
+        let m = mentions("`Order` gets a second result:\n```go\nfunc (g *Graph) Order(goals []string) ([]string, error)\n```");
+        assert!(m.symbols.contains(&Mention { owner: Some("Graph".into()), name: "Order".into(), explicit: true, is_type: false }), "{:?}", m.symbols);
+        // Code a report quotes without speaking of it is the reporter's, not the subject.
+        assert!(mentions("This fails:\n```python\ndef clean(self):\n    return 1\n```\nwith a traceback.").subjects.is_empty());
+        // A line of a build file in backticks names no symbol, a call in one does.
+        assert_eq!(names("- `all: a b # main` has the dependencies `a` and `b`"), Vec::<String>::new());
+        assert_eq!(names("the line `result = parse_all(text, strict)` fails"), ["parse_all!"]);
     }
 
     #[test]
