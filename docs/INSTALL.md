@@ -873,11 +873,11 @@ In Claude Code three notes go to you and not to the model, so they cost no token
 are those of the model the conversation runs on. Each is said once per occasion, and
 `CODEFAST_COST_NOTES=off` turns them off:
 
-- When a conversation is so long that a compaction would pay for itself within ten requests:
-  what every request now pays to read it again, and after how many requests a `/compact` has
-  paid for itself. With the one-hour cache that is from 230,000 tokens at the default prices,
-  from 370,000 on Claude Opus 5.5 and Sonnet 5.5 and from 660,000 on Claude Fable 5.2, where a
-  cache read costs less. It comes back each time the conversation has grown by another 100,000
+- When a conversation is so long that a compaction would pay for itself within fifteen
+  requests: what every request now pays to read it again, and after how many requests a
+  `/compact` has paid for itself. With the one-hour cache that is from 170,000 tokens at the
+  default prices, from 270,000 on Claude Opus 5.5 and Sonnet 5.5 and from 450,000 on Claude
+  Fable 5.2, where a cache read costs less. It comes back each time the conversation has grown by another 100,000
   tokens. `CODEFAST_CARRY=N` sets another length.
 - When a conversation on Claude Haiku 5.5 comes within a fifth of 100,000 tokens, and again when
   it is over: that a request whose prompt is over that length pays five times the price for

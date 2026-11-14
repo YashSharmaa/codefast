@@ -56,7 +56,7 @@ const RESENT_TOKENS: u64 = 50_000;
 const START_TOKENS: u64 = 25_000;
 /// The hooks speak of a long conversation from where a compaction would pay for itself within
 /// this many requests ([`carry_from`]).
-const PAYBACK: f64 = 10.0;
+const PAYBACK: f64 = 15.0;
 /// The lengths at which an earlier compaction is tried for a session (`--carry N` tries one).
 const WINDOWS: [u64; 7] = [150_000, 200_000, 300_000, 400_000, 500_000, 600_000, 800_000];
 /// Every compaction loses some of the conversation, so the length the report speaks of is the
@@ -175,8 +175,8 @@ impl Shape {
 
 /// The length from which a hook speaks of carrying a conversation: where the price of the model
 /// steps up, or else where a compaction of the usual shape would pay for itself within
-/// [`PAYBACK`] requests. With a one-hour cache that is 230,000 tokens at the default prices,
-/// 370,000 where a cache read is 0.05 and 660,000 where it is 0.025.
+/// [`PAYBACK`] requests. With a one-hour cache that is 170,000 tokens at the default prices,
+/// 270,000 where a cache read is 0.05 and 450,000 where it is 0.025.
 pub fn carry_from(w: &Weights, resend: f64) -> u64 {
     if let Some(tier) = w.tier {
         return tier.over;
@@ -1910,7 +1910,9 @@ fn by_cause(cold: &[Cold]) -> String {
         }
         let fell = of.iter().filter(|x| x.fallback).count();
         let note = if fell > 0 { format!(", {fell} after a model fallback") } else { String::new() };
-        parts.push(format!("{} {} ({}{note})", of.len(), c.words(), short(of.iter().map(|x| x.cost).sum())));
+        // Several switches, and several requests that were idle.
+        let words = if c == Cause::ModelSwitch && of.len() > 1 { "model switches" } else { c.words() };
+        parts.push(format!("{} {words} ({}{note})", of.len(), short(of.iter().map(|x| x.cost).sum())));
     }
     parts.join(", ")
 }
@@ -2690,16 +2692,17 @@ mod tests {
         let haiku = weights("claude-haiku-5-5");
         assert_eq!(shape.cost(&haiku, 120_000, 2.0), 5.0 * (12_000.0 + 10_000.0) + 20_000.0);
         assert!((shape.saves(&haiku, 120_000) - 0.1 * (600_000.0 - 30_000.0)).abs() < 1e-6);
-        // From where carrying is counted: where a compaction of the usual shape pays for itself
-        // within ten requests, which follows the price of a cache read, or where the price steps.
+        // From where a hook speaks of carrying: where a compaction of the usual shape pays for
+        // itself within fifteen requests, which follows the price of a cache read, or where the
+        // price steps.
         assert_eq!(Shape::typical(None), Shape { summary: 6_000, resent: 50_000, left: 75_000 });
-        assert_eq!(carry_from(&DEFAULT_WEIGHTS, 2.0), 230_000);
-        assert_eq!(carry_from(&DEFAULT_WEIGHTS, 1.25), 190_000);
-        assert_eq!(carry_from(&weights("claude-opus-5-5"), 2.0), 370_000);
-        assert_eq!(carry_from(&weights("claude-fable-5-2"), 2.0), 660_000);
+        assert_eq!(carry_from(&DEFAULT_WEIGHTS, 2.0), 170_000);
+        assert_eq!(carry_from(&DEFAULT_WEIGHTS, 1.25), 150_000);
+        assert_eq!(carry_from(&weights("claude-opus-5-5"), 2.0), 270_000);
+        assert_eq!(carry_from(&weights("claude-fable-5-2"), 2.0), 450_000);
         assert_eq!(carry_from(&haiku, 2.0), 100_000);
         let at = |w: &Weights| Shape::typical(None).pays_after(w, carry_from(w, 2.0), 2.0).unwrap();
-        assert!((at(&DEFAULT_WEIGHTS) - 10.0).abs() < 0.2 && (at(&weights("claude-fable-5-2")) - 10.0).abs() < 0.2);
+        assert!((at(&DEFAULT_WEIGHTS) - 15.0).abs() < 0.6 && (at(&weights("claude-fable-5-2")) - 15.0).abs() < 0.6);
         assert_eq!((median(vec![]), median(vec![9, 1, 5]), median(vec![4, 10])), (None, Some(5), Some(7)));
         assert_eq!((summary_tokens(Some(7_000), None), summary_tokens(None, Some(1_000_000)), summary_tokens(None, Some(16_000))), (2_000, 6_000, 2_000));
     }
@@ -2899,6 +2902,12 @@ mod tests {
         carried_finding(&carry, "Carried context", "requests", "Advice.", &mut |_, text| lines.push(text.to_string()));
         assert_eq!(lines[0], "Carried context: 5 of 10 requests (50%) carried more than 400k tokens, at most 900k.");
         assert_eq!((lines[2].as_str(), lines[3].as_str()), ("At 200k: 6 more compactions, about 10k less in all.", "Advice."));
+        let cold = |cause: Cause| Cold { session: String::new(), at: None, cause, fallback: false, before: 0, gap_ms: None, cost: 1_000.0, reason: None };
+        assert_eq!(
+            by_cause(&[cold(Cause::ModelSwitch), cold(Cause::IdleFive), cold(Cause::ModelSwitch)]),
+            "2 model switches (2k), 1 idle for more than five minutes (1k)"
+        );
+        assert_eq!(by_cause(&[cold(Cause::ModelSwitch)]), "1 model switch (1k)");
         // A session of a model whose price steps is tried at that step, with that finding.
         let mut stepped = Stats::new(Kind::ClaudeCode, None);
         let haiku = |minute: i64, usage: Usage| req("claude-haiku-5-5", minute, usage);

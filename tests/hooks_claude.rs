@@ -371,16 +371,16 @@ fn the_owner_of_a_very_long_conversation_is_told_what_each_request_carries() {
     let (repo, home) = indexed("carried");
     let claude = [("CLAUDECODE", "1")];
     let plain = payload("claude-user-prompt", &repo.dir, &home).replace("dev_read returns -1 for a device that is open. Find out why and fix it.", "go on");
-    transcript(&home, 430_000, 1, true);
+    transcript(&home, 440_000, 1, true);
     let (said, for_model) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude));
-    assert!(said.starts_with("codefast: this conversation is 430k tokens long, and every request reads all of it again"), "{said}");
+    assert!(said.starts_with("codefast: this conversation is 440k tokens long, and every request reads all of it again"), "{said}");
     // A cache read of this model is a tenth of its input price and a fiftieth of its output price.
     assert!(said.contains("with claude-sonnet-5 that alone costs what 9k tokens of output cost, each time."), "{said}");
     assert!(said.contains("`/compact` pays for itself in about 5 requests") && said.contains("`/clear`") && said.contains("doctor sessions`"), "{said}");
     assert!(!for_model, "nothing of it is context for the model");
     hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude).assert_quiet("said once for this size");
-    transcript(&home, 470_000, 1, true);
-    hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude).assert_quiet("not again for forty thousand more");
+    transcript(&home, 460_000, 1, true);
+    hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude).assert_quiet("not again for twenty thousand more");
     transcript(&home, 540_000, 1, true);
     let (said, _) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude));
     assert!(said.contains("540k tokens long"), "{said}");
@@ -411,23 +411,25 @@ fn the_note_about_a_long_conversation_follows_the_prices_of_its_model() {
     let claude = [("CLAUDECODE", "1")];
     let plain = payload("claude-user-prompt", &repo.dir, &home).replace("dev_read returns -1 for a device that is open. Find out why and fix it.", "go on");
     let ask = |id: &str| hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, id).as_bytes(), &claude);
-    // A cache read at 0.05: a compaction pays for itself within ten requests from 370k.
-    transcript_of(&home, "claude-opus-5-5", 300_000, 1, true);
-    ask("opus-short").assert_quiet("300k tokens on Opus 5.5");
+    // A cache read at 0.05: a compaction pays for itself within fifteen requests from 270k.
+    transcript_of(&home, "claude-opus-5-5", 250_000, 1, true);
+    ask("opus-short").assert_quiet("250k tokens on Opus 5.5");
     transcript_of(&home, "claude-opus-5-5", 430_000, 1, true);
     let (said, _) = to_user(&ask("opus"));
     assert!(said.contains("with claude-opus-5-5 that alone costs what 4k tokens of output cost") && said.contains("in about 9 requests"), "{said}");
-    // At 0.025, from 660k.
-    transcript_of(&home, "claude-fable-5-2", 600_000, 1, true);
-    ask("fable-short").assert_quiet("600k tokens on Fable 5.2");
+    // At 0.025, from 450k.
+    transcript_of(&home, "claude-fable-5-2", 400_000, 1, true);
+    ask("fable-short").assert_quiet("400k tokens on Fable 5.2");
     transcript_of(&home, "claude-fable-5-2", 720_000, 1, true);
     let (said, _) = to_user(&ask("fable"));
     assert!(said.contains("720k tokens long") && said.contains("with claude-fable-5-2 that alone costs what 4k tokens of output cost") && said.contains("in about 10 requests"), "{said}");
     // A session that writes to the five-minute cache pays less to send what a compaction
-    // leaves: from 190k at the default prices.
-    transcript(&home, 200_000, 1, false);
+    // leaves: from 150k at the default prices, where the one-hour cache has it from 170k.
+    transcript(&home, 160_000, 1, true);
+    ask("one-hour-short").assert_quiet("160k tokens with the one-hour cache");
+    transcript(&home, 160_000, 1, false);
     let (said, _) = to_user(&ask("five-minutes"));
-    assert!(said.contains("200k tokens long"), "{said}");
+    assert!(said.contains("160k tokens long"), "{said}");
 }
 
 /// The price of Claude Haiku 5.5 steps up for a prompt over 100,000 tokens: the person is told

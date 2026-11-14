@@ -47,7 +47,7 @@
 //! `CODEFAST_HOOKS=off` (or `0`, `false`, `no`) turns all three events off.
 //! `CODEFAST_COST_NOTES=off` keeps the hooks and drops the notes to the person, and
 //! `CODEFAST_CARRY` is the size in tokens from which a long conversation is spoken of (default:
-//! where a compaction would pay for itself within ten requests at the prices of the model).
+//! where a compaction would pay for itself within fifteen requests at the prices of the model).
 //! `CODEFAST_HOOK_BUDGET_MS` is how long `post-tool-use` may wait for the caller summary
 //! (default 50; the definition line goes out either way). `--root`, `CODEFAST_ROOT`,
 //! `CODEFAST_INDEX_DIR` and `CODEFAST_NO_REFRESH` mean what they mean for every other command:
