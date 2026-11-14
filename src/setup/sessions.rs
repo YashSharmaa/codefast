@@ -546,6 +546,15 @@ pub struct Last {
 /// The last main-thread request of the transcript at `path`, found from the end of the file:
 /// a transcript can be a hundred megabytes, and a hook has no time to read it.
 pub fn last_request(path: &Path) -> Option<Last> {
+    last_of(path, false)
+}
+
+/// The same for a sub-agent's own transcript, in which every request is the agent's.
+pub fn last_agent_request(path: &Path) -> Option<Last> {
+    last_of(path, true)
+}
+
+fn last_of(path: &Path, agent: bool) -> Option<Last> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = std::fs::File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
@@ -562,7 +571,7 @@ pub fn last_request(path: &Path) -> Option<Last> {
                 continue;
             }
             let Ok(v) = serde_json::from_slice::<Value>(line) else { continue };
-            if v["type"] != "assistant" || v["isSidechain"] == true || v["message"]["model"] == "<synthetic>" {
+            if v["type"] != "assistant" || (!agent && v["isSidechain"] == true) || v["message"]["model"] == "<synthetic>" {
                 continue;
             }
             let u = usage(&v["message"]["usage"]);

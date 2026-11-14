@@ -20,6 +20,11 @@
 //! definitions the uncommitted changes added, removed and altered: what the session did so far,
 //! in a few lines, at the moment its own record of it was summarised away.
 //!
+//! One note about cost goes to the model as well, because the model is what can act on it: a
+//! command that ran longer than the prompt cache of its conversation lives, after which the next
+//! request sends the whole conversation again. A sub-agent of Claude Code writes to the
+//! five-minute cache, so for it that is any command of five minutes.
+//!
 //! Three notes are for the person at the keyboard and never reach the model (Claude Code's
 //! `systemMessage`): that a conversation has grown so long that every request pays a good deal
 //! to read it again, that a conversation's prompt cache has run out, so that the next request
@@ -142,6 +147,9 @@ const CARRY_NOTE_STEP: u64 = 100_000;
 /// A conversation that has come this near to the length where the price of its model steps up
 /// is told so before it gets there.
 const STEP_NOTE_NEAR: f64 = 0.8;
+/// A command that outlived the prompt cache of a conversation smaller than this is not worth a
+/// word to the model.
+const OUTLIVED_FROM: u64 = 30_000;
 /// How long a prompt cache lives after the last request, with what the harness takes to send
 /// the next one left off: the one-hour cache and the five-minute cache.
 const CACHE_HOUR: Duration = Duration::from_secs(55 * 60);
@@ -268,7 +276,7 @@ fn value_end(b: &[u8], i: usize) -> Option<usize> {
 }
 
 const WANTED: &[&str] =
-    &["session_id", "conversation_id", "agent_id", "cwd", "workspace_roots", "hook_event_name", "tool_name", "tool_input", "tool_response", "tool_output", "cursor_version", "prompt", "source", "transcript_path", "context_tokens", "prompt_cache_likely_expired", "seconds_since_last_response", "estimated_cache_write_usd", "model"];
+    &["session_id", "conversation_id", "agent_id", "cwd", "workspace_roots", "hook_event_name", "tool_name", "tool_input", "tool_response", "tool_output", "cursor_version", "prompt", "source", "transcript_path", "context_tokens", "prompt_cache_likely_expired", "seconds_since_last_response", "estimated_cache_write_usd", "model", "duration_ms"];
 
 /// The wanted members of the payload's top-level object, as raw JSON text. Everything else is
 /// stepped over without being parsed. `None` unless the input is one JSON object and nothing
@@ -360,6 +368,8 @@ struct Payload {
     cold_usd: Option<f64>,
     /// The model the session starts on (`SessionStart`), where the harness says.
     model: Option<String>,
+    /// How long the tool call took, in milliseconds (`PostToolUse`).
+    duration_ms: Option<u64>,
     /// Cursor's hook protocol: flat, snake-case output.
     cursor: bool,
 }
@@ -399,6 +409,7 @@ impl Payload {
                 "seconds_since_last_response" => p.resumed.2 = raw.trim().parse::<f64>().ok().map(|x| x.max(0.0) as u64),
                 "estimated_cache_write_usd" => p.cold_usd = raw.trim().parse::<f64>().ok().filter(|x| x.is_finite() && *x > 0.0),
                 "model" => p.model = string(raw),
+                "duration_ms" => p.duration_ms = raw.trim().parse::<f64>().ok().filter(|x| x.is_finite() && *x >= 0.0).map(|x| x as u64),
                 "cursor_version" => p.cursor = true,
                 _ => {}
             }
@@ -422,6 +433,24 @@ impl Payload {
             }
             _ => plain,
         }
+    }
+
+    /// `reply` with `more` added to what it says to the model, and `to_user` for the person.
+    /// `reply` may be empty. Harnesses without both channels keep `reply` as it is.
+    fn joined(&self, event: Event, reply: String, more: &str, to_user: Option<&str>) -> String {
+        if self.cursor {
+            return reply;
+        }
+        if reply.is_empty() {
+            return self.reply_with(event, more, to_user);
+        }
+        let Ok(Value::Object(mut o)) = serde_json::from_str::<Value>(&reply) else { return reply };
+        let Some(said) = o.get_mut("hookSpecificOutput").and_then(|h| h.get_mut("additionalContext")) else { return reply };
+        *said = Value::String(format!("{}\n\n{more}", said.as_str().unwrap_or_default()));
+        if let Some(msg) = to_user {
+            o.insert("systemMessage".to_string(), Value::String(msg.to_string()));
+        }
+        format!("{}\n", Value::Object(o))
     }
 
     /// A line for the person at the keyboard alone: nothing of it reaches the model.
@@ -1068,6 +1097,70 @@ fn resume_note(place: &Place, payload: &Payload) -> Option<String> {
     let model = payload.model.clone().filter(|m| m.contains("claude-")).or(last.map(|l| l.model)).or(payload.model.clone()).unwrap_or_default();
     let session = Session::open(place, payload.session.as_deref())?;
     session.claim(&format!("resumed {}", idle / 60)).then(|| cold_note(&model, context, idle, true, true, payload.cold_usd))
+}
+
+/// Where Claude Code keeps the transcript of the sub-agent `agent` of the session whose
+/// transcript is `main`: beside it, or one or two directories down for an agent a workflow
+/// started. The id comes from the payload and must not choose a path.
+fn agent_transcript(main: &Path, agent: &str) -> Option<PathBuf> {
+    if agent.is_empty() || agent.len() > 80 || !agent.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+        return None;
+    }
+    let name = format!("agent-{agent}.jsonl");
+    let mut dirs = vec![main.with_extension("").join("subagents")];
+    for depth in 0..3 {
+        let mut next = Vec::new();
+        for dir in &dirs {
+            let file = dir.join(&name);
+            if file.is_file() {
+                return Some(file);
+            }
+            if depth < 2 {
+                next.extend(std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).take(200));
+            }
+        }
+        dirs = next;
+    }
+    None
+}
+
+/// A tool call that ran longer than the prompt cache of its conversation lives: the request
+/// that follows sends the whole conversation again at the price of new input. Said once per
+/// conversation, at the moment it costs, to the model, which is what can run the next long
+/// command in the background, and to the person where the conversation is the main thread's.
+/// Nothing is said where the transcript does not show which cache the conversation writes to.
+fn outlived_note(passed: &Path, payload: &Payload) -> Option<(String, bool)> {
+    if std::env::var_os("CLAUDECODE").is_none() || cost_notes_off() {
+        return None;
+    }
+    let ran = Duration::from_millis(payload.duration_ms?);
+    if ran < Duration::from_secs(300) {
+        return None;
+    }
+    let main = Path::new(payload.transcript.as_deref()?);
+    let last = match payload.agent.as_deref() {
+        None => super::sessions::last_request(main)?,
+        Some(agent) => super::sessions::last_agent_request(&agent_transcript(main, agent)?)?,
+    };
+    let one_hour = last.one_hour?;
+    let lives = Duration::from_secs(if one_hour { 3600 } else { 300 });
+    if ran < lives || last.context < OUTLIVED_FROM {
+        return None;
+    }
+    let place = Place::find(passed, payload.cwd.as_deref())?;
+    if !Session::open(&place, payload.audience().as_deref())?.claim("outlived") {
+        return None;
+    }
+    let w = super::sessions::weights(&last.model);
+    let times = if one_hour { w.write_1h } else { w.write_5m } / w.cache_read;
+    let note = format!(
+        "codefast: that command ran for {}, and this conversation's prompt cache lives {}: the next request sends the conversation's {} tokens again as new input, {}about {times:.0} times what a warm request pays for them. A long command costs less run in the background and looked at every few minutes.",
+        idle_text(ran.as_secs()),
+        if one_hour { "an hour" } else { "5 minutes" },
+        super::sessions::short(last.context as f64),
+        with_model(&last.model)
+    );
+    Some((note, payload.agent.is_none()))
 }
 
 // ----- user-prompt-submit -----
@@ -2213,7 +2306,13 @@ pub(super) fn run(passed: &Path, event: &str, input: &str) -> String {
     match event {
         Event::SessionStart => session_start(passed, &payload),
         Event::UserPromptSubmit => user_prompt(passed, &payload, started),
-        Event::PostToolUse => post_tool_use(passed, &payload, started),
+        Event::PostToolUse => {
+            let reply = post_tool_use(passed, &payload, started);
+            match outlived_note(passed, &payload) {
+                Some((note, to_user)) => payload.joined(event, reply, &note, to_user.then_some(note.as_str())),
+                None => reply,
+            }
+        }
         Event::PreToolUse => pre_tool_use(passed, &payload, started),
         Event::Refresh => String::new(),
     }

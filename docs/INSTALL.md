@@ -890,6 +890,16 @@ are those of the model the conversation runs on. Each is said once per occasion,
   resuming, the harness's own estimate in dollars is passed on where it gives one. `/clear` or a
   new session avoids it when the next job does not need the history.
 
+One more goes to the model as well as to you, because the model is what can act on it. When a
+command has run longer than the prompt cache of its conversation lives, the request that follows
+sends the whole conversation again at the price of new input. The hook after the command says so
+once for a conversation of 30,000 tokens or more, with how long the command ran and what the
+resend costs, and that a long command costs less run in the background and looked at every few
+minutes. For the main thread that is a command of an hour, or of five minutes where the
+transcript shows the five-minute cache. A sub-agent of Claude Code writes to the five-minute
+cache, so for it that is any build or test run of five minutes. The hook reads which cache it is
+from the conversation's own transcript and says nothing where that does not show it.
+
 `codefast doctor sessions` gives the same figures after the fact, for every session of the
 project.
 

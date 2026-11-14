@@ -466,6 +466,76 @@ fn the_owner_is_told_where_the_price_of_the_model_steps_up() {
     assert!(!said.contains("pays for itself"), "{said}");
 }
 
+/// A command that runs longer than the prompt cache of its conversation lives costs the whole
+/// conversation again. The model is told when it has happened, because the model is what can
+/// run the next one in the background, and the person is told beside it. A sub-agent of Claude
+/// Code writes to the five-minute cache, so a build of seven minutes is such a command for it.
+#[test]
+fn a_command_that_outlived_the_prompt_cache_is_said_at_once() {
+    let (repo, home) = indexed("outlived");
+    let claude = [("CLAUDECODE", "1")];
+    let slow = |id: &str, minutes: u64| {
+        let mut v: serde_json::Value = serde_json::from_str(&in_session(&payload("claude-post-bash-grep", &repo.dir, &home), id)).unwrap();
+        v["tool_input"]["command"] = serde_json::json!("make check");
+        v["tool_response"]["stdout"] = serde_json::json!("all 212 checks passed");
+        v["duration_ms"] = serde_json::json!(minutes * 60_000);
+        v
+    };
+    let run = |v: &serde_json::Value| hook(&home, &repo.dir, "post-tool-use", v.to_string().as_bytes(), &claude);
+    let for_model = |ran: &Ran| serde_json::from_str::<serde_json::Value>(&ran.stdout).unwrap()["hookSpecificOutput"]["additionalContext"].as_str().unwrap_or_default().to_string();
+
+    // A conversation on the five-minute cache, and a command of seven minutes.
+    transcript(&home, 150_000, 1, false);
+    let ran = run(&slow("five", 7));
+    let (said, _) = to_user(&ran);
+    assert_eq!(
+        said,
+        "codefast: that command ran for 7 minutes, and this conversation's prompt cache lives 5 minutes: the next request sends the conversation's 150k tokens again as new input, with claude-sonnet-5 about 12 times what a warm request pays for them. A long command costs less run in the background and looked at every few minutes."
+    );
+    assert_eq!(for_model(&ran), said, "the model is told the same");
+    run(&slow("five", 9)).assert_quiet("once for a conversation");
+    // Four minutes are inside that cache, seven are inside the one-hour cache, and a small
+    // conversation costs little to send again.
+    run(&slow("short", 4)).assert_quiet("four minutes");
+    transcript(&home, 150_000, 1, true);
+    run(&slow("hour", 7)).assert_quiet("seven minutes with the one-hour cache");
+    let ran = run(&slow("long", 61));
+    assert!(for_model(&ran).contains("ran for 1 hour 1 minutes, and this conversation's prompt cache lives an hour"), "{}", ran.stdout);
+    transcript(&home, 20_000, 1, false);
+    run(&slow("small", 7)).assert_quiet("a small conversation");
+    hook(&home, &repo.dir, "post-tool-use", slow("off", 7).to_string().as_bytes(), &[("CLAUDECODE", "1"), ("CODEFAST_COST_NOTES", "off")]).assert_quiet("switched off");
+    hook(&home, &repo.dir, "post-tool-use", slow("elsewhere", 7).to_string().as_bytes(), &[]).assert_quiet("not Claude Code");
+
+    // A sub-agent's conversation is its own. Without its transcript nothing is known of it.
+    transcript(&home, 150_000, 1, true);
+    let mut agent = slow("agents", 7);
+    agent["agent_id"] = serde_json::json!("a1b2c3");
+    run(&agent).assert_quiet("an agent whose transcript is not there");
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let line = serde_json::json!({"type": "assistant", "isSidechain": true, "timestamp": rfc3339(now - 480), "message": {"id": "msg_a", "model": "claude-opus-5-5", "usage": {
+        "input_tokens": 2, "cache_read_input_tokens": 79_000, "cache_creation_input_tokens": 998, "output_tokens": 0,
+        "cache_creation": {"ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 998}}}});
+    let session = home.join(".claude/projects/-work-project/0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11");
+    write(&session.join("subagents/workflows/run-7/agent-a1b2c3.jsonl"), &format!("{line}\n"));
+    let ran = run(&agent);
+    assert_eq!(
+        ran.context("PostToolUse"),
+        "codefast: that command ran for 7 minutes, and this conversation's prompt cache lives 5 minutes: the next request sends the conversation's 80k tokens again as new input, with claude-opus-5-5 about 25 times what a warm request pays for them. A long command costs less run in the background and looked at every few minutes."
+    );
+    run(&agent).assert_quiet("once for an agent");
+    // An agent id that is no name of a file finds nothing.
+    agent["agent_id"] = serde_json::json!("../../x");
+    run(&agent).assert_quiet("an id with a path in it");
+
+    // A search that took as long gets its own note and this one after it.
+    transcript(&home, 150_000, 1, false);
+    let mut grep: serde_json::Value = serde_json::from_str(&in_session(&payload("claude-post-bash-grep", &repo.dir, &home), "search")).unwrap();
+    grep["duration_ms"] = serde_json::json!(420_000);
+    let ran = run(&grep);
+    let told = for_model(&ran);
+    assert!(told.starts_with("codefast: dev_read") && told.contains("\n\ncodefast: that command ran for 7 minutes"), "{told}");
+}
+
 /// Past the life of its prompt cache, a conversation is sent again at the price of new input.
 #[test]
 fn the_owner_is_told_when_the_prompt_cache_has_run_out() {

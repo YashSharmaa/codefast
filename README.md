@@ -174,7 +174,10 @@ In Claude Code the hooks also say it at the moment it matters, to you and not to
 every request pays to read a long conversation again and how soon a `/compact` would pay for
 itself, that the next request sends everything again because the prompt cache has run out, and
 that a conversation on Claude Haiku 5.5 is about to pass the 100,000 tokens above which that model
-charges five times as much. The figures are those of the model the conversation runs on.
+charges five times as much. The figures are those of the model the conversation runs on. One of
+these facts goes to the model too, because only the model can act on it: that a command ran longer
+than the prompt cache lives, which for a sub-agent is any build of five minutes, and that the next
+long one costs less run in the background.
 
 `codefast doctor context` is the other half: what your plugins, skills, MCP servers and
 instruction files add to every request, and the setting that switches each off for this project.
