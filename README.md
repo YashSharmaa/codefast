@@ -43,6 +43,10 @@ Measured so far (the tables are under [Results](#results)):
   median of 155 tokens per answer. Best-case ripgrep: 0.89, two calls, 384 tokens.
 - **Fast and exact.** The whole Linux kernel indexes in 8 s. The call graph agrees with compilers
   at a precision of 0.982 to 1.000 on five repositories.
+- **Writing code takes a fifth fewer steps.** Asked to write again a function whose body was taken
+  out, a session makes 5.9 requests where it made 7.5 and costs 0.95 of the control, and what it
+  wrote passes the tests of its package in all 64 sessions, 32 of each arm. What it saves is the
+  looking up, not the writing: the code the model writes is as long either way.
 - **A bug fix costs nothing extra, now that the guessing is out.** 0.93 of the control with the
   failing tests given, every one still fixed, and 0.92 from the issue text alone, each over four
   runs per task and arm. The median task of either family is level with its control, so read those
@@ -200,7 +204,7 @@ raw results are in `bench/results/`.
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/live-sessions-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/live-sessions-light.svg">
-    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Who calls this method: 0.30. The same question in TypeScript: 0.53. Four such questions in one session: 0.15. Where does this error come from: 0.63. Rename a Go method everywhere: 0.51. A question about the Linux kernel: 0.86. Fix a bug, failing tests given: 0.93. Fix a bug from the issue text alone: 0.92." src="docs/assets/live-sessions-light.svg" width="880">
+    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Who calls this method: 0.30. The same question in TypeScript: 0.53. Four such questions in one session: 0.15. Where does this error come from: 0.63. Rename a Go method everywhere: 0.51. A question about the Linux kernel: 0.86. Write a function that was taken out: 0.95. Fix a bug, failing tests given: 0.93. Fix a bug from the issue text alone: 0.92." src="docs/assets/live-sessions-light.svg" width="880">
   </picture>
 </p>
 
@@ -213,10 +217,12 @@ protocol.
 
 **Held-out tasks.** These were set aside while the build was made and run once it was final:
 questions and renames in go-git, a repository codefast had never been run on, error messages of
-go-git and syft, kernel questions that no session had used, and the bug-fix tasks not used before.
-Two runs per task and arm, and four on the two bug-fix families (`bench/results/live-heldout-
-haiku.jsonl`). The two bug-fix rows were measured again on the build released here, the rest on
-0.2.2, whose hooks answer those shorter prompts in exactly the same way.
+go-git and syft, kernel questions that no session had used, the bug-fix tasks not used before, and
+functions of gitleaks to write again, which no build was looked at on. Two runs per task and arm,
+and four on the code-writing family and the two bug-fix families (`bench/results/live-heldout-
+haiku.jsonl`). The code-writing row and the two bug-fix rows were measured on the build released
+here, the TypeScript row on 0.2.6 and the rest on 0.2.2, whose hooks answer those shorter prompts
+in exactly the same way.
 
 | Task | Tasks | Right, without and with | Requests | Tool output read, characters | Cost with codefast | Cheaper in |
 |---|---:|---|---|---|---:|---:|
@@ -226,6 +232,7 @@ haiku.jsonl`). The two bug-fix rows were measured again on the build released he
 | **Where does this error come from?**<br>An error text of go-git or syft: which function creates it, and who calls that function. Checked against the type checker's call graph | 12 | 0.99 and 1.00 | 5.8 and 3.4 | 4.4k and 4.2k | **0.63** | 11 of 12 |
 | **Rename a Go method everywhere**<br>In go-git, where other types have a method of the same name. Checked by the compiler and by what was renamed | 10 | 10 of 10 in each arm | 9.3 and 5.4 | 19.7k and 8.2k | **0.51** | 9 of 10 |
 | **A question about the Linux kernel**<br>18 of the 72 verified questions, none used in a session before | 18 | 0.93 and 0.96 | 4.1 and 3.1 | 4.6k and 4.8k | **0.86** | 12 of 18 |
+| **Write a function that was taken out**<br>8 functions of gitleaks whose body is replaced by a panic. Checked by running the tests of their package | 8 | 8 of 8 in each arm | 7.5 and 5.9 | 14.8k and 15.3k | **0.95** | 6 of 8 |
 | **Fix a bug, failing tests given**<br>Issues of Django and sqlglot. Checked by running the tests of the real fix | 15 | 15 of 15 in each arm | 6.3 and 5.8 | 12.7k and 10.5k | **0.93** | 9 of 15 |
 | **Fix a bug from the issue text alone**<br>The same issues without their tests. Checked afterwards against the tests of the real fix | 15 | 7.5 and 7.2 of 15 solved | 7.1 and 6.5 | 9.9k and 9.1k | **0.92** | 6 of 15 |
 
@@ -235,14 +242,17 @@ sent again with every later request. The gain is largest where a text search giv
 answer: a method whose name several types share, a message that could be written anywhere in the
 tree, a rename that has to find every call. Where a failing test already points at the line, or
 the code is in the model's memory as the kernel is, the agent takes the same steps with or
-without codefast. Fixing a bug is mostly the model's own work, and an index shortens the finding
-and not the fixing: with the tests given a fix costs 0.93 of the control and from the
-issue text alone 0.92, each pooled over four runs. The median task of either family is
-level with its control, so what the total saves comes from the long sessions, the ones where the
-agent would otherwise have gone looking. A card that guessed where the fix belonged from the
-words of the report made both families worse and was taken out. The agent reached for codefast
-of its own accord in 60 of the 63 held-out tasks about structure and in
-3 of the 30 bug-fix tasks, with no word about it in the prompt.
+without codefast. Writing a function sits in between: the plugin takes a fifth of the requests
+out (7.5 to 5.9) and 0.95 of the cost is left, because the code the model writes
+is as long either way and writing is over a third of such a session. Fixing a bug is mostly the
+model's own work, and an index shortens the finding and not the fixing: with the tests given a
+fix costs 0.93 of the control and from the issue text alone 0.92, each pooled over
+four runs. The median task of either family is level with its control, so what the total saves
+comes from the long sessions, the ones where the agent would otherwise have gone looking. A card
+that guessed where the fix belonged from the words of the report made both families worse and
+was taken out. The agent reached for codefast of its own accord in 60 of the
+63 held-out tasks about structure and in 3 of the 30 bug-fix tasks,
+with no word about it in the prompt.
 
 The same held-out tasks with Sonnet 5.5, one run per task and arm: a caller question 0.29, a
 session of four 0.23, an error traced to its origin 0.70 and a rename 0.74. The session with
@@ -482,9 +492,15 @@ hand are small, and the five languages added in 0.2.0 are the youngest.
   (0.95 on the reports it was developed on, 1.03 held out), and taking that card out again is
   what left 0.92. An arm told the file and function of the real fix for free costs 0.95,
   and one told that function with its body, callers and tests 0.86, so a push that lands is
-  worth 14% and this ranking lands on the first file 0.36 of the time. Every live figure is
-  from one harness and one model family, and single tasks vary by a factor of two
-  (`bench/tier2/LIVE.md`).
+  worth 14% and this ranking lands on the first file 0.36 of the time. The reason is in the
+  reports and not in the ranking: of 14 of them one names a file that exists, and the best
+  rule for choosing among the symbols a report names is right about the function 0.17 of the
+  time. Every live figure is from one harness and one model family, and single tasks vary by a
+  factor of two (`bench/tier2/LIVE.md`).
+* Writing code was measured as writing a function back into a project that has its callers and
+  its tests: eight functions of one Go repository. It takes a fifth of the requests out and a
+  twentieth of the cost, because what the model writes is as long either way. Writing a new
+  function into a project that has neither was not measured.
 * A rename changes what the index is sure of and lists the rest. It refuses a method that an
   interface ties to its name where it can see the tie (a declared implementation, an interface
   of the repository, the method names of Go's standard library). A Go type handed to another
