@@ -425,6 +425,7 @@ fn a_large_conversation_carried_for_long() {
     assert!(text.contains("Carried context: 22 of 31 requests (71%) carried more than 500k tokens, at most 600k.\n"), "{text}");
     assert!(text.contains("Compacting at 500k instead: 1 more compaction for about 14"), "{text}");
     assert!(text.contains(", and about 935k less to pay for after them, so about 79"), "{text}");
+    assert!(text.contains("`/autocompact 500k` moves it there: the harness compacts about 33k tokens under the window it is given.\n"), "{text}");
     assert!(!text.contains("At 300k"), "the best length is named only where it gains a tenth more: {text}");
     assert!(
         text.contains("Start a fresh session at a natural break, or compact earlier, when the context stays far above what the next step needs.\n"),
@@ -744,7 +745,9 @@ fn codex_carried_context() {
     );
     near(&c["weighted"], 215_000.0);
     near(&c["saved_reads_estimate"], 935_000.0);
-    assert!(run(&sb, &root, &[]).contains("Compacting at 500k instead: 1 more compaction for about 14"));
+    let text = run(&sb, &root, &[]);
+    assert!(text.contains("Compacting at 500k instead: 1 more compaction for about 14"), "{text}");
+    assert!(!text.contains("/autocompact"), "that is the other harness's command: {text}");
 }
 
 #[test]
@@ -843,6 +846,10 @@ fn haiku_steps_up_over_a_prompt_of_100k() {
     );
     assert!(
         text.contains("Keep a conversation with this model under 100k tokens, by starting a fresh session or compacting before it gets there.\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("`/autocompact 100k` does that for a whole conversation: the harness compacts about 33k tokens under the window it is given.\n"),
         "{text}"
     );
     assert!(!text.contains("Carried context"), "{text}");

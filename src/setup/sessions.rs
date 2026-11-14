@@ -1926,7 +1926,8 @@ fn cold_item(x: &Cold) -> String {
 
 /// The context some conversations carried and what compacting it earlier would have done:
 /// the main thread's, or the sub-agents'.
-fn carried_finding(carry: &Carry, title: &str, of: &str, advice: &str, push: &mut dyn FnMut(bool, &str)) {
+/// `setting`: say how the harness is told to compact there.
+fn carried_finding(carry: &Carry, title: &str, of: &str, advice: &str, setting: bool, push: &mut dyn FnMut(bool, &str)) {
     let Some(w) = carry.featured() else { return };
     let t = short(w.threshold as f64);
     let read = if w.gain() > 0.0 { String::new() } else { format!(" Reading the part above {t} again cost {}.", short(w.cost)) };
@@ -1953,6 +1954,9 @@ fn carried_finding(carry: &Carry, title: &str, of: &str, advice: &str, push: &mu
                     short(best.gain())
                 ),
             );
+        }
+        if setting {
+            push(false, &format!("`/autocompact {t}` moves it there: the harness compacts about 33k tokens under the window it is given."));
         }
         push(false, advice);
     }
@@ -2089,6 +2093,7 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
             "Carried context",
             "requests",
             "Start a fresh session at a natural break, or compact earlier, when the context stays far above what the next step needs.",
+            s.kind == Kind::ClaudeCode,
             &mut push,
         ),
         "agent_carried_context" => carried_finding(
@@ -2096,6 +2101,7 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
             "Carried context in sub-agents",
             "requests of sub-agents",
             "A long job costs less given to several agents in turn, each told what the last one did, than to one agent that carries it all.",
+            false,
             &mut push,
         ),
         "price_step" => {
@@ -2114,6 +2120,12 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
                 ),
             );
             push(false, &format!("Keep a conversation with this model under {over} tokens, by starting a fresh session or compacting before it gets there."));
+            if s.kind == Kind::ClaudeCode {
+                push(
+                    false,
+                    &format!("`/autocompact {over}` does that for a whole conversation: the harness compacts about 33k tokens under the window it is given."),
+                );
+            }
             if st.window.above > 0 {
                 push(false, &compacting(&st.window));
             }
@@ -2899,9 +2911,11 @@ mod tests {
         *carry.window(200_000) = Window { threshold: 200_000, requests: 10, above: 9, saved: 10_000.0, compactions: 6, ..Default::default() };
         *carry.window(400_000) = Window { threshold: 400_000, requests: 10, above: 5, saved: 8_500.0, compactions: 2, ..Default::default() };
         let mut lines = Vec::new();
-        carried_finding(&carry, "Carried context", "requests", "Advice.", &mut |_, text| lines.push(text.to_string()));
+        carried_finding(&carry, "Carried context", "requests", "Advice.", true, &mut |_, text| lines.push(text.to_string()));
         assert_eq!(lines[0], "Carried context: 5 of 10 requests (50%) carried more than 400k tokens, at most 900k.");
-        assert_eq!((lines[2].as_str(), lines[3].as_str()), ("At 200k: 6 more compactions, about 10k less in all.", "Advice."));
+        assert_eq!(lines[2], "At 200k: 6 more compactions, about 10k less in all.");
+        assert_eq!(lines[3], "`/autocompact 400k` moves it there: the harness compacts about 33k tokens under the window it is given.");
+        assert_eq!(lines[4], "Advice.");
         let cold = |cause: Cause| Cold { session: String::new(), at: None, cause, fallback: false, before: 0, gap_ms: None, cost: 1_000.0, reason: None };
         assert_eq!(
             by_cause(&[cold(Cause::ModelSwitch), cold(Cause::IdleFive), cold(Cause::ModelSwitch)]),

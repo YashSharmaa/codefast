@@ -446,7 +446,7 @@ fn the_owner_is_told_where_the_price_of_the_model_steps_up() {
     let (said, for_model) = to_user(&ask());
     assert_eq!(
         said,
-        "codefast: this conversation is 85k tokens long, and with claude-haiku-5-5 a request whose prompt is over 100k tokens pays 5 times the price for every token of it. `/compact` before it gets there, or `/clear` where the next job does not need the conversation, keeps the next requests at the lower price."
+        "codefast: this conversation is 85k tokens long, and with claude-haiku-5-5 a request whose prompt is over 100k tokens pays 5 times the price for every token of it. `/compact` before it gets there, or `/clear` where the next job does not need the conversation, keeps the next requests at the lower price. `/autocompact 100k` does it for the whole conversation."
     );
     assert!(!for_model);
     transcript_of(&home, "claude-haiku-5-5", 95_000, 1, true);
@@ -455,7 +455,7 @@ fn the_owner_is_told_where_the_price_of_the_model_steps_up() {
     let (said, _) = to_user(&ask());
     assert_eq!(
         said,
-        "codefast: this conversation is 120k tokens long, and with claude-haiku-5-5 a request whose prompt is over 100k tokens pays 5 times the price for every token of it: every request does now. `/compact` brings it back under, and so does `/clear` where the next job does not need the conversation."
+        "codefast: this conversation is 120k tokens long, and with claude-haiku-5-5 a request whose prompt is over 100k tokens pays 5 times the price for every token of it: every request does now. `/compact` brings it back under, and so does `/clear` where the next job does not need the conversation. `/autocompact 100k` keeps a conversation under it from its start."
     );
     transcript_of(&home, "claude-haiku-5-5", 150_000, 1, true);
     ask().assert_quiet("said once over it");

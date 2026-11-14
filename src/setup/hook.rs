@@ -1000,11 +1000,11 @@ fn step_note(model: &str, context: u64, tier: super::sessions::Tier) -> String {
     let rule = format!("{}a request whose prompt is over {over} tokens pays {:.0} times the price for every token of it", with_model(model), tier.times);
     if context > tier.over {
         format!(
-            "codefast: this conversation is {size} tokens long, and {rule}: every request does now. `/compact` brings it back under, and so does `/clear` where the next job does not need the conversation."
+            "codefast: this conversation is {size} tokens long, and {rule}: every request does now. `/compact` brings it back under, and so does `/clear` where the next job does not need the conversation. `/autocompact {over}` keeps a conversation under it from its start."
         )
     } else {
         format!(
-            "codefast: this conversation is {size} tokens long, and {rule}. `/compact` before it gets there, or `/clear` where the next job does not need the conversation, keeps the next requests at the lower price."
+            "codefast: this conversation is {size} tokens long, and {rule}. `/compact` before it gets there, or `/clear` where the next job does not need the conversation, keeps the next requests at the lower price. `/autocompact {over}` does it for the whole conversation."
         )
     }
 }
