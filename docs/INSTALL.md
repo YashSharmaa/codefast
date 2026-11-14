@@ -847,7 +847,7 @@ Fable 5.2 and 5.1 and Mythos 5.2 and 5.1. Claude Haiku 5.5 steps up: a request w
 much. A model the table does not name, every Codex model among them, is weighed 0.1, 1.25, 2
 and 5. The line under the title names the weights in play. Dollars are not printed, since
 prices change. The report gives the split of the main thread
-and the sub-agents' total, then each finding with its cost and share, largest first, and the one
+and of the sub-agents, then each finding with its cost and share, largest first, and the one
 thing to do about it. A finding under 1% of the total is left out.
 
 | Finding | What it counts |
@@ -857,6 +857,8 @@ thing to do about it. A finding under 1% of the total is left out.
 | compactions | manual and automatic ones, the conversation size at each, and the manual ones under 100k tokens. A compaction costs three things: a request reads the whole conversation, it writes the summary as output, and the first request after it sends what is left as new. The transcript does not record that first request, so its part is an estimate from the size of the summary. What the next request sent is measured. Codex records neither what started a compaction nor its sizes: the context of the requests either side of it stands in for them |
 | thinking | thinking tokens as a share of the output, where the transcript records them. For Codex these are `reasoning_output_tokens`, taken as a part of `output_tokens` |
 | carried context | what compacting earlier would have done, tried at seven lengths from 150k to 800k tokens (`--carry N` tries one). At each, the context drops to what the session's own compactions left (its start and 50k tokens without one) and grows again as it did, which counts the compactions more and what each request then costs less. A compaction costs what the session's own did (without one: a summary of 6k tokens and 50k sent as new). The report names the longest length that gains at least four fifths of what the best one gains, since every compaction loses some of the conversation, and the best one beside it. An estimate: it takes the work after a compaction to go as it did |
+| cold restarts in sub-agents | the same for each sub-agent that has a transcript of its own, which is a conversation of its own. A sub-agent of Claude Code writes to the five-minute cache: one that waits longer than that on a command sends its whole conversation again when it comes back |
+| carried context in sub-agents | what compacting earlier would have done in the sub-agents' own conversations, tried and reported as for the main thread |
 | price step | for Claude Haiku 5.5: the requests whose prompt was over 100k tokens, what they cost, and what they would have cost at the lower price. For these sessions an earlier compaction is tried at 100k, and reported here |
 | repeated reads | a file read again within a stretch that came back word for word as before. For Codex: a call with the same tool and arguments that gave back the same output |
 

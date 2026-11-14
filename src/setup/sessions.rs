@@ -356,8 +356,9 @@ pub struct Transcript {
     /// The main thread: requests (sub-agents' among them where the harness writes them inline),
     /// compactions, model fallbacks and tool results.
     pub events: Vec<Event>,
-    /// Requests of sub-agents kept in transcripts of their own.
-    pub subagents: Vec<Request>,
+    /// Sub-agents with a transcript of their own: the requests and compactions of each, in
+    /// order.
+    pub agents: Vec<Vec<Event>>,
 }
 
 /// The harness a transcript comes from, where the report says something different for each.
@@ -614,7 +615,9 @@ fn read_jsonl(path: &Path, sub: bool, t: &mut Transcript) {
             continue;
         }
         let Ok(v) = serde_json::from_slice::<Value>(&line) else { continue };
-        let sidechain = sub || v["isSidechain"] == true;
+        // A sub-agent's line written into the main transcript. In a sub-agent's own transcript
+        // every line is the agent's, whose conversation it is.
+        let sidechain = !sub && v["isSidechain"] == true;
         if t.cwd.is_none() {
             t.cwd = v["cwd"].as_str().map(str::to_string);
         }
@@ -653,7 +656,8 @@ fn read_jsonl(path: &Path, sub: bool, t: &mut Transcript) {
                 {
                     *summary = summary.or(Some(result_text(&v["message"]["content"]).len() as u64));
                 }
-                for block in v["message"]["content"].as_array().into_iter().flatten().filter(|b| b["type"] == "tool_result") {
+                // Tool results are followed in the main thread only.
+                for block in v["message"]["content"].as_array().into_iter().flatten().filter(|b| !sub && b["type"] == "tool_result") {
                     let text = result_text(&block["content"]);
                     let (tool, g, path) =
                         block["tool_use_id"].as_str().and_then(|id| calls.get(id)).cloned().unwrap_or_else(|| ("?".to_string(), "other".to_string(), None));
@@ -744,7 +748,10 @@ impl Transcripts for ClaudeCode {
         for f in subs {
             let mut s = Transcript::default();
             read_jsonl(&f, true, &mut s);
-            t.subagents.extend(s.events.into_iter().filter_map(|e| if let Event::Request(r) = e { Some(r) } else { None }));
+            measure_compactions(&mut s);
+            if s.events.iter().any(|e| matches!(e, Event::Request(_))) {
+                t.agents.push(s.events);
+            }
         }
         measure_compactions(&mut t);
         t
@@ -1244,6 +1251,18 @@ pub struct Step {
     pub window: Window,
 }
 
+/// Sub-agents with a transcript of their own, each looked at as the conversation it is.
+#[derive(Debug, Clone, Default)]
+pub struct Agents {
+    pub count: usize,
+    /// Those that wrote to the five-minute cache and never to the one-hour one.
+    pub five_minutes: usize,
+    /// Their requests that found the cache cold.
+    pub cold: Vec<Cold>,
+    /// The context they carried, and what compacting it earlier would have done.
+    pub carry: Carry,
+}
+
 /// The numbers of one or more sessions.
 #[derive(Debug, Clone, Default)]
 pub struct Stats {
@@ -1269,6 +1288,7 @@ pub struct Stats {
     pub cwd: Option<String>,
     pub carry: Carry,
     pub step: Step,
+    pub agents: Agents,
     /// `--carry`, when it was given.
     pub carry_given: Option<u64>,
 }
@@ -1523,6 +1543,8 @@ impl Stats {
             ("automatic_compactions", self.compaction_cost(false)),
             (self.repeat_key(), self.repeat_cost()),
             ("carried_context", self.carry.cost()),
+            ("agent_cold_restarts", self.agents.cold.iter().map(|c| c.cost).sum()),
+            ("agent_carried_context", self.agents.carry.cost()),
             ("price_step", if self.step.requests > 0 { self.step_cost() } else { 0.0 }),
         ];
         let total = self.total();
@@ -1558,6 +1580,13 @@ impl Stats {
             self.carry.window(w.threshold).merge(w);
         }
         self.step.window.merge(&o.step.window);
+        self.agents.count += o.agents.count;
+        self.agents.five_minutes += o.agents.five_minutes;
+        self.agents.cold.extend(o.agents.cold.iter().cloned());
+        self.agents.carry.peak = self.agents.carry.peak.max(o.agents.carry.peak);
+        for w in &o.agents.carry.windows {
+            self.agents.carry.window(w.threshold).merge(w);
+        }
         self.step.requests += o.step.requests;
         self.step.cost += o.step.cost;
         self.step.lower += o.step.lower;
@@ -1722,10 +1751,81 @@ impl Stats {
             }
         }
         self.close(&t.id, first, k, start, &mut open, &last_w);
-        for r in &t.subagents {
-            self.sub_request(r);
+        for agent in &t.agents {
+            self.agent(&t.id, agent);
         }
         self.per_session.push(Session { id: t.id.clone(), weighted: self.total() - before, requests, first: first_at, last: last_at });
+    }
+
+    /// One sub-agent with a transcript of its own. Its requests count as the sub-agents' do,
+    /// and its conversation is looked at as the main thread's is: for requests that found the
+    /// cache cold, and for what an earlier compaction would have done.
+    fn agent(&mut self, session: &str, events: &[Event]) {
+        let own: Vec<&Request> = events.iter().filter_map(|e| if let Event::Request(r) = e { Some(r) } else { None }).collect();
+        let mut by_model: BTreeMap<&str, usize> = BTreeMap::new();
+        for r in &own {
+            *by_model.entry(r.model.as_str()).or_default() += 1;
+        }
+        let model = by_model.iter().max_by_key(|(_, n)| **n).map(|(m, _)| *m).unwrap_or("");
+        let resend = resend_weight(&own, &self.weights(model));
+        let shape = shape_of(events);
+        let step = self.weights(model).tier.filter(|_| self.carry_given.is_none());
+        let tried: Vec<u64> = match (self.carry_given, step) {
+            (Some(n), _) => vec![n],
+            (None, Some(tier)) => vec![tier.over],
+            (None, None) => WINDOWS.to_vec(),
+        };
+        let mut runs = vec![(false, 0u64); tried.len()];
+        self.agents.count += 1;
+        // Which cache it writes to decides how long it may wait.
+        let written = |pick: fn(&Usage) -> Option<u64>| own.iter().map(|r| pick(&r.usage).unwrap_or(0)).sum::<u64>();
+        let hour = written(|u| u.write_1h) > 0;
+        if !hour && written(|u| u.write_5m) > 0 {
+            self.agents.five_minutes += 1;
+        }
+        let mut prev: Option<&Request> = None;
+        let mut compacted = false;
+        for e in events {
+            match e {
+                Event::Request(r) => {
+                    let w = self.weights(&r.model);
+                    let times = w.times(r.usage.context());
+                    let split = self.count(r);
+                    self.sub_requests += 1;
+                    self.sub.add(&split);
+                    if let Some(c) = r.usage.context() {
+                        self.agents.carry.peak = self.agents.carry.peak.max(c);
+                        let base = split.total() / times;
+                        for (threshold, run) in tried.iter().zip(runs.iter_mut()) {
+                            let window = if step.is_some() { &mut self.step.window } else { self.agents.carry.window(*threshold) };
+                            window.threshold = *threshold;
+                            window.request(c, base, times, &w, &shape, resend, run);
+                        }
+                    }
+                    if let Some(p) = prev
+                        && let Some(cost) = cold_cost_in(&p.usage, &r.usage, self.kind == Kind::Codex, &w).filter(|_| !compacted)
+                    {
+                        self.agents.cold.push(Cold {
+                            session: session.to_string(),
+                            at: r.at,
+                            cause: cause(p, r, hour),
+                            fallback: false,
+                            before: p.usage.context().unwrap_or(0),
+                            gap_ms: p.at.zip(r.at).map(|(a, b)| b - a),
+                            cost,
+                            reason: r.miss.clone(),
+                        });
+                    }
+                    compacted = false;
+                    prev = Some(r);
+                }
+                Event::Compaction { .. } => {
+                    runs.fill((false, 0));
+                    compacted = true;
+                }
+                Event::Fallback { .. } | Event::ToolResult(_) => {}
+            }
+        }
     }
 }
 
@@ -1800,6 +1900,62 @@ fn compacting(w: &Window) -> String {
     }
 }
 
+/// Cold requests by cause: `1 model switch (707k), 2 idle for more than an hour (1.4M)`.
+fn by_cause(cold: &[Cold]) -> String {
+    let mut parts = Vec::new();
+    for c in Cause::ALL {
+        let of: Vec<&Cold> = cold.iter().filter(|x| x.cause == c).collect();
+        if of.is_empty() {
+            continue;
+        }
+        let fell = of.iter().filter(|x| x.fallback).count();
+        let note = if fell > 0 { format!(", {fell} after a model fallback") } else { String::new() };
+        parts.push(format!("{} {} ({}{note})", of.len(), c.words(), short(of.iter().map(|x| x.cost).sum())));
+    }
+    parts.join(", ")
+}
+
+/// One cold request, for the breakdown of a session.
+fn cold_item(x: &Cold) -> String {
+    let fell = if x.fallback { " (a model fallback)" } else { "" };
+    let theirs = x.reason.as_deref().map(|r| format!(" (harness: {r})")).unwrap_or_default();
+    format!("  {}  {}{fell}{theirs} after {}, {} tokens sent again: {}", when(x.at), x.cause.words(), minutes(x.gap_ms), short(x.before as f64), short(x.cost))
+}
+
+/// The context some conversations carried and what compacting it earlier would have done:
+/// the main thread's, or the sub-agents'.
+fn carried_finding(carry: &Carry, title: &str, of: &str, advice: &str, push: &mut dyn FnMut(bool, &str)) {
+    let Some(w) = carry.featured() else { return };
+    let t = short(w.threshold as f64);
+    let read = if w.gain() > 0.0 { String::new() } else { format!(" Reading the part above {t} again cost {}.", short(w.cost)) };
+    push(
+        true,
+        &format!(
+            "{title}: {} of {} {of} ({}) carried more than {t} tokens, at most {}.{read}",
+            count(w.above),
+            count(w.requests),
+            share(w.above as f64, w.requests as f64),
+            short(carry.peak as f64)
+        ),
+    );
+    push(false, &compacting(w));
+    if w.gain() > 0.0 {
+        // Where a shorter length gains more, at the price of more compactions.
+        if let Some(best) = carry.cheapest().filter(|b| b.threshold != w.threshold) {
+            push(
+                false,
+                &format!(
+                    "At {}: {} more compactions, about {} less in all.",
+                    short(best.threshold as f64),
+                    count(best.compactions as usize),
+                    short(best.gain())
+                ),
+            );
+        }
+        push(false, advice);
+    }
+}
+
 fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail: bool) {
     let total = s.total();
     let head = format!("  {:>6} {:>4}  ", short(cost), share(cost, total));
@@ -1827,16 +1983,6 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
             }
         }
         "cold_restarts" => {
-            let mut parts = Vec::new();
-            for c in Cause::ALL {
-                let of: Vec<&Cold> = s.cold.iter().filter(|x| x.cause == c).collect();
-                if of.is_empty() {
-                    continue;
-                }
-                let fell = of.iter().filter(|x| x.fallback).count();
-                let note = if fell > 0 { format!(", {fell} after a model fallback") } else { String::new() };
-                parts.push(format!("{} {} ({}{note})", of.len(), c.words(), short(of.iter().map(|x| x.cost).sum())));
-            }
             let n = s.cold.len();
             let other = s.harness_disagrees();
             let clause = if other * 4 > n { format!(", and the harness names another cause for {other} of them") } else { String::new() };
@@ -1845,7 +1991,7 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
                 &format!(
                     "Cold restarts: {n} request{} sent the conversation again at the price of new input: {}{clause}.",
                     if n == 1 { "" } else { "s" },
-                    parts.join(", ")
+                    by_cause(&s.cold)
                 ),
             );
             let mut todo = Vec::new();
@@ -1859,21 +2005,32 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
                 push(false, &todo.join(" "));
             }
             if detail {
-                for x in s.cold.iter().take(ITEMS) {
-                    let fell = if x.fallback { " (a model fallback)" } else { "" };
-                    let theirs = x.reason.as_deref().map(|r| format!(" (harness: {r})")).unwrap_or_default();
-                    push(
-                        false,
-                        &format!(
-                            "  {}  {}{fell}{theirs} after {}, {} tokens sent again: {}",
-                            when(x.at),
-                            x.cause.words(),
-                            minutes(x.gap_ms),
-                            short(x.before as f64),
-                            short(x.cost)
-                        ),
-                    );
-                }
+                s.cold.iter().take(ITEMS).for_each(|x| push(false, &cold_item(x)));
+            }
+        }
+        "agent_cold_restarts" => {
+            let cold = &s.agents.cold;
+            let n = cold.len();
+            push(
+                true,
+                &format!(
+                    "Cold restarts in sub-agents: {n} request{} of sub-agents sent the agent's conversation again at the price of new input: {}.",
+                    if n == 1 { "" } else { "s" },
+                    by_cause(cold)
+                ),
+            );
+            if s.agents.five_minutes > 0 && cold.iter().any(|x| x.cause == Cause::IdleFive) {
+                push(
+                    false,
+                    "A sub-agent's prompt cache lasts five minutes here: one that waits longer on a command pays for its whole conversation again when it comes back.",
+                );
+                push(false, "Long builds and test runs cost less run by the main thread, or in the background with a look every few minutes.");
+            }
+            if detail {
+                // The dearest first: a session can have hundreds of agents.
+                let mut dearest: Vec<&Cold> = cold.iter().collect();
+                dearest.sort_by(|a, b| b.cost.total_cmp(&a.cost));
+                dearest.iter().take(ITEMS).for_each(|x| push(false, &cold_item(x)));
             }
         }
         "thinking" => {
@@ -1925,37 +2082,20 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
                 }
             }
         }
-        "carried_context" => {
-            let Some(w) = s.carry.featured() else { return };
-            let t = short(w.threshold as f64);
-            let read = if w.gain() > 0.0 { String::new() } else { format!(" Reading the part above {t} again cost {}.", short(w.cost)) };
-            push(
-                true,
-                &format!(
-                    "Carried context: {} of {} requests ({}) carried more than {t} tokens, at most {}.{read}",
-                    count(w.above),
-                    count(w.requests),
-                    share(w.above as f64, w.requests as f64),
-                    short(s.carry.peak as f64)
-                ),
-            );
-            push(false, &compacting(w));
-            if w.gain() > 0.0 {
-                // Where a shorter length gains more, at the price of more compactions.
-                if let Some(best) = s.carry.cheapest().filter(|b| b.threshold != w.threshold) {
-                    push(
-                        false,
-                        &format!(
-                            "At {}: {} more compactions, about {} less in all.",
-                            short(best.threshold as f64),
-                            count(best.compactions as usize),
-                            short(best.gain())
-                        ),
-                    );
-                }
-                push(false, "Start a fresh session at a natural break, or compact earlier, when the context stays far above what the next step needs.");
-            }
-        }
+        "carried_context" => carried_finding(
+            &s.carry,
+            "Carried context",
+            "requests",
+            "Start a fresh session at a natural break, or compact earlier, when the context stays far above what the next step needs.",
+            &mut push,
+        ),
+        "agent_carried_context" => carried_finding(
+            &s.agents.carry,
+            "Carried context in sub-agents",
+            "requests of sub-agents",
+            "A long job costs less given to several agents in turn, each told what the last one did, than to one agent that carries it all.",
+            &mut push,
+        ),
         "price_step" => {
             let st = &s.step;
             let models = st.models.iter().cloned().collect::<Vec<_>>().join(", ");
@@ -2090,7 +2230,20 @@ fn text(s: &Stats, ctx: &Ctx, dir: &Path, days: u64, session: Option<&str>) -> S
         share(m.output, total)
     ));
     if s.sub_requests > 0 {
-        out.push_str(&format!("  sub-agents  {:>7}  {} requests ({})\n", short(s.sub.total()), count(s.sub_requests), share(s.sub.total(), total)));
+        let agents = match s.agents.count {
+            0 => String::new(),
+            1 => ", 1 agent with a transcript of its own".to_string(),
+            n => format!(", {} agents with transcripts of their own", count(n)),
+        };
+        out.push_str(&format!(
+            "  sub-agents  {:>7}  {} requests ({}){agents}: cache reads {}, cache writes {}, output {}\n",
+            short(s.sub.total()),
+            count(s.sub_requests),
+            share(s.sub.total(), total),
+            short(s.sub.cache_read),
+            short(s.sub.cache_write),
+            short(s.sub.output)
+        ));
     }
     let mut models: Vec<(&String, &(usize, f64))> = s.models.iter().collect();
     models.sort_by(|a, b| b.1.1.total_cmp(&a.1.1));
@@ -2156,13 +2309,16 @@ fn ratio(part: f64, total: f64) -> Value {
 fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
     let total = s.total();
     let split = |x: &Split| json!({"total": round(x.total()), "cache_read": round(x.cache_read), "cache_write": round(x.cache_write), "input": round(x.input), "output": round(x.output)});
-    let causes: Vec<Value> = Cause::ALL
-        .iter()
-        .map(|c| {
-            let of: Vec<&Cold> = s.cold.iter().filter(|x| x.cause == *c).collect();
-            json!({"cause": c.key(), "count": of.len(), "weighted": round(of.iter().map(|x| x.cost).sum()), "after_fallback": of.iter().filter(|x| x.fallback).count()})
-        })
-        .collect();
+    let by_cause = |cold: &[Cold]| -> Vec<Value> {
+        Cause::ALL
+            .iter()
+            .map(|c| {
+                let of: Vec<&Cold> = cold.iter().filter(|x| x.cause == *c).collect();
+                json!({"cause": c.key(), "count": of.len(), "weighted": round(of.iter().map(|x| x.cost).sum()), "after_fallback": of.iter().filter(|x| x.fallback).count()})
+            })
+            .collect()
+    };
+    let causes = by_cause(&s.cold);
     let compactions = |manual: bool| {
         let of: Vec<&Compaction> = s.compactions.iter().filter(|c| c.manual == manual).collect();
         let cost: f64 = of.iter().map(|c| c.cost).sum();
@@ -2210,18 +2366,30 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
     };
     // The length spoken of, with every length tried beside it. Where none is spoken of, the
     // one asked for, or the first.
-    let mut carried_json =
-        window(s.carry.featured().or(s.carry.windows.first()).unwrap_or(&Window { threshold: s.carry_given.unwrap_or(0), ..Default::default() }));
-    carried_json["peak_context"] = json!(s.carry.peak);
-    carried_json["share"] = ratio(s.carry.cost(), total);
-    carried_json["spoken_of"] = json!(s.carry.featured().is_some());
-    carried_json["lengths_tried"] = s.carry.windows.iter().map(window).collect();
+    let carry_json = |carry: &Carry| {
+        let mut v = window(carry.featured().or(carry.windows.first()).unwrap_or(&Window { threshold: s.carry_given.unwrap_or(0), ..Default::default() }));
+        v["peak_context"] = json!(carry.peak);
+        v["share"] = ratio(carry.cost(), total);
+        v["spoken_of"] = json!(carry.featured().is_some());
+        v["lengths_tried"] = carry.windows.iter().map(window).collect();
+        v
+    };
+    let carried_json = carry_json(&s.carry);
+    let agents_cold: f64 = s.agents.cold.iter().map(|c| c.cost).sum();
     let mut out = json!({
         "sessions": s.sessions,
         "requests": s.requests,
         "weighted": split(&s.main),
         "total_weighted": round(total),
-        "subagents": {"requests": s.sub_requests, "weighted": split(&s.sub), "share": ratio(s.sub.total(), total)},
+        "subagents": {
+            "requests": s.sub_requests,
+            "weighted": split(&s.sub),
+            "share": ratio(s.sub.total(), total),
+            "agents_with_transcripts": s.agents.count,
+            "agents_on_the_five_minute_cache": s.agents.five_minutes,
+            "cold_restarts": {"count": s.agents.cold.len(), "weighted": round(agents_cold), "share": ratio(agents_cold, total), "by_cause": by_cause(&s.agents.cold)},
+            "carried_context": carry_json(&s.agents.carry),
+        },
         "start": {
             "weighted": round(s.start()),
             "share": ratio(s.start(), total),

@@ -448,6 +448,93 @@ fn a_large_conversation_carried_for_long() {
     assert!(!report(&sb, &root, &[])["findings"].as_array().unwrap().iter().any(|f| f["finding"] == "carried_context"));
 }
 
+/// A sub-agent keeps a conversation of its own, and pays for it as the main thread does for
+/// its: one that waits longer than its cache lives sends everything again, and one that runs
+/// long reads a long conversation with every request.
+#[test]
+fn sub_agents_are_conversations_of_their_own() {
+    let sb = Sandbox::new("sessions-agents");
+    let root = project(&sb, "agents");
+    let dir = transcripts(&sb, &root);
+    jsonl(&dir.join(format!("{FIRST}.jsonl")), &[assistant("m1", "claude-opus-5-5", 0, usage(10, 0, 30_000, 100, 0), json!([]), &root)]);
+    let line = |id: &str, model: &str, minute: i64, u: Value| {
+        let mut v = assistant(id, model, minute, u, json!([]), &root);
+        v["isSidechain"] = json!(true);
+        v
+    };
+    // The first waits seven minutes on a command: its cache lasts five.
+    let opus = "claude-opus-5-5";
+    jsonl(
+        &dir.join(FIRST).join("subagents/agent-waits.jsonl"),
+        &[
+            line("w1", opus, 0, usage(5, 0, 30_000, 100, 0)),
+            line("w2", opus, 1, usage(5, 30_000, 5_000, 100, 0)),
+            line("w3", opus, 8, usage(5, 0, 36_000, 100, 0)),
+            line("w4", opus, 9, usage(5, 36_000, 100, 50, 0)),
+        ],
+    );
+    // The second, started by a workflow, climbs from 25k to 600k and stays there for twenty
+    // requests.
+    let mut long = vec![line("l", "claude-opus-5", 0, usage(0, 0, 25_000, 10, 0))];
+    let mut before = 25_000u64;
+    for i in 0..10u64 {
+        let context = 150_000 + 50_000 * i;
+        long.push(line(&format!("l{i}"), "claude-opus-5", 1 + i as i64, usage(0, before, context - before, 10, 0)));
+        before = context;
+    }
+    for i in 0..20 {
+        long.push(line(&format!("h{i}"), "claude-opus-5", 11 + i, usage(0, 600_000, 0, 10, 0)));
+    }
+    jsonl(&dir.join(FIRST).join("subagents/workflows/run-1/agent-long.jsonl"), &long);
+
+    let r = report(&sb, &root, &[]);
+    let a = &r["subagents"];
+    assert_eq!(
+        (a["requests"].as_u64(), a["agents_with_transcripts"].as_u64(), a["agents_on_the_five_minute_cache"].as_u64()),
+        (Some(35), Some(2), Some(2)),
+        "{a:#}"
+    );
+    // The wait: 35,005 tokens written again at 1.25 where a read is 0.05.
+    let cold = &a["cold_restarts"];
+    assert_eq!(cold["count"], 1, "{cold:#}");
+    let five = cold["by_cause"].as_array().unwrap().iter().find(|c| c["cause"] == "idle_five_minutes").cloned().unwrap();
+    assert_eq!(five["count"], 1);
+    near(&five["weighted"], 1.2 * 35_005.0);
+    // The long one, as the main thread's conversation of the same shape: compacting at 500k.
+    let c = &a["carried_context"];
+    assert_eq!(
+        (c["threshold"].as_u64(), c["requests"].as_u64(), c["requests_above"].as_u64(), c["compactions_instead"].as_u64(), c["peak_context"].as_u64()),
+        (Some(500_000), Some(35), Some(22), Some(1), Some(600_000)),
+        "{c:#}"
+    );
+    near(&c["difference_estimate"], 935_000.0 - 142_500.0);
+    // The main thread, one request, has neither.
+    assert_eq!((r["cold_restarts"]["count"].as_u64(), r["carried_context"]["spoken_of"].as_bool()), (Some(0), Some(false)));
+    let found: Vec<&str> = r["findings"].as_array().unwrap().iter().map(|f| f["finding"].as_str().unwrap()).collect();
+    assert_eq!(found[0], "agent_carried_context", "{found:?}");
+    assert!(found.contains(&"agent_cold_restarts"), "{found:?}");
+
+    let text = run(&sb, &root, &[]);
+    assert!(text.contains(" 35 requests (") && text.contains("), 2 agents with transcripts of their own: cache reads "), "{text}");
+    assert!(
+        text.contains(
+            "Cold restarts in sub-agents: 1 request of sub-agents sent the agent's conversation again at the price of new input: 1 idle for more than five minutes (42k).\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "A sub-agent's prompt cache lasts five minutes here: one that waits longer on a command pays for its whole conversation again when it comes back.\n"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("Carried context in sub-agents: 22 of 35 requests of sub-agents (63%) carried more than 500k tokens, at most 600k.\n"), "{text}");
+    assert!(text.contains("A long job costs less given to several agents in turn"), "{text}");
+    // One session broken down names the dearest cold request of its agents.
+    let one = run(&sb, &root, &["--session", FIRST]);
+    assert!(one.contains("idle for more than five minutes after 7 min, 35k tokens sent again: 42k"), "{one}");
+}
+
 #[test]
 fn the_harness_reason_for_a_cache_miss() {
     let sb = Sandbox::new("sessions-miss");

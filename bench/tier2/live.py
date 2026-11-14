@@ -76,11 +76,14 @@ ARMS = {
     # And with the list of what the uncommitted work defines, at the start of each session
     # (an experiment, see LIVE.md).
     "plugin-fresh-recap": dict(plugin=True, fresh=True, env={"CODEFAST_START_RECAP": "1"}),
-    # A conversation that is compacted when it reaches 100,000 tokens, which is the smallest
-    # window the harness takes and the length above which Claude Haiku 5.5 costs five times as
-    # much a token.
+    # A conversation with a smaller window for automatic compaction. Claude Haiku 5.5 costs five
+    # times as much a token in a request whose prompt is over 100,000 tokens. The harness
+    # compacts 33,000 tokens under the window: at 67,000 with the smallest window it takes
+    # (100,000), and at 92,000 with a window of 125,000.
     "control-ac": dict(plugin=False, env={"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "100000"}),
     "plugin-ac": dict(plugin=True, env={"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "100000"}),
+    "control-ac125": dict(plugin=False, env={"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "125000"}),
+    "plugin-ac125": dict(plugin=True, env={"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "125000"}),
     # How a prompt card gives the uses of a symbol (an experiment, see LIVE.md).
     "uses-count": dict(plugin=True, env={"CODEFAST_CARD_USES": "count"}),
     "uses-list": dict(plugin=True, env={"CODEFAST_CARD_USES": "list"}),
