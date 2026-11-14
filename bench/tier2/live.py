@@ -110,7 +110,7 @@ def held_out(name):
 
 
 def choose(a):
-    d, r, i, e, w, c, f = load("d"), load("r") + load("r2"), load("i"), load("e"), load("w") + load("w2"), load("c"), load("f") + load("fdev")
+    d, r, i, e, w, c, f = load("d"), load("r") + load("r2"), load("i"), load("e"), load("w") + load("w2"), load("c"), load("f") + load("fdev") + load("f2")
     k = k_tasks() + k_tasks("kernel_questions_held_out") + k_tasks("kernel_questions_held_out_2")
     n, long = n_tasks()
     n2 = load("n2") + load("nz")
@@ -170,7 +170,11 @@ Which function creates this error, and which functions call that function? Direc
 
 Rules: do not change any file and do not read anything outside {repo}. End with the complete list: first the function that creates the error, then one line per calling function, each with the file it is in."""
     if t["family"] == "F":
-        return f"""You are in a checkout of the Linux kernel source at version {t['version']}, in the current directory ({repo}).
+        # The kernel wording is that of the published harness. Another project gets the same
+        # sentences with its own name in them.
+        kernel = t["repo_name"] == "torvalds/linux"
+        what = f"the Linux kernel source at version {t['version']}" if kernel else f"{t['repo_name']} at commit {t['version']}"
+        return f"""You are in a checkout of {what}, in the current directory ({repo}).
 
 This bug was reported against that version:
 
@@ -181,7 +185,7 @@ This bug was reported against that version:
 Find the source files that would have to be changed to fix it. Do not fix it.
 
 Rules: do not change any file and do not read anything outside {repo}. End with a JSON object of this form and nothing after it:
-{{"files": ["up to 10 file paths relative to the kernel root, the most likely first"], "functions": ["up to 10 function names, the most likely first"]}}"""
+{{"files": ["up to 10 file paths relative to the {'kernel' if kernel else 'repository'} root, the most likely first"], "functions": ["up to 10 function names, the most likely first"]}}"""
     if t["family"] == "C":
         which = f"the method {t['name']} of {t['receiver']}" if t["receiver"] else f"the function {t['name']}"
         return f"""You are in a checkout of {ABOUT[t['repo_name']]}. It is in the current directory ({repo}).
@@ -999,7 +1003,7 @@ def main():
     p.add_argument("--model", default="haiku", choices=sorted(BUDGET))
     p.add_argument("--dev", action="store_true")
     p.add_argument("--ids", default="")
-    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,K2,C,F,D,I,N,R,E,L,NZ,W,W2")
+    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,K2,C,F,F2,D,I,N,R,E,L,NZ,W,W2")
     p.add_argument("--d", type=int, default=16)
     p.add_argument("--r", type=int, default=8)
     p.add_argument("--k", type=int, default=0, help="kernel questions")

@@ -130,6 +130,7 @@ the kernel version it was filed against, and up to ten files as the answer.
 ```
 python3 -I bench/tier2/make_f_tasks.py          # 50 reports of the half the file ranking was never tuned on
 python3 -I bench/tier2/make_f_tasks.py --dev    # 40 of the other half, to develop on
+python3 -I bench/tier2/make_f_tasks.py --locbench   # the same question for 40 issues of Python projects (--held F2)
 uv run --with tiktoken python -I bench/tier2/live.py run --tag F --held F --arms control,plugin --reps 2 --jobs 2
 uv run --with tiktoken python -I bench/tier2/live.py score --tag F --out rows.jsonl --quiet
 python3 -I bench/tier2/score_f.py rows.jsonl    # recall at 1, 5 and 10 and tokens, next to the published rows

@@ -49,7 +49,8 @@ def main():
     total = lambda r: r["processed"] + r["output"]
     print(f"{len(ids)} tasks that every arm ran")
     print(f"{'arm':44s} {'fR@1':>6s} {'fR@5':>6s} {'fR@10':>6s} {'tokens':>10s} {'priced':>8s} {'requests':>8s} {'answered':>8s}")
-    for label, r1, r10, tok in PUBLISHED:
+    # The published rows are about kernel bug reports, and stand next to those only.
+    for label, r1, r10, tok in PUBLISHED if all(i.startswith(("F-", "FD-")) for i in ids) else []:
         print(f"{label:44s} {r1:6.3f} {'':6s} {r10:6.3f} {tok:10,d}")
     base = None
     for arm in arms:

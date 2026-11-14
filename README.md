@@ -48,7 +48,7 @@ Measured so far (the tables are under [Results](#results)):
 - **Not on the other one.** Asked which files a kernel bug report points to, as in the published
   comparison of repository maps on LinuxFLBench, a session with codefast costs 0.77 of the same
   session without it and does not find the file more often. The paper's best map found it more
-  often.
+  often. On issues of Python projects the same question costs 0.84, with the file found as often.
 - **Right in one call.** 0.96 out of 1 on 72 verified questions about the Linux kernel, at a
   median of 155 tokens per answer. Best-case ripgrep: 0.89, two calls, 384 tokens.
 - **Fast and exact.** The whole Linux kernel indexes in 8 s. The call graph agrees with compilers
@@ -221,7 +221,7 @@ raw results are in `bench/results/`.
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/live-sessions-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/live-sessions-light.svg">
-    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Who calls this method: 0.30. The same question in TypeScript: 0.53. Four such questions in one session: 0.15. What does this function call: 0.56. Where does this error come from: 0.63. Rename a Go method everywhere: 0.51. A question about the Linux kernel: 0.71. Which files is this kernel bug in: 0.77. Write a function that was taken out: 1.03. Fix a bug, failing tests given: 0.93. Fix a bug from the issue text alone: 0.92." src="docs/assets/live-sessions-light.svg" width="880">
+    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Who calls this method: 0.30. The same question in TypeScript: 0.53. Four such questions in one session: 0.15. What does this function call: 0.56. Where does this error come from: 0.63. Rename a Go method everywhere: 0.51. A question about the Linux kernel: 0.71. Which files is this kernel bug in: 0.77. The same question for Python projects: 0.84. Write a function that was taken out: 1.03. Fix a bug, failing tests given: 0.93. Fix a bug from the issue text alone: 0.92." src="docs/assets/live-sessions-light.svg" width="880">
   </picture>
 </p>
 
@@ -236,15 +236,16 @@ protocol.
 caller questions and renames in go-git, a repository codefast had never been run on when they were
 set aside, callee questions on the same repository, error messages of go-git and syft, kernel
 questions that no session had used, kernel bug reports from the half of LinuxFLBench the file
-ranking was never tuned on, the bug-fix tasks not used before, and functions of gitleaks and
-go-git to write again, which no build was looked at on. Two runs per task and arm, and four on the
-kernel questions, the callee questions, the code-writing family and the two bug-fix families
-(`bench/results/live-heldout-haiku.jsonl`). The kernel, kernel bug and callee rows were measured
-on 0.3.0, the code-writing row on 0.2.9 and 0.2.10, the two bug-fix rows on 0.2.8, the TypeScript
-row on 0.2.6 and the rest on 0.2.2. For every prompt of those other families the hooks of 0.3.0
-print exactly what the hooks of 0.2.10 print (`bench/tier2/card_diff.py`). The prompts of the
-callee questions were used without a model while the card for them was made, and no session was
-run on them before the build was final.
+ranking was never tuned on and issues of Python projects from the same half of Loc-Bench, the
+bug-fix tasks not used before, and functions of gitleaks and go-git to write again, which no build
+was looked at on. Two runs per task and arm, and four on the kernel questions, the callee
+questions, the code-writing family and the two bug-fix families
+(`bench/results/live-heldout-haiku.jsonl`). The kernel, callee and both bug report rows were
+measured on 0.3.0, the code-writing row on 0.2.9 and 0.2.10, the two bug-fix rows on 0.2.8, the
+TypeScript row on 0.2.6 and the rest on 0.2.2. For every prompt of those other families the hooks
+of 0.3.0 print exactly what the hooks of 0.2.10 print (`bench/tier2/card_diff.py`). The prompts of
+the callee questions were used without a model while the card for them was made, and no session
+was run on them before the build was final.
 
 | Task | Tasks | Right, without and with | Requests | Tool output read, characters | Cost with codefast | Cheaper in |
 |---|---:|---|---|---|---:|---:|
@@ -256,6 +257,7 @@ run on them before the build was final.
 | **Rename a Go method everywhere**<br>In go-git, where other types have a method of the same name. Checked by the compiler and by what was renamed | 10 | 10 of 10 in each arm | 9.3 and 5.4 | 19.7k and 8.2k | **0.51** | 9 of 10 |
 | **A question about the Linux kernel**<br>18 of the 72 verified questions, none used in a session before | 18 | 0.97 and 1.00 | 4.2 and 2.7 | 4.2k and 3.1k | **0.71** | 13 of 18 |
 | **Which files is this kernel bug in?**<br>48 bug reports of LinuxFLBench, each in a checkout of the kernel version it was filed against. Right when the file the real fix changed is among the up to ten files of the answer | 48 | 0.77 and 0.73 | 5.2 and 4.2 | 13.8k and 12.9k | **0.77** | 37 of 48 |
+| **The same question for Python projects**<br>40 issues of 27 Python projects from Loc-Bench, none used by another family. Right when a file the real fix changed is among the up to ten files of the answer | 40 | 0.93 and 0.93 | 4.3 and 3.6 | 10.8k and 9.9k | **0.84** | 31 of 40 |
 | **Write a function that was taken out**<br>20 functions of gitleaks and go-git whose body is replaced by a panic. Checked by running the tests of their package | 20 | 20 and 19.5 of 20 solved | 7.3 and 6.8 | 14.4k and 14.2k | **1.03** | 9 of 20 |
 | **Fix a bug, failing tests given**<br>Issues of Django and sqlglot. Checked by running the tests of the real fix | 15 | 15 of 15 in each arm | 6.3 and 5.8 | 12.7k and 10.5k | **0.93** | 9 of 15 |
 | **Fix a bug from the issue text alone**<br>The same issues without their tests. Checked afterwards against the tests of the real fix | 15 | 7.5 and 7.2 of 15 solved | 7.1 and 6.5 | 9.9k and 9.1k | **0.92** | 6 of 15 |
@@ -273,17 +275,18 @@ whose code the model largely knows, costs 0.71, and where the card holds the who
 0.6. Asked which files a kernel bug report points to, a session costs 0.77 of the control and does
 not find the file more often: it is among the files of the answer for 0.73 of the reports against
 0.77, which two runs of 48 reports cannot tell from no difference and which leans the wrong way if
-it leans at all. Where a failing test already points at the line, the agent takes the same steps
-with or without codefast. Writing a function is the model's own work: over 20 functions of two
-repositories a session costs 1.03 of the control, 0.95 on the first repository and 1.08 on the
-second, and neither figure can be told from 1.00 at this size. Fixing a bug is mostly the model's
-own work, and an index shortens the finding and not the fixing: with the tests given a fix costs
-0.93 of the control and from the issue text alone 0.92, each pooled over four runs. The median
-task of either family is level with its control, so what the total saves comes from the long
-sessions, the ones where the agent would otherwise have gone looking. A card that guessed where
-the fix belonged from the words of the report made both families worse and was taken out. The
-agent reached for codefast of its own accord in 66 of the 75 held-out tasks about structure and in
-3 of the 30 bug-fix tasks, with no word about it in the prompt.
+it leans at all. The same question about 40 issues of Python projects costs 0.84, with the file
+found as often (0.93 and 0.93). Where a failing test already points at the line, the agent takes
+the same steps with or without codefast. Writing a function is the model's own work: over 20
+functions of two repositories a session costs 1.03 of the control, 0.95 on the first repository
+and 1.08 on the second, and neither figure can be told from 1.00 at this size. Fixing a bug is
+mostly the model's own work, and an index shortens the finding and not the fixing: with the tests
+given a fix costs 0.93 of the control and from the issue text alone 0.92, each pooled over four
+runs. The median task of either family is level with its control, so what the total saves comes
+from the long sessions, the ones where the agent would otherwise have gone looking. A card that
+guessed where the fix belonged from the words of the report made both families worse and was taken
+out. The agent reached for codefast of its own accord in 66 of the 75 held-out tasks about
+structure and in 3 of the 30 bug-fix tasks, with no word about it in the prompt.
 
 The same held-out tasks with Sonnet 5.5, one run per task and arm: a caller question 0.29, a
 session of four 0.23, an error traced to its origin 0.70 and a rename 0.74. The session with

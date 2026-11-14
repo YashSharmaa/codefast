@@ -38,7 +38,7 @@ of a project from its second session on.
 | I | The same issues without their tests: the issue text alone | the tests of the real fix, copied into the tree after the session, pass |
 | R | Rename one Go method everywhere, where other types have a method of the same name | `go build` and `go vet` pass, and no other definition was renamed |
 | C | Which functions of this repository does this function call? The mirror of N, on go-git | the call graph the Go type checker built: F1 of the callees named with their file on one line, against all real callees and against functions that have the name of a callee and are another |
-| F | Which files does this kernel bug report point to? A report of LinuxFLBench in a checkout of the kernel version it was filed against. The session ends with up to ten files, the most likely first | the one file the real fix changed: whether it is first in the list, and whether it is in it (the two figures of arXiv 2611.07286) |
+| F | Which files does this kernel bug report point to? A report of LinuxFLBench in a checkout of the kernel version it was filed against. The session ends with up to ten files, the most likely first. The same is asked about issues of Python projects from Loc-Bench | the one file the real fix changed: whether it is first in the list, and whether it is in it (the two figures of arXiv 2611.07286) |
 | W | Write code: one well-tested function of gitleaks has its body replaced by a panic, and the session has to write it again from what the rest of the project expects of it | the tests of that function's package pass, and no test file and no file of test data changed |
 
 `make_n_tasks.py`, `make_c_tasks.py`, `make_e_tasks.py`, `make_d_tasks.py`, `make_i_tasks.py`,
@@ -68,7 +68,8 @@ little. So the tasks are split.
   Family F came after that: 40 kernel bug reports to develop on, from the half of LinuxFLBench
   the file ranking was developed on, and 48 held-out ones from the other half. Two more of
   that half were read while the harness was made and count as development. 81 reports of it
-  have not been run in a session.
+  have not been run in a session. The 40 issues of Python projects (`--held F2`) were run once,
+  with the released plugin, and nothing was developed on issues of that kind.
 
 Two things were looked at on held-out tasks before the batch of version 0.2.2 ran, and neither
 changed the build: whether the hook printed anything at all for a prompt (a count per family),
@@ -466,6 +467,24 @@ two. That cannot be told from no difference, and if it leans anywhere it leans t
 A session with the plugin makes one request fewer, and a session that stops sooner has looked
 at fewer places.
 
+### The same question on Python projects
+
+A family measured on one project says little about another, and the kernel is one project.
+`make_f_tasks.py --locbench` asks the same question about 40 issues of 27 Python projects from
+Loc-Bench: the half its file ranking was never tuned on, no issue that a bug-fix family has
+used, no project more than three times. Two runs per arm, Haiku 5.5
+(`bench/results/live-bug-files-python-heldout.jsonl`).
+
+| Arm | A file of the fix first | In the ten | Tokens | Requests | Cost |
+|---|---:|---:|---:|---:|---:|
+| no plugin | 0.875 | 0.925 | 97,337 | 4.3 | 1.00 |
+| the plugin of 0.3.0 | 0.900 | 0.925 | 85,710 | 3.6 | 0.84 |
+
+The same picture with less in it. The plugin takes 12% of the tokens off (between none and 22%)
+and 16% of the cost, and it finds the file for exactly the reports the control finds it for.
+These issues name what they are about, both arms are right for 37 of 40, and there is little
+for a tool to add.
+
 ### A ranking card, tried and not kept
 
 A prompt that holds a report and asks which files are behind it asks for what `codefast
@@ -510,6 +529,16 @@ nothing:
   separates good rankings from bad ones only weakly (the flattest quarter has the file for 8
   of 21 reports, the rest for 42 of 64), and on the forty reports with sessions it would have
   kept 31 cards of which 18 have the file.
+
+- **The files next to the ranked ones in the call graph.** This is what the paper's best map
+  does, and it was tried outside the engine, on the call graph `codefast export-edges` writes
+  for each kernel tree. Of the 35 development reports whose file the ranking does not have in
+  its ten, 14 have it one call away from one of the ten. Letting each of the ten pass its
+  score on to the files it calls and is called by, with files that everything calls damped,
+  brings four of those into the ten and pushes none out (50 to 54 of 85), and loses three
+  places between eleven and twenty. That is a gain for the ranking, and too small to change
+  what a session finds: it is not built into `codefast locate`, and would have to be checked
+  on the other two benchmarks of the ranking first.
 
 The build is the branch `tried/ranking-card`, with `bench/tier2/card_f.py`, the check without
 a model.
@@ -898,11 +927,11 @@ The prompt card of version 0.2.2 was settled by three small experiments on devel
   lines whose body was taken out of a project that already has their callers and their tests.
   Writing a new function into a project that has neither is a different task, and nothing here
   measures it.
-* The kernel bug reports (F) were run with the released plugin on Haiku 5.5 only. With the
-  settings of the published comparison (Haiku 4.5 at low effort, 30 turns) what was run is
-  twenty development reports with a build that was not released, and the released plugin on
-  five of them: enough to say that nothing like the paper's gain is there, and not a
-  measurement of the released plugin under those settings.
+* The bug reports (F), of the kernel and of the Python projects, were run with the released
+  plugin on Haiku 5.5 only. With the settings of the published comparison (Haiku 4.5 at low
+  effort, 30 turns) what was run is twenty development reports with a build that was not
+  released, and the released plugin on five of them: enough to say that nothing like the
+  paper's gain is there, and not a measurement of the released plugin under those settings.
 * There is no rename family for a language without a compiler. Two attempts to build one for
   Python (sqlglot) failed for want of a reference to check against: a refactoring library
   renamed the wrong places, and a rename traced from the running tests left 12 of 16
