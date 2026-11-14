@@ -25,7 +25,7 @@ verified answer). Development tasks (DEV_IDS) are never reported.
 Environment: CLAUDE_BIN (default ~/.local/bin/claude), CLAUDE_CONFIG_DIR (which login to use,
 required), CODEFAST_BIN (the binary under test, default target/release/codefast).
 """
-import argparse, concurrent.futures, hashlib, json, os, re, shutil, subprocess, sys, time
+import argparse, concurrent.futures, hashlib, json, os, re, shutil, subprocess, sys, threading, time
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +35,7 @@ LIVE = ROOT / "target/live"
 SYFT = ROOT / "bench/repos/syft"
 LINUX = ROOT / "bench/repos/linux"
 NEW = ROOT / "bench/tier2/new"
+STAGED = Path(os.environ.get("BENCH_STAGED_DIR") or ROOT / "bench/tier2/staged")
 # The indexes of the shared trees. An index belongs to the version of codefast that wrote it,
 # and a build that finds another version's index rebuilds it. Two builds that are measured
 # side by side therefore each get directories of their own: BENCH_INDEX_SUFFIX names them.
@@ -126,9 +127,21 @@ def g_tasks():
     return out
 
 
+def s_tasks():
+    """A project built and then changed in one conversation (`bench/tier2/staged`): the first
+    message asks for the project, each later one for a change to it. The hidden tests are of
+    the state after the last message, with a set for every state on the way."""
+    out = []
+    for p in sorted(STAGED.glob("*/task.json")):
+        t = json.load(open(p))
+        t.update(dir=str(p.parent), repo_name="a new project", stage_files=[str(x) for x in sorted((p.parent / "stages").glob("*.md"))])
+        out.append(t)
+    return out
+
+
 def choose(a):
     d, r, i, e, w, c, f = load("d"), load("r") + load("r2"), load("i"), load("e"), load("w") + load("w2"), load("c"), load("f") + load("fdev") + load("f2")
-    g = g_tasks()
+    g = g_tasks() + s_tasks()
     k = k_tasks() + k_tasks("kernel_questions_held_out") + k_tasks("kernel_questions_held_out_2")
     n, long = n_tasks()
     n2 = load("n2") + load("nz")
@@ -137,7 +150,7 @@ def choose(a):
     long2 = [dict(id=f"L-gogit-{j // 4 + 1}", family="L", repo_name="go-git/go-git", parts=held_n[j : j + 4]) for j in range(0, len(held_n) - 3, 4)]
     if a.ids or a.held:
         # The new projects carry their split themselves: G is the held-out half, Gdev the other.
-        split = {"G": [t["id"] for t in g if t["split"] == "held"], "Gdev": [t["id"] for t in g if t["split"] == "dev"]}
+        split = {fam + suffix: [t["id"] for t in g if t["family"] == fam and t["split"] == which] for fam in ("G", "S") for suffix, which in (("", "held"), ("dev", "dev"))}
         want = a.ids.split(",") if a.ids else [x for fam in a.held.split(",") for x in (split[fam] if fam in split else held_out(fam))]
         by = {t["id"]: t for t in d + r + k + n + long + i + n2 + e + long2 + w + c + f + g}
         return [by[x] for x in want]
@@ -178,7 +191,23 @@ def n_question(t):
             f"calls of those do not count. Calls from test code do count.")
 
 
+def stage_prompts(t, repo):
+    """The messages of a staged task, as a user would send them one after the other."""
+    first = prompt_for(dict(t, family="G"), repo)
+    later = [
+        f"""Next change to the project.
+
+{Path(f).read_text().strip()}
+
+Keep everything that this does not change. Update your own tests and run them until they pass. When you are done, say in one or two sentences what you changed."""
+        for f in t["stage_files"][1:]
+    ]
+    return [first] + later
+
+
 def prompt_for(t, repo):
+    if t["family"] == "S":
+        return stage_prompts(t, repo)[0]
     if t["family"] == "G":
         return f"""You are in a new, empty project directory ({repo}). The only file in it is SPEC.md.
 
@@ -420,17 +449,20 @@ def prepare(t, arm, rep, a, binary):
         (run / "prompt.txt").write_text(prompt_for(t, where))
         json.dump(row, open(run / "task.json", "w"), indent=1)
         return row
-    if t["family"] == "G":
+    if t["family"] in ("G", "S"):
         # Nothing but the specification, in a work tree of its own (see family F for why).
         repo.mkdir()
-        shutil.copy2(Path(t["dir"]) / "SPEC.md", repo / "SPEC.md")
+        shutil.copy2(t["stage_files"][0] if t["family"] == "S" else Path(t["dir"]) / "SPEC.md", repo / "SPEC.md")
         git = ["git", "-c", "user.name=bench", "-c", "user.email=bench@localhost", "-c", "commit.gpgsign=false"]
         subprocess.run(git + ["init", "-q", "."], cwd=repo, check=True)
         (repo / ".git/info/exclude").write_text(".codefast/\n")
         subprocess.run(git + ["add", "-A"], cwd=repo, check=True, capture_output=True)
         subprocess.run(git + ["commit", "-q", "-m", "specification"], cwd=repo, check=True, capture_output=True)
-        row = dict(id=t["id"], family="G", arm=arm, rep=rep, repo=str(repo), run=str(run), repo_name=t["repo_name"], model=a.model, language=t["language"],
+        row = dict(id=t["id"], family=t["family"], arm=arm, rep=rep, repo=str(repo), run=str(run), repo_name=t["repo_name"], model=a.model, language=t["language"],
                    check=t["check_cmd"], hidden=str(Path(t["dir"]) / "hidden"), tests=t["tests"], check_timeout=t.get("timeout", 300))
+        if t["family"] == "S":
+            row["checkpoints"] = str(Path(t["dir"]) / "checkpoints")
+            json.dump(stage_prompts(t, repo), open(run / "prompts.json", "w"), indent=1)
         if spec["plugin"]:
             e = dict(os.environ, CODEFAST_NO_REFRESH="")
             subprocess.run([str(binary), "--root", str(repo), "index"], capture_output=True, text=True, env=e)
@@ -649,9 +681,31 @@ def verify_g(row):
     return rc == 0 and got == row["tests"], True
 
 
+def verify_s(row):
+    """The last state against the hidden tests, and every state on the way against the tests
+    that hold for it: how far the conversation got, and where it lost something."""
+    run = Path(row["run"])
+    stages = []
+    for snap in sorted(run.glob("stage-*")):
+        k = int(snap.name.split("-")[1])
+        tests = Path(row["checkpoints"]) / f"{k:02d}"
+        if not tests.is_dir():
+            continue  # the last state is graded below, against the final tests
+        part = dict(row, repo=str(snap), hidden=str(tests), run=str(run / f"graded-{k:02d}"), tests=10**6)
+        Path(part["run"]).mkdir(exist_ok=True)
+        verify_g(part)
+        stages.append(part["tests_passed"])
+        shutil.rmtree(part["run"], ignore_errors=True)
+    row["stage_passed"] = stages
+    row["stages_done"] = len(list(run.glob("stage-*")))
+    return verify_g(row)
+
+
 def verify(row):
     if row["family"] == "G":
         return verify_g(row)
+    if row["family"] == "S":
+        return verify_s(row)
     if row["family"] in ("N", "L", "E", "C"):
         s = verify_n(row)
         row["kscore"] = s
@@ -696,6 +750,54 @@ def verify(row):
         if m.group(0).endswith((" " + row["name"], " " + row["new_name"]))
     )
     return ok, defs(row["repo"]) == defs(row["base"])
+
+
+SNAPSHOT_SKIP = shutil.ignore_patterns(".git", ".codefast", "__pycache__", "target", "node_modules")
+
+
+def staged_session(cmd, row, env, run, timeout):
+    """One conversation that is sent the messages of a staged task one after the other: the
+    next goes in when the reply to the last has ended. The project as it stands after each
+    reply is kept, so that every state on the way can be graded."""
+    prompts = json.load(open(run / "prompts.json"))
+    message = lambda text: json.dumps({"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": text}]}}) + "\n"
+    with open(run / "run.jsonl", "w") as out, open(run / "err.txt", "w") as err:
+        p = subprocess.Popen(cmd + ["--input-format", "stream-json"], cwd=row["repo"], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, text=True, bufsize=1)
+        late_start = time.time()
+        late = threading.Timer(timeout, p.kill)
+        late.start()
+        try:
+            p.stdin.write(message(prompts[0]))
+            p.stdin.flush()
+            k = 0
+            for line in p.stdout:
+                out.write(line)
+                out.flush()
+                # The keys of an event come in no fixed order.
+                if '"type":"result"' not in line:
+                    continue
+                try:
+                    ended = json.loads(line)
+                except ValueError:
+                    continue
+                if ended.get("type") != "result":
+                    continue
+                k += 1
+                out.write(json.dumps({"type": "bench", "subtype": "stage_done", "stage": k, "seconds": round(time.time() - late_start)}) + "\n")
+                out.flush()
+                shutil.copytree(row["repo"], run / f"stage-{k:02d}", symlinks=True, ignore=SNAPSHOT_SKIP)
+                if k < len(prompts) and ended.get("subtype") == "success":
+                    p.stdin.write(message(prompts[k]))
+                    p.stdin.flush()
+                else:
+                    # The last message is answered, or the session hit a limit: nothing more to send.
+                    p.stdin.close()
+            return p.wait()
+        except (BrokenPipeError, OSError):
+            p.kill()
+            return 125
+        finally:
+            late.cancel()
 
 
 def session(row, a, binary, plug):
@@ -745,12 +847,15 @@ def session(row, a, binary, plug):
     else:
         cmd += ["--strict-mcp-config"]
     t0 = time.time()
-    with open(run / "run.jsonl", "w") as out, open(run / "err.txt", "w") as err:
-        try:
-            p = subprocess.run(cmd, cwd=row["repo"], env=env, stdin=open(run / "prompt.txt"), stdout=out, stderr=err, timeout=a.timeout)
-            rc = p.returncode
-        except subprocess.TimeoutExpired:
-            rc = 124
+    if row["family"] == "S":
+        rc = staged_session(cmd, row, env, run, a.timeout)
+    else:
+        with open(run / "run.jsonl", "w") as out, open(run / "err.txt", "w") as err:
+            try:
+                p = subprocess.run(cmd, cwd=row["repo"], env=env, stdin=open(run / "prompt.txt"), stdout=out, stderr=err, timeout=a.timeout)
+                rc = p.returncode
+            except subprocess.TimeoutExpired:
+                rc = 124
     secs = round(time.time() - t0)
     try:
         ok, clean = verify(row)
@@ -847,10 +952,15 @@ def parse(path):
         elif t == "result":
             u = e.get("usage", {})
             r["usage"] = dict(input=u.get("input_tokens", 0), cache_read=u.get("cache_read_input_tokens", 0), cache_write=u.get("cache_creation_input_tokens", 0), output=u.get("output_tokens", 0))
-            # Of the output, what was thinking: not shown, and billed like the rest.
-            r["thinking"] = (u.get("output_tokens_details") or {}).get("thinking_tokens")
+            # Of the output, what was thinking: not shown, and billed like the rest. A
+            # conversation of several messages ends each with a result of its own, which
+            # reports that message's tokens (`modelUsage` below is of the whole session).
+            t = (u.get("output_tokens_details") or {}).get("thinking_tokens")
+            if t is not None:
+                r["thinking"] = (r["thinking"] or 0) + t
+            r["messages"] = r.get("messages", 0) + 1
             r["cost"] = e.get("total_cost_usd", 0.0)
-            r["turns"] = e.get("num_turns", 0)
+            r["turns"] += e.get("num_turns", 0)
             r["final"] = e.get("subtype")
             r["denials"] = len(e.get("permission_denials") or [])
             # Sub-agents are billed on top of the main thread: modelUsage has the whole session.
@@ -1085,7 +1195,7 @@ def cmd_check_new(a):
     passes none."""
     want = set(a.ids.split(",")) if a.ids else None
     bad = 0
-    for t in g_tasks():
+    for t in g_tasks() + s_tasks():
         if want and t["id"] not in want:
             continue
         run = LIVE / "check-new" / t["id"]
