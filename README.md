@@ -212,7 +212,7 @@ raw results are in `bench/results/`.
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/live-sessions-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/live-sessions-light.svg">
-    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Who calls this method: 0.30. What does this function call: 0.56. The same question in TypeScript: 0.53. Four such questions in one session: 0.15. Where does this error come from: 0.63. Rename a Go method everywhere: 0.51. A question about the Linux kernel: 0.71. Write a function that was taken out: 1.03. Fix a bug, failing tests given: 0.93. Fix a bug from the issue text alone: 0.92." src="docs/assets/live-sessions-light.svg" width="880">
+    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Who calls this method: 0.30. The same question in TypeScript: 0.53. Four such questions in one session: 0.15. What does this function call: 0.56. Where does this error come from: 0.63. Rename a Go method everywhere: 0.51. A question about the Linux kernel: 0.71. Write a function that was taken out: 1.03. Fix a bug, failing tests given: 0.93. Fix a bug from the issue text alone: 0.92." src="docs/assets/live-sessions-light.svg" width="880">
   </picture>
 </p>
 
@@ -239,9 +239,9 @@ the build was final.
 | Task | Tasks | Right, without and with | Requests | Tool output read, characters | Cost with codefast | Cheaper in |
 |---|---:|---|---|---|---:|---:|
 | **Who calls this method?**<br>12 methods of go-git whose name several types share. Answers checked against the type checker's call graph | 12 | 1.00 and 0.99 | 7.2 and 3.7 | 32.6k and 5.2k | **0.30** | 12 of 12 |
-| **What does this function call?**<br>12 functions and methods of go-git. Answers checked against the type checker's call graph, each callee named with its file | 12 | 0.98 and 0.98 | 5.0 and 2.4 | 4.4k and 1.9k | **0.56** | 12 of 12 |
 | **The same question in TypeScript**<br>8 functions and methods of zod whose name something else in the project shares. Answers checked against the type checker's call graph | 8 | 0.62 and 0.62 | 6.8 and 5.0 | 17.6k and 4.8k | **0.53** | 8 of 8 |
 | **Four such questions in one session**<br>The same questions, four to a session | 3 | 0.99 and 0.98 | 19.5 and 5.3 | 96.3k and 11.1k | **0.15** | 3 of 3 |
+| **What does this function call?**<br>12 functions and methods of go-git. Answers checked against the type checker's call graph, each callee named with its file | 12 | 0.98 and 0.98 | 5.0 and 2.4 | 4.4k and 1.9k | **0.56** | 12 of 12 |
 | **Where does this error come from?**<br>An error text of go-git or syft: which function creates it, and who calls that function. Checked against the type checker's call graph | 12 | 0.99 and 1.00 | 5.8 and 3.4 | 4.4k and 4.2k | **0.63** | 11 of 12 |
 | **Rename a Go method everywhere**<br>In go-git, where other types have a method of the same name. Checked by the compiler and by what was renamed | 10 | 10 of 10 in each arm | 9.3 and 5.4 | 19.7k and 8.2k | **0.51** | 9 of 10 |
 | **A question about the Linux kernel**<br>18 of the 72 verified questions, none used in a session before | 18 | 0.97 and 1.00 | 4.2 and 2.7 | 4.2k and 3.1k | **0.71** | 13 of 18 |
