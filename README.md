@@ -41,7 +41,8 @@ all of that reading again. codefast answers from an index instead.
 - **One exact answer.** The definition, every call site with its code line, the call path, the
   tests that reach it. Checked against compilers: precision 0.982 to 1.000.
 - **Before the agent asks.** Hooks hand over the facts with the prompt, after a search, after an
-  edit and after a compaction. They state facts and never block or rewrite a tool call.
+  edit and after a compaction, when a session also gets its last request back word for word. They
+  state facts and never block or rewrite a tool call.
 - **Any size.** The Linux kernel, 44 million lines, indexes in 8 seconds, and the index follows
   your edits.
 - **Measured, with what it does not do.** A session that looks things up costs 0.15 to 0.71 of the
@@ -175,9 +176,9 @@ every request pays to read a long conversation again and how soon a `/compact` w
 itself, that the next request sends everything again because the prompt cache has run out, and
 that a conversation on Claude Haiku 5.5 is about to pass the 100,000 tokens above which that model
 charges five times as much. The figures are those of the model the conversation runs on. One of
-these facts goes to the model too, because only the model can act on it: that a command ran longer
-than the prompt cache lives, which for a sub-agent is any build of five minutes, and that the next
-long one costs less run in the background.
+these facts goes to the model too, because only the model can act on it: that a command, or its
+own reply, took longer than the prompt cache lives, which for a sub-agent is five minutes, and
+that the next long one costs less in parts.
 
 `codefast doctor context` is the other half: what your plugins, skills, MCP servers and
 instruction files add to every request, and the setting that switches each off for this project.

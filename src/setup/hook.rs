@@ -18,12 +18,15 @@
 //!
 //! After a compaction (`session-start` with source `compact`) the note is instead the list of
 //! definitions the uncommitted changes added, removed and altered: what the session did so far,
-//! in a few lines, at the moment its own record of it was summarised away.
+//! in a few lines, at the moment its own record of it was summarised away. In Claude Code the
+//! last request the person typed follows it word for word, read from the transcript: a summary
+//! shortens the request in progress, and what it drops are the exact strings and rules of it.
 //!
-//! One note about cost goes to the model as well, because the model is what can act on it: a
-//! command that ran longer than the prompt cache of its conversation lives, after which the next
-//! request sends the whole conversation again. A sub-agent of Claude Code writes to the
-//! five-minute cache, so for it that is any command of five minutes.
+//! One note about cost goes to the model as well, because the model is what can act on it: that
+//! the prompt cache of its conversation has run out since the last request was sent, after which
+//! the next request sends the whole conversation again. A sub-agent of Claude Code writes to the
+//! five-minute cache, so for it that takes a command of five minutes, or a reply that took as
+//! long to write.
 //!
 //! Three notes are for the person at the keyboard and never reach the model (Claude Code's
 //! `systemMessage`): that a conversation has grown so long that every request pays a good deal
@@ -137,6 +140,9 @@ const CHECK_BYTES: usize = 2600;
 const CHECK_FILES: usize = 40;
 /// The summary of the uncommitted changes after a compaction, in tokens.
 const RECAP_TOKENS: usize = 350;
+/// The person's last request, given back word for word after a compaction, up to this many
+/// bytes: with the summary of the changes it stays inside what a hook may add.
+const REQUEST_BYTES: usize = 7000;
 
 /// A conversation smaller than this is not worth a word about what resending it costs.
 const COLD_NOTE_FROM: u64 = 60_000;
@@ -716,6 +722,16 @@ impl Session {
         Some(Session { file })
     }
 
+    /// How long ago the hook after this conversation's last tool call ran, and the mark that
+    /// this one has. No request of the conversation is further apart than two such hooks, so a
+    /// short time here means that no prompt cache has run out.
+    fn since_last_call(&self) -> Option<Duration> {
+        let mark = self.file.with_extension("at");
+        let since = age(&mark);
+        let _ = std::fs::write(&mark, b"");
+        since
+    }
+
     /// The key a line of the state file records: the line itself, or what stands before the
     /// tab that separates it from the writer's mark.
     fn key_of(line: &str) -> &str {
@@ -922,14 +938,25 @@ fn session_start(passed: &Path, payload: &Payload) -> String {
     // An experiment (`CODEFAST_START_RECAP=1`): the same list for a session that starts in a
     // tree with uncommitted work, which is what a new session finds after another one stopped.
     let recap_at_start = matches!(payload.source.as_deref(), None | Some("startup" | "clear")) && std::env::var_os("CODEFAST_START_RECAP").is_some_and(|v| v == "1");
-    if (payload.source.as_deref() == Some("compact") || recap_at_start) && counts.is_some() && refresh_allowed() {
+    let compacted = payload.source.as_deref() == Some("compact");
+    // The summary of a compacted conversation also shortens the request it was working on,
+    // and what it drops are the exact strings and rules. The transcript still has them.
+    let request = if compacted { request_in_progress(payload) } else { None };
+    if (compacted || recap_at_start) && counts.is_some() && refresh_allowed() {
         if let Ok(ix) = fresh::open(&place.root, &OpenOptions { refresh: true, quiet: true }) {
             let mut out = crate::output::Out::new(RECAP_TOKENS);
             if crate::query::changed::summary(&ix, &crate::query::Common::default(), &mut out) > 0 {
                 let recap = out.finish();
-                return payload.reply(Event::SessionStart, &format!("codefast: {}`{cli} check` lists uses left behind by these changes, `{cli} search NAME` a symbol with every place that uses it.", recap));
+                let note = format!("codefast: {}`{cli} check` lists uses left behind by these changes, `{cli} search NAME` a symbol with every place that uses it.", recap);
+                return payload.reply(Event::SessionStart, &match request {
+                    Some(r) => format!("{note}\n\n{r}"),
+                    None => note,
+                });
             }
         }
+    }
+    if let Some(r) = request {
+        return payload.reply(Event::SessionStart, &format!("codefast: this conversation was compacted. {r}"));
     }
     let state = match counts {
         // A project that has no code yet has nothing to be asked about: the line would be
@@ -943,6 +970,25 @@ fn session_start(passed: &Path, payload: &Payload) -> String {
     let note = format!("{state}: `{cli} search NAME` prints a symbol's definition, its body and every place that uses it in one call.");
     let to_user = resume_note(&place, payload).or_else(|| context_cost(&place, payload, &cli));
     payload.reply_with(Event::SessionStart, &note, to_user.as_deref())
+}
+
+/// The last request the person typed into a conversation that has just been compacted, word
+/// for word, for the model to work from. Claude Code only, where the hook is given the
+/// transcript, and not inside a subagent, whose request is its brief.
+fn request_in_progress(payload: &Payload) -> Option<String> {
+    if std::env::var_os("CLAUDECODE").is_none() || payload.agent.is_some() {
+        return None;
+    }
+    let text = super::sessions::last_prompt(Path::new(payload.transcript.as_deref()?))?;
+    let lead = "The last request in this conversation, word for word, because the summary of a compacted conversation shortens it";
+    if text.len() <= REQUEST_BYTES {
+        return Some(format!("{lead}:\n{text}"));
+    }
+    let mut cut = REQUEST_BYTES;
+    while !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    Some(format!("{lead} (its first {} of {} characters):\n{}", count(text[..cut].chars().count()), count(text.chars().count()), &text[..cut]))
 }
 
 /// Once a week per project, for the person and not for the model: what the harness's own
@@ -1124,17 +1170,25 @@ fn agent_transcript(main: &Path, agent: &str) -> Option<PathBuf> {
     None
 }
 
-/// A tool call that ran longer than the prompt cache of its conversation lives: the request
-/// that follows sends the whole conversation again at the price of new input. Said once per
-/// conversation, at the moment it costs, to the model, which is what can run the next long
-/// command in the background, and to the person where the conversation is the main thread's.
-/// Nothing is said where the transcript does not show which cache the conversation writes to.
+/// The prompt cache of a conversation lives from when a request is sent, so two things can
+/// outlive it: a tool call that takes that long, and a reply that takes that long to write (a
+/// large file in one call). The request that follows then sends the whole conversation again at
+/// the price of new input. Said once per conversation, at the moment it costs, to the model,
+/// which is what can do the next one in parts, and to the person where the conversation is the
+/// main thread's. Nothing is said where the transcript does not show which cache the
+/// conversation writes to.
 fn outlived_note(passed: &Path, payload: &Payload) -> Option<(String, bool)> {
     if std::env::var_os("CLAUDECODE").is_none() || cost_notes_off() {
         return None;
     }
-    let ran = Duration::from_millis(payload.duration_ms?);
-    if ran < Duration::from_secs(300) {
+    let place = Place::find(passed, payload.cwd.as_deref())?;
+    let session = Session::open(&place, payload.audience().as_deref())?;
+    // The time since the hook after the call before bounds both from above, and so does not
+    // have to be looked into unless it is long. Neither does a call that was short.
+    let five = Duration::from_secs(300);
+    let since_call = session.since_last_call();
+    let ran = payload.duration_ms.map(Duration::from_millis);
+    if ran.is_none_or(|r| r < five) && since_call.is_none_or(|s| s < five) {
         return None;
     }
     let main = Path::new(payload.transcript.as_deref()?);
@@ -1144,18 +1198,16 @@ fn outlived_note(passed: &Path, payload: &Payload) -> Option<(String, bool)> {
     };
     let one_hour = last.one_hour?;
     let lives = Duration::from_secs(if one_hour { 3600 } else { 300 });
-    if ran < lives || last.context < OUTLIVED_FROM {
-        return None;
-    }
-    let place = Place::find(passed, payload.cwd.as_deref())?;
-    if !Session::open(&place, payload.audience().as_deref())?.claim("outlived") {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_millis() as i64;
+    let since = Duration::from_millis((now - last.sent).max(0) as u64);
+    if since < lives || last.context < OUTLIVED_FROM || !session.claim("outlived") {
         return None;
     }
     let w = super::sessions::weights(&last.model);
     let times = if one_hour { w.write_1h } else { w.write_5m } / w.cache_read;
     let note = format!(
-        "codefast: that call took {}, and this conversation's prompt cache lives {}: the next request sends the conversation's {} tokens again as new input, {}about {times:.0} times what a warm request pays for them. A long command costs less run in the background and looked at every few minutes.",
-        idle_text(ran.as_secs()),
+        "codefast: {} have passed since this conversation's last request was sent, and its prompt cache lives {} from then: the next request sends the conversation's {} tokens again as new input, {}about {times:.0} times what a warm request pays for them. What takes that long costs less in parts: a large file written in several calls, a long command in the background and looked at every few minutes.",
+        idle_text(since.as_secs()),
         if one_hour { "an hour" } else { "5 minutes" },
         super::sessions::short(last.context as f64),
         with_model(&last.model)

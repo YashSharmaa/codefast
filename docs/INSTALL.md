@@ -7,8 +7,8 @@ codefast is one binary. A coding harness uses it in up to four ways:
 - **the MCP server**: the same binary started as `codefast mcp`, for harnesses that prefer tools.
 - **hooks**: optional. They hand the agent facts at the moment they matter: where a symbol named
   in a prompt is defined and how widely it is used, what a search did not print, what an edit
-  left behind, and what has changed so far after a compaction. A hook with nothing new to say
-  prints nothing.
+  left behind, and after a compaction what has changed so far and the request as it was typed.
+  A hook with nothing new to say prints nothing.
 - **the rules block**: optional, sixteen lines in a project's `AGENTS.md` that say which command
   answers which question. It is always in the agent's context, where a skill has to be picked
   up first, and it reaches agents that have nothing else (`codefast setup agents-md`, section 2).
@@ -788,7 +788,12 @@ What they add, each said once per session:
   adds nothing.
 - Before a whole-file read of a source file longer than 400 lines, one line naming the outline
   command.
-- After a compaction, the definitions the uncommitted changes added, removed and altered.
+- After a compaction, the definitions the uncommitted changes added, removed and altered, and
+  in Claude Code the last request the person typed, word for word. A summary shortens the
+  request a conversation was working on, and what it drops are the exact strings and rules: in
+  41 compactions of benchmark conversations the summary kept 68% of the strings a request had
+  in backticks, and never the request as it was written. The hook reads it from the transcript
+  (up to 7,000 bytes of it).
 
 Once a week per project, Claude Code also shows you (not the model) one line when plugins and
 skills that nothing in the project matches load more than about 1,500 tokens into every
@@ -890,15 +895,17 @@ are those of the model the conversation runs on. Each is said once per occasion,
   resuming, the harness's own estimate in dollars is passed on where it gives one. `/clear` or a
   new session avoids it when the next job does not need the history.
 
-One more goes to the model as well as to you, because the model is what can act on it. When a
-command has run longer than the prompt cache of its conversation lives, the request that follows
-sends the whole conversation again at the price of new input. The hook after the command says so
-once for a conversation of 30,000 tokens or more, with how long the command ran and what the
-resend costs, and that a long command costs less run in the background and looked at every few
-minutes. For the main thread that is a command of an hour, or of five minutes where the
-transcript shows the five-minute cache. A sub-agent of Claude Code writes to the five-minute
-cache, so for it that is any build or test run of five minutes. The hook reads which cache it is
-from the conversation's own transcript and says nothing where that does not show it.
+One more goes to the model as well as to you, because the model is what can act on it. A
+prompt cache lives from when a request is sent. So when a tool call takes longer than that, or
+the reply itself takes longer to write (a large file in one call), the request that follows
+sends the whole conversation again at the price of new input. The hook after the call says so
+once for a conversation of 30,000 tokens or more, with how long it has been and what the resend
+costs, and that what takes that long costs less in parts: a large file written in several calls,
+a long command in the background and looked at every few minutes. For the main thread that
+takes an hour, or five minutes where the transcript shows the five-minute cache. A sub-agent of
+Claude Code writes to the five-minute cache, so for it a build of five minutes does it, and so
+does a file that takes five minutes to write. The hook reads which cache it is from the
+conversation's own transcript and says nothing where that does not show it.
 
 `codefast doctor sessions` gives the same figures after the fact, for every session of the
 project.

@@ -548,6 +548,10 @@ pub struct Last {
     pub one_hour: Option<bool>,
     /// The model of that request, as the transcript writes it: [`weights`] gives its prices.
     pub model: String,
+    /// When that request was sent, as near as the transcript has it: the time of the line it
+    /// answers, or of the first part of its reply. Milliseconds since the epoch. A prompt cache
+    /// lives from then.
+    pub sent: i64,
 }
 
 /// The last main-thread request of the transcript at `path`, found from the end of the file:
@@ -573,8 +577,22 @@ fn last_of(path: &Path, agent: bool) -> Option<Last> {
         // The window begins in the middle of a line unless it begins the file.
         let start = if from == 0 { 0 } else { memchr::memchr(b'\n', &buf).map_or(buf.len(), |i| i + 1) };
         let mut found: Option<Last> = None;
+        // The message of the newest request, until the line it answers has been found.
+        let mut answering: Option<String> = None;
         for line in buf[start..].rsplit(|b| *b == b'\n') {
             if memchr::memmem::find(line, b"\"assistant\"").is_none() {
+                // What the newest request answers: the nearest line before its reply that a
+                // person or a tool wrote.
+                if answering.is_some()
+                    && memchr::memmem::find(line, b"\"user\"").is_some()
+                    && let Ok(v) = serde_json::from_slice::<Value>(line)
+                    && v["type"] == "user"
+                    && (agent || v["isSidechain"] != true)
+                    && let (Some(last), Some(at)) = (&mut found, v["timestamp"].as_str().and_then(parse_time))
+                {
+                    last.sent = at;
+                    answering = None;
+                }
                 continue;
             }
             let Ok(v) = serde_json::from_slice::<Value>(line) else { continue };
@@ -590,16 +608,67 @@ fn last_of(path: &Path, agent: bool) -> Option<Last> {
                 // taken from the newest request that wrote anything.
                 None => {
                     let model = v["message"]["model"].as_str().unwrap_or("").to_string();
-                    found = Some(Last { context: context + u.output.unwrap_or(0), at, one_hour: which, model })
+                    answering = Some(v["message"]["id"].as_str().unwrap_or("").to_string());
+                    found = Some(Last { context: context + u.output.unwrap_or(0), at, one_hour: which, model, sent: at })
                 }
-                Some(last) => last.one_hour = last.one_hour.or(which),
+                Some(last) => {
+                    if answering.as_deref().is_some_and(|id| v["message"]["id"].as_str() == Some(id)) {
+                        // An earlier part of the same reply: the request was sent before it.
+                        last.sent = last.sent.min(at);
+                    } else {
+                        // The reply before: nothing a person or a tool wrote lies between.
+                        answering = None;
+                    }
+                    last.one_hour = last.one_hour.or(which)
+                }
             }
-            if found.as_ref().is_some_and(|l| l.one_hour.is_some()) {
+            if answering.is_none() && found.as_ref().is_some_and(|l| l.one_hour.is_some()) {
                 break;
             }
         }
         if found.is_some() || from == 0 {
             return found;
+        }
+    }
+    None
+}
+
+/// The last thing a person typed into the conversation at `path`, word for word: the newest
+/// line of the main thread that is a prompt, and not the result of a tool, a summary, or
+/// something the harness wrote in the person's name. Found from the end of the file.
+pub fn last_prompt(path: &Path) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    for window in [1u64 << 19, 1 << 22, 1 << 25] {
+        let from = len.saturating_sub(window);
+        file.seek(SeekFrom::Start(from)).ok()?;
+        let mut buf = Vec::new();
+        file.by_ref().take(window).read_to_end(&mut buf).ok()?;
+        let start = if from == 0 { 0 } else { memchr::memchr(b'\n', &buf).map_or(buf.len(), |i| i + 1) };
+        for line in buf[start..].rsplit(|b| *b == b'\n') {
+            if memchr::memmem::find(line, b"\"user\"").is_none() {
+                continue;
+            }
+            let Ok(v) = serde_json::from_slice::<Value>(line) else { continue };
+            let made_up = ["isSidechain", "isCompactSummary", "isMeta", "isVisibleInTranscriptOnly"].iter().any(|key| v[*key] == true);
+            if v["type"] != "user" || made_up {
+                continue;
+            }
+            let text = match &v["message"]["content"] {
+                Value::String(s) => s.clone(),
+                Value::Array(blocks) if !blocks.iter().any(|b| b["type"] == "tool_result") => result_text(&v["message"]["content"]),
+                _ => continue,
+            };
+            let text = text.trim();
+            // What the harness writes as if typed: a command's output, a notice, an interruption.
+            if text.is_empty() || text.starts_with('<') || text.starts_with("Caveat:") || text.starts_with("[Request interrupted") {
+                continue;
+            }
+            return Some(text.to_string());
+        }
+        if from == 0 {
+            return None;
         }
     }
     None
