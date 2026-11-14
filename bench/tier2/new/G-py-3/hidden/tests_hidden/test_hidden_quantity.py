@@ -110,7 +110,7 @@ def lookup_hz():
 
 class ParseQuantityTests(unittest.TestCase):
     def test_forms(self):
-        cases = {"3.5 km/h": (3.5, "km/h"), "-2e3 m": (-2000, "m"), "  10   ft": (10, "ft"),
+        cases = {"3.5 km/h": (3.5, "km/h"), "-2e3 m": (-2000, "m"), "10   ft": (10, "ft"),
                  "7kg": (7, "kg"), "+1.5E-3 s": (0.0015, "s"), "9.81 m/s^2": (9.81, "m/s^2")}
         for text, (value, unit) in cases.items():
             with self.subTest(text=text):

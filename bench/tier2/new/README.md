@@ -34,6 +34,11 @@ How a task was admitted: the reference passes every hidden test, each of 8 to 14
 put into the reference one at a time fails at least one test (109 faults over the ten tasks,
 all caught), and every detail a test relies on is stated in the specification.
 
+One case was changed on 15 November 2026, after the first runs. The specification of G-py-3
+has `parse_quantity` read a number at the start of the text, and one case of a hidden test fed
+it text with spaces before the number and expected a quantity. The case now starts with the
+number, and the runs graded before that were graded again.
+
 `python3 bench/tier2/live.py check-new` grades every reference the way a session's work is
 graded, and an empty project next to it: the first must pass every test and the second none.
 
