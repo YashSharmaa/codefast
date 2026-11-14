@@ -88,6 +88,12 @@ costs 0.53 of the control and is cheaper in 8 of 8 pairs, with the answers as go
 eight questions are about the `create` of a v3 class, a name 34 other classes carry: both arms
 score about 0.4 on those and 1.00 on the rest, which is where the 0.62 in the table comes from.
 
+**Writing code, version 0.2.9** (`bench/results/live-heldout-haiku.jsonl`, tag `w1`): the eight
+functions of gitleaks, four runs per task and arm, on the released build. No session of this
+family had been run before, on any build, so nothing in the plugin was shaped on it. Two of
+the eight were run once beforehand to see that the harness worked, and only their pass or fail
+was looked at. The section "Writing code" below reads the result.
+
 **Held-out tasks, version 0.2.2** (`bench/results/live-heldout-haiku.jsonl`, tag `h1`): one
 batch of both arms on Haiku 5.5, two runs per task and arm, interleaved so that a change in the
 account's speed during the batch falls on both arms alike. A figure of the table is the mean
@@ -129,6 +135,50 @@ tasks were run with Sonnet too, at version 0.2.0: `bench/results/live-sonnet.jso
 rename command without a model (`rename_offline.py`), `rename-sample*.jsonl` the random samples
 judged by the compiler, and `by-name.jsonl` the count of matches by name against the type
 checker.
+
+## Writing code
+
+Every family above asks the session something. This one asks it to write: a function of
+gitleaks has its body replaced by `panic("not implemented")`, and the session writes the body
+again. What the function has to do is in the repository and nowhere else: its signature, its
+doc comment, the table it is registered in, the places that call it and the tests that reach
+it. All 64 sessions wrote a body that passes the tests of its package, 32 of each arm.
+
+| | Without | With codefast | |
+|---|---:|---:|---:|
+| Cost of the session | 48.6k | 46.2k | **0.95** |
+| Requests | 7.5 | 5.9 | 0.79 |
+| Shell commands | 5.2 | 3.8 | 0.73 |
+| Tokens written by the model | 3,512 | 3,554 | 1.01 |
+| Tool output read, characters | 14.8k | 15.3k | 1.03 |
+
+A fifth of the requests go, and a twentieth of the cost. The reason is the one the bug-fix
+families gave: what the model writes is over a third of such a session (0.36 of the cost) and
+is as long either way, so taking out a lookup or two leaves most of the bill standing.
+
+| Task | Lines taken out | Cost with codefast | Requests, without and with | Sessions that called codefast |
+|---|---:|---:|---|---:|
+| `Detector.DetectReader` | 24 | 0.76 | 6.2 and 3.5 | 0 of 4 |
+| `decodePercent` | 29 | 0.85 | 6.0 and 4.0 | 0 of 4 |
+| `ViperConfig.parseAllowlist` | 44 | 0.87 | 12.8 and 10.5 | 2 of 4 |
+| `Detector.StreamDetectReader` | 31 | 0.88 | 5.2 and 3.2 | 0 of 4 |
+| `Allowlist.CommitAllowed` | 15 | 0.92 | 7.5 and 5.2 | 1 of 4 |
+| `checkCommitOrPathAllowed` | 43 | 0.93 | 6.8 and 5.5 | 0 of 4 |
+| `Config.extendPath` | 18 | 1.04 | 8.8 and 7.5 | 4 of 4 |
+| `toOriginal` | 34 | 1.16 | 6.8 and 7.8 | 2 of 4 |
+
+The median task is 0.90 and six of the eight are cheaper. What does the work is the card for
+the prompt (the hooks add about 600 bytes to such a session in all): for `decodePercent` it
+says the function is registered
+as `encoding.decode` in the table `encodings` and reached through that table from
+`findEncodedSegments`, which is what the function is for and which no text search for its name
+finds. On the four tasks where no session called codefast at all, the card alone took the
+session to 0.76 to 0.93. The two tasks that came out dearer are the two where the sessions
+called the tool most. That is eight tasks and not a cause: a function that is harder to write
+may be what sends a session looking in the first place.
+
+This family is now a development family for every later build, like any held-out family that
+has been read.
 
 ## What a bug fix costs
 
@@ -455,6 +505,10 @@ The prompt card of version 0.2.2 was settled by three small experiments on devel
   bug-fix families show what the plugin costs or saves there, and the answer is that it costs
   nothing and saves little. Their medians are level with the control and the totals, 0.93 and
   0.92, come from a few long sessions. Six attempts to make that figure move are above.
+* The code-writing family is one repository, one language and eight functions of 15 to 44
+  lines whose body was taken out of a project that already has their callers and their tests.
+  Writing a new function into a project that has neither is a different task, and nothing here
+  measures it.
 * There is no rename family for a language without a compiler. Two attempts to build one for
   Python (sqlglot) failed for want of a reference to check against: a refactoring library
   renamed the wrong places, and a rename traced from the running tests left 12 of 16
