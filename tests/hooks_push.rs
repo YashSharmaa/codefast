@@ -426,6 +426,132 @@ fn after_a_compaction_the_session_gets_the_request_back_word_for_word() {
     settle(&repo);
 }
 
+/// The payload of the hook after a shell command, in a session of its own.
+fn ran(repo: &Repo, home: &Dir, session: &str, command: &str) -> String {
+    let mut v: serde_json::Value = serde_json::from_str(&payload("claude-post-bash-grep", &repo.dir, home)).unwrap();
+    v["tool_input"]["command"] = command.into();
+    v["tool_response"]["stdout"] = "".into();
+    v["session_id"] = session.into();
+    v.to_string()
+}
+
+/// The payload of the hook after an edit of `rel`.
+fn edited(repo: &Repo, home: &Dir, session: &str, rel: &str) -> String {
+    in_session(&payload("claude-post-edit", &repo.dir, home).replace("src/main.c", rel), session)
+}
+
+/// The payload of the hook after `rel` was written whole.
+fn wrote(repo: &Repo, home: &Dir, session: &str, rel: &str) -> String {
+    let mut v: serde_json::Value = serde_json::from_str(&payload("claude-post-edit", &repo.dir, home)).unwrap();
+    v["tool_name"] = "Write".into();
+    v["tool_input"] = serde_json::json!({"file_path": repo.path(rel), "content": std::fs::read_to_string(repo.path(rel)).unwrap()});
+    v["tool_response"] = serde_json::json!({"type": "update", "filePath": repo.path(rel)});
+    v["session_id"] = session.into();
+    v.to_string()
+}
+
+const CART: &str = "class Cart:\n    def __init__(self):\n        self.items = []\n\n    def add(self, item):\n        self.items.append(item)\n\n    def total(self):\n        return len(self.items)\n";
+
+/// Code is written a piece at a time, a call before the method it calls, and several edits go
+/// out in one request. A finding about the state between two of them is about a state the
+/// conversation has left when it reads it.
+#[test]
+fn a_member_that_is_not_written_yet_waits_until_the_conversation_runs_something() {
+    let repo = Repo::new("held");
+    std::fs::remove_dir_all(repo.path(".git")).unwrap();
+    write(&repo.path("shop/cart.py"), CART);
+    git(&repo, &["init", "-q", "."]);
+    write(&repo.path(".gitignore"), ".codefast/\n");
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "base"]);
+    let home = scratch("home");
+    assert_eq!(run(&home, &repo.dir, &["index"], &[], None).0, 0);
+    let cart = "shop/cart.py";
+    let post = |input: String| hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[]);
+
+    // One request, two edits: the call, then the method it calls.
+    edit(&repo, cart, "    def total(self):\n", "    def checkout(self):\n        return self.apply_discount(self.total())\n\n    def total(self):\n");
+    post(edited(&repo, &home, "a", cart)).assert_quiet("a call of a method the next edit writes");
+    edit(&repo, cart, "    def total(self):\n", "    def apply_discount(self, n):\n        return n\n\n    def total(self):\n");
+    post(edited(&repo, &home, "a", cart)).assert_quiet("the edit that writes the method");
+    post(ran(&repo, &home, "a", "python -m pytest -q")).assert_quiet("nothing is left to say when the tests run");
+
+    // The method never comes. Said when the conversation runs something, and once.
+    edit(&repo, cart, "self.apply_discount(self.total())", "self.apply_coupon(self.total())");
+    post(edited(&repo, &home, "b", cart)).assert_quiet("still writing");
+    post(ran(&repo, &home, "b", "git status --short")).assert_quiet("a look is not a run");
+    post(ran(&repo, &home, "b", "ls shop && cat shop/cart.py | head -5")).assert_quiet("nor is a read");
+    let said = post(ran(&repo, &home, "b", "cd . && python -m pytest -q 2>&1 | tail -5")).context("PostToolUse");
+    assert!(said.starts_with("codefast: shop/cart.py:9 uses Cart.apply_coupon, and nothing in this repository defines `apply_coupon`. Cart (shop/cart.py:1) has: apply_discount, "), "{said}");
+    post(ran(&repo, &home, "b", "python -m pytest -q")).assert_quiet("said once");
+
+    // Tool calls of one request finish together: one of their hooks says it.
+    post(edited(&repo, &home, "c", cart)).assert_quiet("still writing");
+    let all = hooks_at_once(&home, &repo.dir, "post-tool-use", ran(&repo, &home, "c", "python -m pytest -q").as_bytes(), 4);
+    assert_eq!(all.iter().filter(|r| !r.stdout.is_empty()).count(), 1, "one of four hooks at once");
+
+    // The conversation stops without running anything: said with the next prompt.
+    post(edited(&repo, &home, "d", cart)).assert_quiet("still writing");
+    let prompt = |text: &str| {
+        let mut v: serde_json::Value = serde_json::from_str(&payload("claude-user-prompt", &repo.dir, &home)).unwrap();
+        v["prompt"] = text.into();
+        v["session_id"] = "d".into();
+        hook(&home, &repo.dir, "user-prompt-submit", v.to_string().as_bytes(), &[])
+    };
+    let next = prompt("Go on.").context("UserPromptSubmit");
+    assert!(next.starts_with("codefast: since the last edits, shop/cart.py:9 uses Cart.apply_coupon, and nothing in this repository defines `apply_coupon`."), "{next}");
+    prompt("Go on.").assert_quiet("said once");
+
+    // A type the conversation did not touch is another matter: a member it lacks was imagined,
+    // and that is said at once (the test below).
+}
+
+/// A card says where a definition is and what it looks like. To the conversation that wrote
+/// the file it says nothing new, and it would be read again with every request after.
+#[test]
+fn what_a_conversation_wrote_itself_is_not_explained_to_it() {
+    let (repo, home) = committed("wrote");
+    let session = "0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11";
+    let prompt = payload("claude-user-prompt", &repo.dir, &home);
+    for rel in ["src/io.c", "src/big.c"] {
+        hook(&home, &repo.dir, "post-tool-use", wrote(&repo, &home, session, rel).as_bytes(), &[]).assert_quiet("a file written as it was");
+    }
+    hook(&home, &repo.dir, "user-prompt-submit", prompt.as_bytes(), &[]).assert_quiet("a card about a file the conversation wrote");
+    hook(&home, &repo.dir, "post-tool-use", payload("claude-post-bash-grep", &repo.dir, &home).as_bytes(), &[]).assert_quiet("a grep for a symbol of that file");
+    hook(&home, &repo.dir, "pre-tool-use", payload("claude-pre-read", &repo.dir, &home).as_bytes(), &[]).assert_quiet("a read of a long file the conversation wrote");
+    // Another conversation is told as ever.
+    assert_eq!(hook(&home, &repo.dir, "user-prompt-submit", in_session(&prompt, "other").as_bytes(), &[]).context("UserPromptSubmit"), CARD);
+    // After a compaction the conversation has the code no longer: the card is news again.
+    let compact = hook(&home, &repo.dir, "session-start", payload("claude-session-compact", &repo.dir, &home).as_bytes(), &[]);
+    assert_eq!(compact.code, 0, "{}", compact.stderr);
+    assert_eq!(hook(&home, &repo.dir, "user-prompt-submit", prompt.as_bytes(), &[]).context("UserPromptSubmit"), CARD);
+    settle(&repo);
+}
+
+/// A base that is a built-in of the language is not in the repository, and brings members
+/// with it. So does every object: `toString` is nowhere defined in a small project.
+#[test]
+fn a_class_with_a_built_in_base_is_not_said_to_lack_what_the_base_brings() {
+    let repo = Repo::new("bases");
+    for rel in ["src/io.c", "src/io.h", "src/main.c", "src/big.c"] {
+        let _ = std::fs::remove_file(repo.path(rel));
+    }
+    std::fs::remove_dir_all(repo.path(".git")).unwrap();
+    write(&repo.path("web/errors.ts"), "export class TemplateError extends Error {\n  line = 0;\n  describe(): string {\n    return `${this.line}: ${this.message}`;\n  }\n}\n");
+    write(&repo.path("web/store.ts"), "export class Store extends Map<string, number> {\n  hits = 0;\n  bump(k: string) {\n    this.set(k, (this.get(k) ?? 0) + 1);\n  }\n}\n");
+    write(&repo.path("app/bag.py"), "class Bag(dict):\n    def fill(self):\n        return self.setdefault(\"a\", 1)\n\n\nclass QueryError(Exception):\n    def describe(self):\n        return self.with_traceback(None)\n");
+    write(&repo.path("app/Worker.java"), "class Worker extends Thread {\n    int n;\n    void go() { this.start(); }\n}\nclass Point {\n    int x;\n    String show() { return this.toString() + this.hashCode(); }\n}\n");
+    write(&repo.path("app/err.rb"), "class MyErr < StandardError\n  def describe\n    self.full_message\n  end\nend\n");
+    write(&repo.path("app/plain.py"), "class Plain:\n    def go(self):\n        self.missing_thing()\n");
+    git(&repo, &["init", "-q", "."]);
+    write(&repo.path(".gitignore"), ".codefast/\n");
+    let home = scratch("home");
+    assert_eq!(run(&home, &repo.dir, &["index"], &[], None).0, 0);
+    let (code, out, err) = run(&home, &repo.dir, &["check"], &[], None);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(out.trim(), "app/plain.py:3 uses Plain.missing_thing, and nothing in this repository defines `missing_thing`. Plain (app/plain.py:1) has: go.", "{out}");
+}
+
 #[test]
 fn a_call_of_a_method_nobody_defines_is_named_with_what_the_type_does_have() {
     let repo = Repo::new("phantom");
@@ -475,6 +601,15 @@ fn a_prompt_that_asks_for_a_rename_gets_the_command_that_does_it() {
     assert!(lines[1].starts_with("`codefast rename dev_ops.read fetch`  (defined at src/io.h:3"), "{said}");
     assert!(lines[2].starts_with("`codefast rename dev_write dev_put`  (defined at src/io.c:11, called from 1 site in 1 file)"), "{said}");
     assert!(lines[3].starts_with("`codefast rename dev_ops dev_table`  (defined at src/io.h:2"), "{said}");
+
+    // A symbol that had its card in an earlier message still gets the command when a later
+    // message asks for the rename, and no command is offered for another name of the prompt.
+    let first = in_session(&input, "later").replace("Rename `dev_read` to `dev_fetch` everywhere, tests included.", "Why does `dev_read` return -1 for a device that is open?");
+    assert!(hook(&home, &repo.dir, "user-prompt-submit", first.as_bytes(), &[]).context("UserPromptSubmit").starts_with("codefast: dev_read is defined at src/io.c:4-9"));
+    let then = in_session(&input, "later").replace("Rename `dev_read` to `dev_fetch` everywhere, tests included.", "Rename `dev_read` to `dev_fetch` everywhere. `dev_write` and `copy_all` keep their names.");
+    let said = hook(&home, &repo.dir, "user-prompt-submit", then.as_bytes(), &[]).context("UserPromptSubmit");
+    assert!(said.starts_with("codefast: `codefast rename dev_read dev_fetch` does this rename in one step") && !said.contains("NEW_NAME") && said.lines().count() == 1, "{said}");
+    hook(&home, &repo.dir, "user-prompt-submit", then.as_bytes(), &[]).assert_quiet("the same rename asked again");
 
     // A request that names no new name is answered as before, with the command to fill in.
     let open = in_session(&input, "open").replace("Rename `dev_read` to `dev_fetch` everywhere, tests included.", "Rename `dev_read`: it reads from a device, and the name should say so.");

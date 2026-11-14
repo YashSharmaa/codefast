@@ -786,8 +786,24 @@ What they add, each said once per session:
   places that still use something the edit removed, renamed or gave another signature, and
   calls of a member that nothing in the repository defines. An edit that leaves nothing behind
   adds nothing.
+  A member that does not exist is said at once when its type lives in a file the conversation
+  has not touched: then the member was imagined. When the conversation is writing that file,
+  the finding waits. Code is written a piece at a time, a call before the method it calls, and
+  several edits go out in one request, so a finding about the state between two of them
+  describes a state the conversation has already left. It is said when the conversation runs
+  something (its tests, a build, the program) and the member is still missing, or with the next
+  prompt when it stopped without running anything.
+  Nothing is said about a class whose header names a base the repository does not define
+  (`extends Error`, `class Bag(dict)`, `extends Thread`), about members every object of the
+  language has (`toString`, `hashCode`, `copy` of a data class), about a type that a `.d.ts`
+  file declares, or about a nested type used from another file under its bare name.
 - Before a whole-file read of a source file longer than 400 lines, one line naming the outline
   command.
+- None of the notes above about a file the conversation wrote in full (the harness's write tool,
+  or a file a patch adds): where its definitions are and what they look like is not news to
+  whoever wrote them, and every line a hook adds is read again with each later request. A
+  rename still gets its command. After a compaction or `/clear` the conversation has the text
+  no longer, and the notes come back.
 - After a compaction, the definitions the uncommitted changes added, removed and altered, and
   in Claude Code the last request the person typed, word for word. A summary shortens the
   request a conversation was working on, and what it drops are the exact strings and rules: in

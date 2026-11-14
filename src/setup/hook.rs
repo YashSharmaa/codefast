@@ -515,8 +515,9 @@ enum Call {
     Shell { command: String, dir: Option<String> },
     Search(Search),
     Read { path: String, whole: bool },
-    /// A tool that writes files: the files it named.
-    Edit { paths: Vec<String> },
+    /// A tool that writes files: the files it named, and those of them whose whole text the
+    /// call carried (a new file, or one written over).
+    Edit { paths: Vec<String>, whole: Vec<String> },
 }
 
 impl Payload {
@@ -524,7 +525,8 @@ impl Payload {
         let input = self.input.as_ref()?;
         let text = |keys: &[&str]| keys.iter().find_map(|k| input.get(*k).and_then(Value::as_str)).filter(|s| !s.is_empty()).map(str::to_string);
         let number = |key: &str| input.get(key).and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())));
-        match self.tool.as_deref()?.to_ascii_lowercase().as_str() {
+        let tool = self.tool.as_deref()?.to_ascii_lowercase();
+        match tool.as_str() {
             "bash" | "shell" | "run_shell_command" | "exec_command" | "local_shell" | "run_terminal_cmd" | "execute_command" => {
                 let command = match input.get("command").or_else(|| input.get("cmd"))? {
                     Value::String(s) => s.clone(),
@@ -550,20 +552,26 @@ impl Payload {
                 Some(Call::Read { path, whole })
             }
             "edit" | "write" | "multiedit" | "replace" | "write_file" | "edit_file" | "create_file" | "str_replace_editor" | "str_replace_based_edit_tool" | "search_replace" => {
-                Some(Call::Edit { paths: text(&["file_path", "absolute_path", "path", "target_file"]).into_iter().collect() })
+                let paths: Vec<String> = text(&["file_path", "absolute_path", "path", "target_file"]).into_iter().collect();
+                let all = matches!(tool.as_str(), "write" | "write_file" | "create_file") || input.get("command").and_then(Value::as_str) == Some("create");
+                Some(Call::Edit { whole: if all { paths.clone() } else { Vec::new() }, paths })
             }
             // Codex: one patch, any number of files, each announced on a line of its own.
             "apply_patch" => {
                 let patch = text(&["command", "patch", "input"])?;
                 let mut paths = Vec::new();
+                let mut whole = Vec::new();
                 for line in patch.lines() {
                     for lead in ["*** Update File: ", "*** Add File: ", "*** Delete File: ", "*** Move to: "] {
                         if let Some(p) = line.strip_prefix(lead) {
                             paths.push(p.trim().to_string());
+                            if lead == "*** Add File: " {
+                                whole.push(p.trim().to_string());
+                            }
                         }
                     }
                 }
-                Some(Call::Edit { paths })
+                Some(Call::Edit { paths, whole })
             }
             _ => None,
         }
@@ -790,6 +798,88 @@ impl Session {
     }
 }
 
+/// The key of the line that marks a compaction (or a `/clear`): what the conversation held
+/// before it, it holds no longer.
+const FORGOT: &str = "forgot";
+/// The key of the line after which findings are held anew.
+const HELD_SAID: &str = "held-said";
+
+impl Session {
+    /// The keys recorded after the last line with the key `since`, or all of them when no line
+    /// has it. This is how something a later event takes back is kept in a file that is only
+    /// ever appended to.
+    fn keys_since(&self, since: &str) -> Vec<String> {
+        if std::fs::metadata(&self.file).is_ok_and(|md| md.len() > SESSION_FILE_MAX) {
+            return Vec::new();
+        }
+        let Ok(text) = std::fs::read_to_string(&self.file) else { return Vec::new() };
+        let mut out: Vec<String> = Vec::new();
+        for l in text.lines() {
+            match Self::key_of(l) {
+                k if k == since => out.clear(),
+                k => out.push(k.to_string()),
+            }
+        }
+        out
+    }
+
+    /// Whether this conversation has the whole of a file in front of it because it wrote it:
+    /// then where its definitions are and what they look like is not news to it.
+    fn holds(&self, rel: &str) -> bool {
+        let key = format!("w:{rel}");
+        self.keys_since(FORGOT).iter().any(|k| *k == key)
+    }
+
+    fn hold(&self, rel: &str) {
+        if !self.holds(rel) {
+            self.claim(&format!("w:{rel}"));
+        }
+    }
+
+    /// The conversation's context was cut down (a compaction, a `/clear`): it holds nothing.
+    fn forget(&self) {
+        if !self.keys_since(FORGOT).is_empty() {
+            self.claim(FORGOT);
+        }
+    }
+
+    /// Whether this conversation has changed a file.
+    fn edited(&self, rel: &str) -> bool {
+        self.seen(&format!("e:{rel}"))
+    }
+
+    fn mark_edited(&self, rel: &str) {
+        let key = format!("e:{rel}");
+        if !self.seen(&key) {
+            self.claim(&key);
+        }
+    }
+
+    /// A file with a finding that was not said because the conversation was still writing.
+    fn keep_for_later(&self, rel: &str) {
+        let key = format!("h:{rel}");
+        if !self.keys_since(HELD_SAID).iter().any(|k| *k == key) {
+            self.claim(&key);
+        }
+    }
+
+    fn held(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.keys_since(HELD_SAID).iter().filter_map(|k| k.strip_prefix("h:").map(str::to_string)).collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// The files with held findings, which from now on are held no longer.
+    fn take_held(&self) -> Vec<String> {
+        let out = self.held();
+        if !out.is_empty() {
+            self.claim(HELD_SAID);
+        }
+        out
+    }
+}
+
 fn age(path: &Path) -> Option<Duration> {
     let modified = std::fs::metadata(path).ok()?.modified().ok()?;
     Some(SystemTime::now().duration_since(modified).unwrap_or_default())
@@ -963,6 +1053,12 @@ fn session_start(passed: &Path, payload: &Payload) -> String {
     // tree with uncommitted work, which is what a new session finds after another one stopped.
     let recap_at_start = matches!(payload.source.as_deref(), None | Some("startup" | "clear")) && std::env::var_os("CODEFAST_START_RECAP").is_some_and(|v| v == "1");
     let compacted = payload.source.as_deref() == Some("compact");
+    // What the conversation wrote it no longer has word for word: a card about it is news again.
+    if matches!(payload.source.as_deref(), Some("compact" | "clear"))
+        && let Some(session) = Session::open(&place, payload.audience().as_deref())
+    {
+        session.forget();
+    }
     // The summary of a compacted conversation also shortens the request it was working on,
     // and what it drops are the exact strings and rules. The transcript still has them.
     let request = if compacted { request_in_progress(payload) } else { None };
@@ -1569,7 +1665,8 @@ fn origin_cards(ix: &Index, rs: &Resolver, session: &Session, text: &str, cli: &
         let line = String::from_utf8_lossy(crate::query::show::line_text(&src, &starts, o.line)).trim().to_string();
         let path = ix.path(o.file);
         let Some(def) = ix.def_at(o.file, o.line).filter(|d| d.kind().is_callable()) else { continue };
-        if taken.contains(&def.id) {
+        // Where a message is written is known to whoever wrote it.
+        if taken.contains(&def.id) || session.holds(path) {
             continue;
         }
         let name = def.qualified();
@@ -1831,7 +1928,10 @@ fn rename_cards(ix: &Index, rs: &Resolver, session: &Session, found: &prompt::Me
         };
         let uses = spread(ix, rs, &target).filter(|s| s.starts_with("called from") || s.starts_with("used at"));
         let key = def.qualified();
-        if session.seen(&format!("p:{key}")) {
+        // Once for each rename. That the symbol had a card before does not count against it:
+        // the card said where it is, and this is the command that renames it.
+        let told = format!("r:{key}>{}", r.new_name);
+        if session.seen(&told) || !session.claim(&told) {
             continue;
         }
         lines.push((owner.is_some(), format!("`{cli} rename {spec} {}`", r.new_name), format!("{}:{}{}", def.path(), def.rec.line, uses.map(|u| format!(", {u}")).unwrap_or_default())));
@@ -1917,7 +2017,9 @@ fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id:
         // starts with the command that does the rename: where the definition is and how widely
         // it is used are what the command takes care of.
         if found.rename {
-            if target.class == Class::Module {
+            // The prompt says what is renamed to what. A command with a blank in it for
+            // another name it mentions would be a command for the wrong thing.
+            if target.class == Class::Module || !found.renames.is_empty() {
                 continue;
             }
             let uses = spread(&ix, &rs, &target).filter(|s| s.starts_with("called from") || s.starts_with("used at")).map(|s| format!(" ({s})")).unwrap_or_default();
@@ -1931,6 +2033,12 @@ fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id:
                 let _ = tx.send(card);
             }
             return;
+        }
+        // A file this conversation wrote in full is in front of it: where a definition of it
+        // is and what it looks like would be said to the one who wrote it, and paid for on
+        // every request after. (A rename, above, is another matter: the command saves edits.)
+        if session.holds(def.path()) {
+            continue;
         }
         let doc = docs.line(&def, 100);
         // Which of several definitions this is, said in the open: the choice was made by a
@@ -1980,7 +2088,11 @@ fn user_prompt(passed: &Path, payload: &Payload, started: Instant) -> String {
     let cli = cli();
     // For the person and not the model, and whatever the prompt says.
     let note = conversation_note(&place, payload, &cli);
-    let cards = prompt_text(place, payload, cli, started);
+    let held = held_at_prompt(&place, payload, started);
+    let cards = match (prompt_text(place, payload, cli, started), held) {
+        (Some(cards), Some(held)) => Some(format!("{cards}\n\n{held}")),
+        (cards, held) => cards.or(held),
+    };
     match (cards, note) {
         (Some(text), note) => payload.reply_with(Event::UserPromptSubmit, &text, note.as_deref()),
         (None, Some(note)) => payload.to_user(&note),
@@ -2105,6 +2217,10 @@ fn answer_search(place: Place, base: PathBuf, searches: Vec<Search>, output: Opt
             request_refresh(&place);
             continue;
         }
+        // A search for something the conversation wrote itself is not a question about it.
+        if session.holds(def.path()) {
+            continue;
+        }
         let files = ix.name_id(id.name.as_bytes()).map(|n| ix.files_with(n).count()).unwrap_or(0);
         let doc = crate::query::card::Docs::new(&ix).line(&def, 110);
         let test = def.flags() & crate::facts::dflag::TEST != 0 || ix.is_test_file(def.file());
@@ -2162,37 +2278,87 @@ fn symbol_note(head: &Head, usage: Option<&str>, cli: &str) -> String {
     clip_bytes(&format!("{lead}{}", head.line), NOTE_BYTES)
 }
 
+/// What a tool call did to the files, as far as the check after it goes.
+enum Did {
+    /// It wrote the files it named (any of the changed files when it named none), and of
+    /// `whole` the whole text.
+    Wrote { paths: Vec<String>, whole: Vec<String> },
+    /// It ran something. The conversation has stopped writing and relies on what it wrote:
+    /// the moment for what was held back while it wrote.
+    Ran,
+}
+
 /// What the edits left behind, for the files a tool call wrote (all changed files when it did
 /// not name them). Every finding is said once per session.
-fn edit_findings(place: Place, base: Option<PathBuf>, paths: Vec<String>, session_id: Option<String>, tx: mpsc::Sender<String>) {
-    if !refresh_allowed() {
-        return;
-    }
+///
+/// One kind of finding waits: a member that does not exist, of a type whose file this
+/// conversation is writing. Code is written a piece at a time, a call before the method it
+/// calls, and several edits go out in one request: said after the first of them, the finding
+/// is about a state the conversation has already left, and it reads as an index that cannot
+/// be trusted. It is said when the conversation runs something and it still holds.
+fn edit_findings(place: Place, base: Option<PathBuf>, did: Did, session_id: Option<String>, tx: mpsc::Sender<String>) {
     let Some(session) = Session::open(&place, session_id.as_deref()) else { return };
-    // The rest of the code is compared as it is now, so the index is brought up to date first.
-    let Ok(ix) = fresh::open(&place.root, &OpenOptions { refresh: true, quiet: true }) else { return };
-    let rs = Resolver::new(&ix);
-    let mut files: Vec<String> = Vec::new();
-    for p in &paths {
+    let relative = |p: &String| {
         let path = PathBuf::from(p);
         let abs = match (path.is_absolute(), &base) {
             (true, _) => path,
             (false, Some(b)) => b.join(path),
-            _ => continue,
+            _ => return None,
         };
-        if let Some(rel) = place.relative(&abs) {
-            files.push(rel);
+        place.relative(&abs)
+    };
+    let mut dirty: Vec<String> = Vec::new();
+    let writing = matches!(did, Did::Wrote { .. });
+    let files: Vec<String> = match &did {
+        Did::Wrote { paths, whole } => {
+            let named: Vec<String> = paths.iter().filter_map(relative).collect();
+            for rel in &named {
+                session.mark_edited(rel);
+            }
+            for rel in whole.iter().filter_map(relative) {
+                session.hold(&rel);
+            }
+            if !refresh_allowed() {
+                return;
+            }
+            if paths.is_empty() {
+                dirty = crate::query::changed::dirty_files(&place.root);
+                dirty.iter().filter(|f| crate::lang::Lang::from_path(f).has_extractor()).take(CHECK_FILES).cloned().collect()
+            } else {
+                named
+            }
         }
+        Did::Ran => {
+            if session.held().is_empty() || !refresh_allowed() {
+                return;
+            }
+            session.take_held()
+        }
+    };
+    if files.is_empty() {
+        return;
     }
-    if paths.is_empty() {
-        files = crate::query::changed::dirty_files(&place.root).into_iter().filter(|f| crate::lang::Lang::from_path(f).has_extractor()).take(CHECK_FILES).collect();
-    }
+    // The rest of the code is compared as it is now, so the index is brought up to date first.
+    let Ok(ix) = fresh::open(&place.root, &OpenOptions { refresh: true, quiet: true }) else { return };
+    let rs = Resolver::new(&ix);
     let mut said = 0usize;
     let mut held = 0usize;
     for rel in &files {
         for f in crate::query::changed::check_file(&ix, &rs, &place.root, rel, 500) {
             if session.seen(&f.key) {
                 continue;
+            }
+            match &f.home {
+                // The type is being written by this conversation (or, after a shell command
+                // that named no file, differs from the last commit): its next edit may be the
+                // one that writes the member.
+                Some(home) if writing && (session.edited(home) || dirty.contains(home)) => {
+                    session.keep_for_later(rel);
+                    continue;
+                }
+                // What was held is the only thing looked for when something is run.
+                None if !writing => continue,
+                _ => {}
             }
             // The list of places is not printed twice: a command that showed it a few minutes
             // ago (the agent asked before it edited) is what "above" refers to.
@@ -2215,23 +2381,40 @@ fn edit_findings(place: Place, base: Option<PathBuf>, paths: Vec<String>, sessio
     }
 }
 
-fn after_edit(passed: &Path, payload: &Payload, paths: Vec<String>, dir: Option<String>, started: Instant) -> String {
-    let Some(place) = Place::find(passed, payload.cwd.as_deref()) else { return String::new() };
+/// The findings of [`edit_findings`], as one text. Empty when there are none in time.
+fn findings_text(place: Place, payload: &Payload, did: Did, dir: Option<String>, started: Instant) -> Option<String> {
     let base = dir.or_else(|| payload.cwd.clone()).map(PathBuf::from).filter(|d| d.is_absolute());
     let session_id = payload.audience();
     let (tx, rx) = mpsc::channel();
-    let worker = std::thread::Builder::new().stack_size(16 << 20).spawn(move || edit_findings(place, base, paths, session_id, tx));
-    if worker.is_err() {
-        return String::new();
-    }
+    std::thread::Builder::new().stack_size(16 << 20).spawn(move || edit_findings(place, base, did, session_id, tx)).ok()?;
     let mut found: Vec<String> = Vec::new();
     while let Ok(text) = rx.recv_timeout(SLOW_DEADLINE.saturating_sub(started.elapsed())) {
         found.push(text);
     }
-    if found.is_empty() {
+    (!found.is_empty()).then(|| found.join("\n\n"))
+}
+
+fn after_edit(passed: &Path, payload: &Payload, did: Did, dir: Option<String>, started: Instant) -> String {
+    let Some(place) = Place::find(passed, payload.cwd.as_deref()) else { return String::new() };
+    // Nearly every command that is run finds nothing held: no thread and no index for those.
+    if matches!(did, Did::Ran) && !Session::open(&place, payload.audience().as_deref()).is_some_and(|s| !s.held().is_empty()) {
         return String::new();
     }
-    payload.reply(Event::PostToolUse, &format!("codefast: {}", found.join("\n\n")))
+    match findings_text(place, payload, did, dir, started) {
+        Some(text) => payload.reply(Event::PostToolUse, &format!("codefast: {text}")),
+        None => String::new(),
+    }
+}
+
+/// What was held back while the conversation wrote and still holds now that it has stopped
+/// without running anything: said with the next prompt.
+fn held_at_prompt(place: &Place, payload: &Payload, started: Instant) -> Option<String> {
+    let session = Session::open(place, payload.audience().as_deref())?;
+    if session.held().is_empty() {
+        return None;
+    }
+    let place = Place { root: place.root.clone(), explicit: place.explicit, index_dir: place.index_dir.clone() };
+    findings_text(place, payload, Did::Ran, None, started).map(|text| format!("codefast: since the last edits, {text}"))
 }
 
 fn post_tool_use(passed: &Path, payload: &Payload, started: Instant) -> String {
@@ -2240,13 +2423,17 @@ fn post_tool_use(passed: &Path, payload: &Payload, started: Instant) -> String {
             let searches = shell::analyse(&command).searches;
             // A command that searched gets the note on what it searched for. One that may have
             // written files gets the check of what the edits left behind.
-            if !searches.iter().any(|s| shell::identifier(s).is_some()) && shell::may_write(&command) {
-                return after_edit(passed, payload, Vec::new(), dir, started);
+            let asks = searches.iter().any(|s| shell::identifier(s).is_some());
+            if !asks && shell::may_write(&command) {
+                return after_edit(passed, payload, Did::Wrote { paths: Vec::new(), whole: Vec::new() }, dir, started);
+            }
+            if !asks && shell::runs_code(&command) {
+                return after_edit(passed, payload, Did::Ran, dir, started);
             }
             (searches, dir)
         }
         Some(Call::Search(s)) => (vec![s], None),
-        Some(Call::Edit { paths }) => return after_edit(passed, payload, paths, None, started),
+        Some(Call::Edit { paths, whole }) => return after_edit(passed, payload, Did::Wrote { paths, whole }, None, started),
         _ => return String::new(),
     };
     if !searches.iter().any(|s| shell::identifier(s).is_some()) {
@@ -2326,7 +2513,8 @@ fn read_hint(place: &Place, path: &Path, session_id: Option<&str>) -> Option<Str
     }
     let session = Session::open(place, session_id)?;
     let key = format!("f:{rel}");
-    if session.seen(&key) || !session.claim(&key) {
+    // Whoever wrote the file reads it again for its exact text, not to find its way in it.
+    if session.holds(&rel) || session.seen(&key) || !session.claim(&key) {
         return None;
     }
     Some(read_note(&rel, lines, md.len(), rec.def_count as usize, &cli()))
@@ -2508,14 +2696,14 @@ mod tests {
         );
         assert!(matches!(call(r#"{"tool_name": "run_shell_command", "tool_input": {"command": "rg x"}}"#), Some(Call::Shell { .. })));
         // Tools that write files: the files they named
-        assert_eq!(call(r#"{"tool_name": "Write", "tool_input": {"file_path": "/r/a.c", "content": "x"}}"#), Some(Call::Edit { paths: vec!["/r/a.c".into()] }));
+        assert_eq!(call(r#"{"tool_name": "Write", "tool_input": {"file_path": "/r/a.c", "content": "x"}}"#), Some(Call::Edit { paths: vec!["/r/a.c".into()], whole: vec!["/r/a.c".into()] }));
         assert_eq!(
             call(r#"{"tool_name": "Edit", "tool_input": {"file_path": "/r/a.c", "old_string": "a", "new_string": "b"}}"#),
-            Some(Call::Edit { paths: vec!["/r/a.c".into()] })
+            Some(Call::Edit { paths: vec!["/r/a.c".into()], whole: Vec::new() })
         );
         assert_eq!(
             call(r#"{"tool_name": "apply_patch", "tool_input": {"command": "*** Begin Patch\n*** Update File: src/a.c\n@@\n-x\n+y\n*** Add File: src/b.c\n+z\n*** End Patch"}}"#),
-            Some(Call::Edit { paths: vec!["src/a.c".into(), "src/b.c".into()] })
+            Some(Call::Edit { paths: vec!["src/a.c".into(), "src/b.c".into()], whole: vec!["src/b.c".into()] })
         );
         // Tools the hooks have nothing to say about
         for other in [

@@ -304,6 +304,181 @@ pub fn misfit_calls<'a>(ix: &'a Index, rs: &Resolver<'a>, file: FileId, now: &De
     out
 }
 
+/// How many types the header of a type says it inherits from: `class A(B, C)`, `class A extends
+/// B implements C`, `class A : B, C`, `class A < B`. `None` when the header does not read as
+/// one. The extractors leave out a base that is a built-in of the language (`Error`, `dict`,
+/// `Thread`, `Map`), so a header can name more bases than the index recorded for the type, and
+/// then the type has members no line of the repository defines.
+fn bases_written(lang: Lang, sig: &str, name: &str) -> Option<usize> {
+    #[derive(PartialEq)]
+    enum How {
+        Parens,
+        Less,
+        Words,
+        Colon,
+    }
+    let how = match lang {
+        Lang::Python => How::Parens,
+        Lang::Ruby => How::Less,
+        Lang::JavaScript | Lang::TypeScript | Lang::Tsx | Lang::Java | Lang::Php | Lang::Scala => How::Words,
+        Lang::CSharp | Lang::Kotlin | Lang::Swift | Lang::Cpp | Lang::ObjC => How::Colon,
+        // What a type embeds is written in its body, where the index reads it.
+        _ => return Some(0),
+    };
+    let b = sig.as_bytes();
+    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$' || c >= 0x80;
+    // The name as a whole word: after it the header says what the type is made of.
+    let mut from = 0;
+    let rest = loop {
+        let i = sig.get(from..)?.find(name)?;
+        let (s, e) = (from + i, from + i + name.len());
+        if (s == 0 || !word(b[s - 1])) && (e == b.len() || !word(b[e])) {
+            break &sig[e..];
+        }
+        from = e;
+    };
+    if how == How::Less {
+        let rest = rest.trim_start();
+        return Some(usize::from(rest.starts_with('<') && !rest.starts_with("<<")));
+    }
+    // The header without what stands in brackets (type parameters, the parameters of a
+    // constructor, the arguments passed to a base), and what the first parentheses hold.
+    let mut top = String::new();
+    let mut first: Option<String> = None;
+    let mut inner = String::new();
+    let (mut depth, mut prev, mut taking) = (0i32, 0u8, false);
+    for c in rest.chars() {
+        let byte = if c.is_ascii() { c as u8 } else { b'x' };
+        match byte {
+            b'{' if depth == 0 => break,
+            b'(' | b'[' | b'<' | b'{' => {
+                if depth == 0 && byte == b'(' && first.is_none() {
+                    taking = true;
+                } else if taking {
+                    inner.push(c);
+                }
+                depth += 1;
+            }
+            // The arrow of a function type closes nothing.
+            b'>' if matches!(prev, b'=' | b'-') => {}
+            b')' | b']' | b'>' | b'}' => {
+                depth -= 1;
+                if depth < 0 {
+                    return None;
+                }
+                if depth == 0 && taking {
+                    taking = false;
+                    first = Some(std::mem::take(&mut inner));
+                } else if taking {
+                    inner.push(c);
+                }
+                if depth == 0 {
+                    top.push(' ');
+                }
+            }
+            _ if depth == 0 => top.push(c),
+            _ if taking => inner.push(c),
+            _ => {}
+        }
+        prev = byte;
+    }
+    if depth != 0 {
+        return None;
+    }
+    // Pieces between commas that stand outside every bracket.
+    let pieces = |s: &str| {
+        let (mut n, mut depth, mut any) = (0usize, 0i32, false);
+        for c in s.chars() {
+            match c {
+                '(' | '[' | '<' | '{' => depth += 1,
+                ')' | ']' | '>' | '}' => depth -= 1,
+                ',' if depth == 0 => {
+                    n += usize::from(any);
+                    any = false;
+                    continue;
+                }
+                _ => {}
+            }
+            any |= !c.is_whitespace();
+        }
+        n + usize::from(any)
+    };
+    Some(match how {
+        How::Parens => first.as_deref().map_or(0, pieces),
+        How::Colon => {
+            let t = top.as_bytes();
+            let colon = (0..t.len()).find(|&i| t[i] == b':' && t.get(i + 1) != Some(&b':') && (i == 0 || t[i - 1] != b':'));
+            match colon {
+                Some(i) => {
+                    let list = &top[i + 1..];
+                    let end = list.split_whitespace().position(|w| w == "where");
+                    match end {
+                        Some(k) => pieces(&list.split_whitespace().take(k).collect::<Vec<_>>().join(" ")),
+                        None => pieces(list),
+                    }
+                }
+                None => 0,
+            }
+        }
+        _ => {
+            // `extends A implements B, C`, and Scala's `extends A with B`.
+            let mut n = 0usize;
+            let mut list: Option<String> = None;
+            for w in top.split_whitespace() {
+                match w {
+                    "extends" | "implements" | "with" => {
+                        n += list.take().map_or(0, |l| pieces(&l));
+                        list = Some(String::new());
+                    }
+                    "permits" | "where" => {
+                        n += list.take().map_or(0, |l| pieces(&l));
+                    }
+                    _ => {
+                        if let Some(l) = &mut list {
+                            l.push_str(w);
+                            l.push(' ');
+                        }
+                    }
+                }
+            }
+            n + list.map_or(0, |l| pieces(&l))
+        }
+    })
+}
+
+/// Members every value of a language has without a line of the repository saying so: those of
+/// the root of its objects, of its enumerations and of its records. In a large repository such
+/// a name is defined somewhere and the check is silent for that reason. In a small one it is
+/// not, and a call of `toString` on a class written a minute ago would be reported.
+fn implicit_member(lang: Lang, name: &[u8]) -> bool {
+    let names: &[&str] = match lang {
+        Lang::Java | Lang::Kotlin | Lang::Scala => &[
+            "getClass", "hashCode", "equals", "toString", "notify", "notifyAll", "wait", "clone", "finalize", "name", "ordinal", "compareTo", "values", "valueOf", "entries", "getDeclaringClass", "copy",
+            "component1", "component2", "component3", "component4", "component5", "let", "also", "apply", "run", "takeIf", "takeUnless", "to", "javaClass", "asInstanceOf", "isInstanceOf", "synchronized",
+            "eq", "ne", "productArity", "productElement", "productIterator", "productPrefix", "canEqual", "unapply",
+        ],
+        Lang::CSharp => &["ToString", "GetHashCode", "Equals", "GetType", "MemberwiseClone", "ReferenceEquals", "CompareTo", "HasFlag", "Deconstruct"],
+        Lang::JavaScript | Lang::TypeScript | Lang::Tsx => {
+            &["toString", "toLocaleString", "valueOf", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "constructor", "prototype", "name", "length", "call", "apply", "bind", "toJSON"]
+        }
+        Lang::Ruby => &[
+            "to_s", "inspect", "class", "is_a?", "kind_of?", "instance_of?", "respond_to?", "send", "public_send", "nil?", "freeze", "frozen?", "dup", "clone", "tap", "then", "yield_self", "hash", "eql?",
+            "equal?", "object_id", "itself", "extend", "method", "methods", "instance_variable_get", "instance_variable_set", "instance_variables", "instance_eval", "instance_exec", "singleton_class",
+            "define_singleton_method", "to_enum", "enum_for", "display", "new", "allocate", "superclass", "name", "ancestors", "instance_methods", "instance_method", "const_get", "class_eval",
+            "module_eval", "define_method", "attr_accessor", "attr_reader", "attr_writer", "include", "raise", "puts", "print", "p", "require", "format", "block_given?", "lambda", "proc", "loop", "catch",
+            "throw", "binding", "caller", "sleep", "rand", "exit", "abort", "warn", "pp",
+        ],
+        Lang::Swift | Lang::ObjC => &[
+            "hashValue", "hash", "description", "debugDescription", "rawValue", "allCases", "isEqual", "copy", "mutableCopy", "self", "init", "alloc", "new", "class", "superclass", "isKind", "isMember",
+            "responds", "perform", "conforms", "isKindOfClass", "isMemberOfClass", "respondsToSelector", "performSelector", "conformsToProtocol", "retain", "release", "autorelease", "dealloc",
+        ],
+        Lang::Python => &["mro", "with_traceback", "add_note"],
+        Lang::Php => &["class"],
+        _ => &[],
+    };
+    names.iter().any(|n| n.as_bytes() == name)
+}
+
 /// Uses, in the definitions an edit added or altered, of a member that does not exist: the
 /// receiver is a value of a type of this repository whose ancestors are all in the repository
 /// too, neither it nor they have a member of that name, and no definition of that name exists
@@ -327,7 +502,7 @@ fn phantom_members<'a>(ix: &'a Index, rs: &Resolver<'a>, file: FileId, d: &Delta
     // read proves nothing. A call of a method nobody defines is still worth a line.
     let dynamic = matches!(ix.lang(file), Lang::Python | Lang::Ruby | Lang::Php | Lang::JavaScript);
     for r in ix.refs_of_file(file) {
-        if !(r.kind() == RefKind::MemberCall || (r.kind() == RefKind::MemberRead && !dynamic)) || r.name().starts_with(b"__") {
+        if !(r.kind() == RefKind::MemberCall || (r.kind() == RefKind::MemberRead && !dynamic)) || r.name().starts_with(b"__") || implicit_member(ix.lang(file), r.name()) {
             continue;
         }
         let Some(encl) = r.encl() else { continue };
@@ -347,14 +522,25 @@ fn phantom_members<'a>(ix: &'a Index, rs: &Resolver<'a>, file: FileId, d: &Delta
             !t.defs.is_empty()
                 && t.defs.iter().all(|&x| {
                     let v = ix.def(x);
+                    let bases = || ix.refs_of_file(v.file()).filter(|b| matches!(b.kind(), RefKind::Extends | RefKind::Implements) && b.encl().is_some_and(|e| e.id == x));
                     v.kind().is_type()
                         && v.kind() != DefKind::TypeAlias
-                        && ix
-                            .refs_of_file(v.file())
-                            .filter(|b| matches!(b.kind(), RefKind::Extends | RefKind::Implements) && b.encl().is_some_and(|e| e.id == x))
-                            // Written with a module in front (`unittest.TestCase`) it may be a
-                            // library's class that shares its name with one of ours.
-                            .all(|b| b.qual().is_none() && ix.name_id(b.name()).is_some_and(|n| ix.defs_named_id(n).any(|y| ix.def(y).kind().is_type())))
+                        // A declaration file says what something written elsewhere looks like,
+                        // and what it says of a type of the platform (`interface HTMLElement`)
+                        // is added to what the platform declares.
+                        && !ix.path(v.file()).ends_with(".d.ts")
+                        // A type nested in another is what its bare name means in its own file.
+                        // Elsewhere the name means something else: a `Double` nested in some
+                        // class is not the `Double` of every other file.
+                        && (v.file() == file || !v.parent().is_some_and(|p| p.kind().is_type()))
+                        // Every base the header names is one the index recorded: a built-in of
+                        // the language is not, and brings members of its own.
+                        && bases_written(ix.lang(v.file()), &v.signature(), &v.name_str()).is_some_and(|written| written <= bases().count())
+                        // Written with a module in front (`unittest.TestCase`) it may be a
+                        // library's class that shares its name with one of ours. And a base
+                        // must be a type the file can mean by that name: a `Parser` imported
+                        // from a library is not the `Parser` some other package defines.
+                        && bases().all(|b| b.qual().is_none() && ix.name_id(b.name()).is_some_and(|n| ix.defs_named_id(n).any(|y| ix.def(y).kind().is_type())) && !rs.types_of_ref(&b).is_empty())
                 })
         };
         if !known(ty) || !rs.ancestors(ty).iter().all(known) || ty.defs.iter().any(|&x| unsure(ix.def(x).file())) || !seen.insert((ty.name.clone(), r.name().to_vec())) {
@@ -399,6 +585,9 @@ pub struct Finding {
     pub brief: String,
     /// The symbol it is about, as `search` and `callers` name it.
     pub symbol: String,
+    /// For a member that does not exist: the file that defines the type it was looked for in.
+    /// Whoever is writing that file may be about to write the member.
+    pub home: Option<String>,
 }
 
 fn sites(ix: &Index, refs: &mut Vec<RefV>, near: &str, budget: usize) -> (String, usize, usize) {
@@ -453,7 +642,7 @@ pub fn check_file(ix: &Index, rs: &Resolver, root: &Path, rel: &str, budget: usi
                 if files == 1 { "" } else { "s" }
             ));
         }
-        out.push(Finding { key: format!("gone:{rel}:{name}"), text: text.trim_end().to_string(), brief, symbol: name });
+        out.push(Finding { key: format!("gone:{rel}:{name}"), text: text.trim_end().to_string(), brief, symbol: name, home: None });
     }
     if let Some(f) = file {
         for (r, ty, members) in phantom_members(ix, rs, f, &d).into_iter().take(4) {
@@ -465,7 +654,7 @@ pub fn check_file(ix: &Index, rs: &Resolver, root: &Path, rel: &str, budget: usi
                 r.line(),
                 members.join(", ")
             );
-            out.push(Finding { key: format!("phantom:{rel}:{ty}.{name}"), brief: text.clone(), text, symbol: format!("{ty}.{name}") });
+            out.push(Finding { key: format!("phantom:{rel}:{ty}.{name}"), brief: text.clone(), text, symbol: format!("{ty}.{name}"), home: home.map(|h| h.path().to_string()) });
         }
         for (before, now) in d.arity.iter().take(6) {
             let mut calls = misfit_calls(ix, rs, f, now);
@@ -485,7 +674,7 @@ pub fn check_file(ix: &Index, rs: &Resolver, root: &Path, rel: &str, budget: usi
                     list.trim_end()
                 );
             // A changed signature is news even to a reader who has the list of callers.
-            out.push(Finding { key: format!("arity:{rel}:{}:{}-{}", now.qualified(), now.arity.0, now.arity.1), brief: text.clone(), text, symbol: now.qualified() });
+            out.push(Finding { key: format!("arity:{rel}:{}:{}-{}", now.qualified(), now.arity.0, now.arity.1), brief: text.clone(), text, symbol: now.qualified(), home: None });
         }
     }
     out
@@ -615,6 +804,49 @@ pub fn changed(ix: &Index, rs: &Resolver, common: &Common, out: &mut Out) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bases_a_header_names_are_counted_in_every_way_of_writing_them() {
+        use Lang::*;
+        for (lang, sig, name, want) in [
+            (Python, "class Bag(dict)", "Bag", Some(1)),
+            (Python, "class A(B, metaclass=M)", "A", Some(2)),
+            (Python, "class A(Generic[K, V], Base)", "A", Some(2)),
+            (Python, "class A", "A", Some(0)),
+            (Python, "class A()", "A", Some(0)),
+            (TypeScript, "export class TemplateError extends Error", "TemplateError", Some(1)),
+            (TypeScript, "class Store extends Map<string, number>", "Store", Some(1)),
+            (TypeScript, "abstract class Base2<T extends object = {}> extends Promise<T> implements A, B<C, D>", "Base2", Some(3)),
+            (TypeScript, "interface Handler<T> extends Base<(x: T) => void>, Other", "Handler", Some(2)),
+            (TypeScript, "export default class extends Generator", "default", Some(1)),
+            (JavaScript, "class Queue extends mixin(A, B)", "Queue", Some(1)),
+            (TypeScript, "class Plain", "Plain", Some(0)),
+            (Java, "public final class T extends Thread implements Runnable, Comparable<T>", "T", Some(3)),
+            (Java, "record Point(int x, int y) implements Shape", "Point", Some(1)),
+            (Java, "sealed interface Shape permits Circle, Square", "Shape", Some(0)),
+            (Scala, "class A(x: Int) extends B(x) with C with D", "A", Some(3)),
+            (Php, "final class MyEx extends Exception implements Jsonable", "MyEx", Some(2)),
+            (Ruby, "class MyErr < StandardError", "MyErr", Some(1)),
+            (Ruby, "class Plain", "Plain", Some(0)),
+            (CSharp, "public class Foo<T> : Bar, IBaz where T : new()", "Foo", Some(2)),
+            (CSharp, "record Foo(int X) : Base(X)", "Foo", Some(1)),
+            (Kotlin, "class Foo private constructor(val a: Int) : Base(a), Iface", "Foo", Some(2)),
+            (Kotlin, "data class P(val x: Int)", "P", Some(0)),
+            (Swift, "class MyView<T: Equatable>: UIView, Drawable", "MyView", Some(2)),
+            (Cpp, "class MyEx : public std::runtime_error", "MyEx", Some(1)),
+            (Cpp, "struct A final : B<int>, private C", "A", Some(2)),
+            // What a Go type embeds is in its body.
+            (Go, "type Engine struct", "Engine", Some(0)),
+            // A header that does not read as one says nothing, and nothing is then claimed.
+            (TypeScript, "class Broken extends Map<string", "Broken", None),
+            (TypeScript, "something else", "Missing", None),
+        ] {
+            assert_eq!(bases_written(lang, sig, name), want, "{sig}");
+        }
+        // What every object has is never missing.
+        assert!(implicit_member(Java, b"toString") && implicit_member(Kotlin, b"copy") && implicit_member(TypeScript, b"hasOwnProperty") && implicit_member(Ruby, b"freeze"));
+        assert!(!implicit_member(Java, b"missingThing") && !implicit_member(Go, b"toString"));
+    }
 
     #[test]
     fn a_rename_is_one_removed_and_one_added_at_the_same_place() {

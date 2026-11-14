@@ -1014,6 +1014,34 @@ pub fn analyse(command: &str) -> Found {
     analyse_at(command, Dir::Start, 0)
 }
 
+/// Whether a command line runs something of the project (its tests, a build, the program) and
+/// does not only look at files or tidy them: one of its commands starts with a program that is
+/// neither a viewer, a search nor a piece of housekeeping. This is the moment a conversation
+/// stops writing and relies on what it wrote.
+pub fn runs_code(command: &str) -> bool {
+    const LOOKS: &[&str] = &[
+        "ls", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "ag", "ack", "ugrep", "find", "fd", "tree", "pwd", "cd", "pushd", "popd", "echo", "printf", "which", "type", "stat", "file",
+        "du", "df", "date", "printenv", "export", "set", "unset", "true", "false", "test", "[", "[[", "sort", "uniq", "cut", "tr", "awk", "sed", "jq", "diff", "cmp", "less", "more", "bat", "nl", "tac",
+        "basename", "dirname", "realpath", "readlink", "sleep", "git", "gh", "codefast", "mkdir", "touch", "rm", "mv", "cp", "chmod", "ln", "tee", "column", "comm", "paste", "seq", "wait", "kill", "ps",
+        "pgrep", "open",
+    ];
+    const WRAPS: &[&str] = &["time", "nice", "env", "nohup", "exec", "command", "sudo", "timeout", "xargs"];
+    let Some(toks) = lex(command) else { return false };
+    simple_commands(toks).iter().any(|s| {
+        let mut words = s.words.iter().skip_while(|w| !w.dynamic && is_assignment(&w.text)).peekable();
+        // What a wrapper runs is what counts: `timeout 60 cargo test`, `env X=1 pytest`.
+        while let Some(w) = words.peek() {
+            let name = base_name(&w.text);
+            let passes = WRAPS.contains(&name) || (!w.dynamic && is_assignment(&w.text)) || name.starts_with('-') || name.bytes().all(|b| b.is_ascii_digit() || b == b'.' || b == b's');
+            if !passes {
+                break;
+            }
+            words.next();
+        }
+        words.next().is_some_and(|w| w.dynamic || !LOOKS.contains(&base_name(&w.text)))
+    })
+}
+
 /// A symbol name a search pattern asks for, with the kind word written in front of it, if any
 /// (`struct file_operations`, `def handle`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1369,6 +1397,39 @@ mod tests {
         // Reading the error stream elsewhere does not make it a partial read.
         assert_eq!(reads("cat src/big.c 2>/dev/null"), ["src/big.c"]);
         assert_eq!(reads("cat src/big.c 2>&1"), ["src/big.c"]);
+    }
+
+    #[test]
+    fn a_command_that_runs_something_is_told_from_one_that_looks() {
+        for run in [
+            "cargo test",
+            "cd repo && python -m pytest -q 2>&1 | tail -5",
+            "timeout 60 go test ./...",
+            "env X=1 npm test",
+            "X=1 ./run.sh",
+            "nice -n 10 make",
+            "node --test",
+            "npx tsc --noEmit",
+            "$RUNNER test",
+            "ls && go vet ./...",
+        ] {
+            assert!(runs_code(run), "{run}");
+        }
+        for look in [
+            "",
+            "ls -la",
+            "git status --short",
+            "cat a.py | head -5",
+            "grep -rn foo src | wc -l",
+            "find . -name '*.py' | xargs grep foo",
+            "sed -n 1,10p file",
+            "echo done",
+            "codefast search dev_read",
+            "mkdir -p out && touch out/x",
+            "echo \"unterminated",
+        ] {
+            assert!(!runs_code(look), "{look}");
+        }
     }
 
     #[test]
