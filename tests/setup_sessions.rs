@@ -417,7 +417,9 @@ fn a_large_conversation_carried_for_long() {
         text.contains("Start a fresh session at a natural break, or compact earlier, when the context stays far above what the next step needs.\n"),
         "{text}"
     );
-    assert!(text.contains("Output and thinking are the counts the transcript recorded, the largest of the lines of a request."), "{text}");
+    assert!(text.contains("Output and thinking are the counts the transcript recorded."), "{text}");
+    // A model the price table does not name is weighed by the defaults, and the report says so.
+    assert!(text.contains("claude-opus-5: a cache read 0.1, a cache write 1.25 (2 for one hour), output 5. "), "{text}");
     // Above the peak there is nothing to say.
     let r = report(&sb, &root, &["--carry", "700000"]);
     assert_eq!((r["carried_context"]["requests_above"].as_u64(), r["carried_context"]["weighted"].as_u64()), (Some(0), Some(0)));
@@ -593,7 +595,7 @@ fn a_codex_session_in_numbers() {
 
     let text = run(&sb, &root, &[]);
     assert!(text.starts_with("Codex sessions of this project in the last 14 days: 1 session, 5 main-thread requests, "), "{text}");
-    assert!(text.contains("(Weighted as for Claude Code, although Codex providers price differently"), "{text}");
+    assert!(text.contains("(Weighted by the defaults, since Codex providers price differently"), "{text}");
     assert!(text.contains("1 idle for more than five minutes ("), "{text}");
     assert!(
         text.contains("Repeated outputs: 1 call gave back word for word what the same call with the same arguments gave earlier in the stretch (12 KB)."),
@@ -648,4 +650,88 @@ fn a_project_with_sessions_of_both_harnesses() {
     let r = whole(&sb, &root, &["--all"]);
     let totals: Vec<&str> = r["totals"].as_array().unwrap().iter().map(|t| t["harness"].as_str().unwrap()).collect();
     assert_eq!(totals, ["Claude Code", "Codex"]);
+}
+
+// ----- prices by model -----
+
+/// A session of `model`: requests whose context grows by the steps given, each reading the one
+/// before from the cache and writing what is new.
+fn growing(sb: &Sandbox, root: &Path, id: &str, model: &str, contexts: &[u64]) {
+    let mut lines = Vec::new();
+    let mut before = 0;
+    for (i, c) in contexts.iter().enumerate() {
+        lines.push(assistant(&format!("{id}-{i}"), model, i as i64, usage(0, before, c - before, 100, 0), json!([]), root));
+        before = *c;
+    }
+    jsonl(&transcripts(sb, root).join(format!("{id}.jsonl")), &lines);
+}
+
+#[test]
+fn cache_reads_follow_the_model() {
+    let sb = Sandbox::new("sessions-prices");
+    let root = project(&sb, "prices");
+    growing(&sb, &root, "5f0c2a4e-0000-4000-8000-0000000000f1", "claude-fable-5-2", &[30_000, 31_000]);
+    growing(&sb, &root, "5f0c2a4e-0000-4000-8000-0000000000f2", "claude-sonnet-5-5", &[30_000, 31_000]);
+    let r = report(&sb, &root, &[]);
+    // 30,000 tokens read once in each: at 0.025 on Fable 5.2 and at 0.05 on Sonnet 5.5.
+    near(&r["weighted"]["cache_read"], 0.025 * 30_000.0 + 0.05 * 30_000.0);
+    near(&r["weighted"]["cache_write"], 1.25 * 62_000.0);
+    near(&r["start"]["weighted"], 0.025 * 30_000.0 + 0.05 * 30_000.0);
+    assert_eq!(r["weights"]["claude-fable-5-2"]["cache_read"], 0.025, "{r:#}");
+    assert_eq!(r["weights"]["claude-sonnet-5-5"]["cache_read"], 0.05);
+    assert_eq!((r["weights"]["claude-sonnet-5-5"]["cache_write_1h"].as_f64(), r["weights"]["claude-sonnet-5-5"]["tier"].clone()), (Some(2.0), Value::Null));
+    let text = run(&sb, &root, &[]);
+    assert!(text.contains("(Weights follow each model's published prices of 2026-11-15, in its own uncached input tokens: "), "{text}");
+    assert!(text.contains("claude-fable-5-2: a cache read 0.025, a cache write 1.25 (2 for one hour), output 5"), "{text}");
+    assert!(text.contains("claude-sonnet-5-5: a cache read 0.05, a cache write 1.25 (2 for one hour), output 5"), "{text}");
+}
+
+#[test]
+fn haiku_steps_up_over_a_prompt_of_100k() {
+    let sb = Sandbox::new("sessions-haiku");
+    let root = project(&sb, "haiku");
+    // 60k, 80k, exactly 100k (still the lower price), then 120k and 140k at five times.
+    growing(&sb, &root, FIRST, "claude-haiku-5-5", &[60_000, 80_000, 100_000, 120_000, 140_000]);
+    let r = report(&sb, &root, &[]);
+    let at = |read: f64, write: f64| 0.1 * read + 1.25 * write + 5.0 * 100.0;
+    let lower = [at(0.0, 60_000.0), at(60_000.0, 20_000.0), at(80_000.0, 20_000.0), at(100_000.0, 20_000.0), at(120_000.0, 20_000.0)];
+    near(&r["total_weighted"], lower[..3].iter().sum::<f64>() + 5.0 * (lower[3] + lower[4]));
+    // The step: the two requests over 100k, what they paid and what they would have paid.
+    let step = &r["price_step"];
+    assert_eq!((step["requests"].as_u64(), step["over_tokens"].as_u64()), (Some(2), Some(100_000)), "{step:#}");
+    near(&step["weighted"], 5.0 * (lower[3] + lower[4]));
+    near(&step["weighted_at_lower_price"], lower[3] + lower[4]);
+    near(&step["step_weighted"], 4.0 * (lower[3] + lower[4]));
+    assert_eq!(r["findings"][0]["finding"], "price_step", "{r:#}");
+    // Carried context is measured from the step, at the price each request paid.
+    let c = &r["carried_context"];
+    assert_eq!((c["thresholds"].clone(), c["requests_above"].as_u64()), (json!([100_000]), Some(2)), "{c:#}");
+    near(&c["weighted"], 5.0 * 0.1 * (20_000.0 + 40_000.0));
+    // Compacted at 100k down to 25k, the two would have carried 45k and 65k, below the step:
+    // one compaction at the lower price, and the reads saved at the price each length pays.
+    assert_eq!(c["compactions_instead"], 1);
+    near(&c["compactions_weighted_estimate"], 0.1 * 100_000.0 + 1.25 * 25_000.0);
+    near(&c["saved_reads_estimate"], 0.1 * (5.0 * 120_000.0 - 45_000.0) + 0.1 * (5.0 * 140_000.0 - 65_000.0));
+    assert_eq!(r["weights"]["claude-haiku-5-5"]["tier"], json!({"over_tokens": 100_000, "times": 5.0}));
+
+    let text = run(&sb, &root, &[]);
+    assert!(
+        text.contains(
+            "Price step: 2 requests of claude-haiku-5-5 had a prompt over 100k tokens and cost 365k, where the lower price gives 73k: the step cost 292k.\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("Keep a conversation with this model under 100k tokens, by starting a fresh session or compacting before it gets there.\n"),
+        "{text}"
+    );
+    assert!(text.contains("Carried context: 2 of 5 requests (40%) carried more than 100k tokens, at most 140k."), "{text}");
+    assert!(text.contains("Compacting at 100k instead: 1 compaction, about 41k, so about 78k less (an estimate).\n"), "{text}");
+    assert!(
+        text.contains("claude-haiku-5-5: a cache read 0.1, a cache write 1.25 (2 for one hour), output 5, and 5 times each over a prompt of 100k tokens"),
+        "{text}"
+    );
+    // `--carry` given is the threshold whatever the model.
+    let given = report(&sb, &root, &["--carry", "200000"]);
+    assert_eq!((given["carried_context"]["thresholds"].clone(), given["carried_context"]["requests_above"].as_u64()), (json!([200_000]), Some(0)));
 }

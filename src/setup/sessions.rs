@@ -9,24 +9,25 @@
 //! puts numbers from the user's own sessions on each. Nothing is run, nothing is changed,
 //! nothing leaves the machine and no language model is called.
 //!
-//! The unit is the weighted token: one uncached input token of the request's own model. A
-//! cache read weighs 0.1, a cache write 1.25 (2 for the one-hour cache), an output token 5.
-//! Dollars are not printed: prices differ by model and change.
+//! The unit is the weighted token: one uncached input token of the request's own model, each
+//! kind of token weighed as that model's published price weighs it ([`weights`], from the
+//! table in this file). Dollars are not printed: prices change.
 //!
 //! Two harnesses are read, each through a [`Transcripts`]: Claude Code and Codex. Codex
-//! sessions are weighed by the same convention, although its providers price differently.
+//! sessions are weighed by the default weights, since its providers price differently.
 
 use super::harness::Ctx;
 use crate::output::count;
 use anyhow::{Result, bail};
 use rayon::prelude::*;
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-/// What one token weighs, in uncached input tokens of the same model.
+/// What one token weighs, in uncached input tokens of the same model, for a model the price
+/// table below does not name. [`weights`] gives them for a model.
 pub const INPUT: f64 = 1.0;
 pub const CACHE_READ: f64 = 0.1;
 pub const CACHE_WRITE_5M: f64 = 1.25;
@@ -51,6 +52,93 @@ const POST_TOKENS: u64 = 25_000;
 /// A finding under this share of the total is left out.
 const WORTH_NAMING: f64 = 0.01;
 
+// ----- prices -----
+
+/// What each kind of token of one model weighs, as a multiple of that model's own base price
+/// of an uncached input token.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Weights {
+    pub cache_read: f64,
+    pub write_5m: f64,
+    pub write_1h: f64,
+    pub output: f64,
+    pub tier: Option<Tier>,
+}
+
+/// A price that steps with the length of the prompt: a request whose prompt (all of its input,
+/// cache reads and cache writes included) is over `over` tokens pays every kind of token
+/// `times` as much. Exactly `over` is still the lower price. Each request is priced on its own.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Tier {
+    pub over: u64,
+    pub times: f64,
+}
+
+/// The weights of a model the table does not name: older Claude models, and every Codex model,
+/// whose providers price differently.
+pub const DEFAULT_WEIGHTS: Weights = Weights { cache_read: CACHE_READ, write_5m: CACHE_WRITE_5M, write_1h: CACHE_WRITE_1H, output: OUTPUT, tier: None };
+
+/// When the table was read, and from where.
+pub const PRICES_READ: &str = "2026-11-15";
+
+/// The models whose prices differ from the defaults: (family, cache read, tier). Read from
+/// platform.claude.com/docs/en/about-claude/pricing on 2026-11-15. Output is 5 times the base
+/// input price for every current model, a cache write 1.25 times for the five-minute cache and 2
+/// times for the one-hour cache. Cache reads ("cache hits and refreshes") are 0.1 times by
+/// default. Every model not named here has its whole window at one price.
+const PRICES: [(&str, f64, Option<Tier>); 7] = [
+    ("claude-opus-5-5", 0.05, None),
+    ("claude-sonnet-5-5", 0.05, None),
+    ("claude-fable-5-2", 0.025, None),
+    ("claude-fable-5-1", 0.025, None),
+    ("claude-mythos-5-2", 0.025, None),
+    ("claude-mythos-5-1", 0.025, None),
+    ("claude-haiku-5-5", 0.1, Some(Tier { over: 100_000, times: 5.0 })),
+];
+
+/// The weights of a model, by its id as a transcript or a provider writes it:
+/// `claude-opus-5-5`, `claude-opus-5-5-20261101`, `anthropic/claude-opus-5-5`,
+/// `us.anthropic.claude-opus-5-5-v1:0`.
+pub fn weights(model: &str) -> Weights {
+    let id = model.to_ascii_lowercase();
+    let Some(at) = id.find("claude-") else { return DEFAULT_WEIGHTS };
+    for (family, cache_read, tier) in PRICES {
+        // `claude-opus-5-5` names `claude-opus-5-5-20261101`, not a `claude-opus-5-50`.
+        if let Some(rest) = id[at..].strip_prefix(family)
+            && !rest.starts_with(|c: char| c.is_ascii_digit())
+        {
+            return Weights { cache_read, tier, ..DEFAULT_WEIGHTS };
+        }
+    }
+    DEFAULT_WEIGHTS
+}
+
+impl Weights {
+    /// How many times the base prices a request with a prompt of `prompt` tokens pays.
+    pub fn times(&self, prompt: Option<u64>) -> f64 {
+        match (self.tier, prompt) {
+            (Some(t), Some(p)) if p > t.over => t.times,
+            _ => 1.0,
+        }
+    }
+}
+
+/// What one request of `model` pays, in weighted tokens, to read a context of `context` tokens
+/// from the cache.
+#[allow(dead_code)] // for the hooks' notes
+pub fn read_warm(model: &str, context: u64) -> f64 {
+    let w = weights(model);
+    w.times(Some(context)) * w.cache_read * context as f64
+}
+
+/// What one request of `model` pays, in weighted tokens, to send a context of `context` tokens
+/// again and write it to the one-hour cache.
+#[allow(dead_code)] // for the hooks' notes
+pub fn send_cold(model: &str, context: u64) -> f64 {
+    let w = weights(model);
+    w.times(Some(context)) * w.write_1h * context as f64
+}
+
 const USAGE: &str = "Where the tokens of this project's sessions went, read from the harnesses' own transcripts on
 this machine (Claude Code and Codex, one report each), and which habits cost the most.
 Nothing is run, changed or sent.
@@ -58,7 +146,8 @@ Nothing is run, changed or sent.
 Usage: codefast doctor sessions [--days N] [--session ID] [--carry N] [--all] [--json]
   --days N       the sessions whose transcript changed in the last N days (default 14)
   --session ID   one session, named by the start of its id, with each finding broken down
-  --carry N      the context, in tokens, above which carrying it is counted (default 200000)
+  --carry N      the context, in tokens, above which carrying it is counted (default 200000,
+                 100000 for a session of a model whose price steps there)
   --all          every project with sessions of either harness: one line each, then the totals
   --json         the same numbers as JSON
 ";
@@ -106,25 +195,42 @@ impl Usage {
         Some(self.input? + self.cache_read? + self.cache_write?)
     }
 
-    /// What one token this request wrote to the cache weighs: 1.25 for the five-minute cache, 2
-    /// for the one-hour cache, and 1.25 when the transcript does not say which.
+    /// What one token this request wrote to the cache weighs at the default prices: 1.25 for
+    /// the five-minute cache, 2 for the one-hour cache, and 1.25 when the transcript does not say.
+    #[cfg(test)]
     pub fn write_weight(&self) -> f64 {
-        let (short, long) = (self.write_5m.unwrap_or(0), self.write_1h.unwrap_or(0));
-        if short + long == 0 { CACHE_WRITE_5M } else { (short as f64 * CACHE_WRITE_5M + long as f64 * CACHE_WRITE_1H) / (short + long) as f64 }
+        self.write_weight_in(&DEFAULT_WEIGHTS)
     }
 
+    /// The same at the weights `w`, before any step in price.
+    pub fn write_weight_in(&self, w: &Weights) -> f64 {
+        let (short, long) = (self.write_5m.unwrap_or(0), self.write_1h.unwrap_or(0));
+        if short + long == 0 { w.write_5m } else { (short as f64 * w.write_5m + long as f64 * w.write_1h) / (short + long) as f64 }
+    }
+
+    /// The request in weighted tokens at the default prices.
+    #[cfg(test)]
     pub fn split(&self) -> Split {
+        self.weigh(&DEFAULT_WEIGHTS)
+    }
+
+    /// The request in weighted tokens at the weights of its model, stepped up where its prompt
+    /// is over the model's threshold.
+    pub fn weigh(&self, w: &Weights) -> Split {
         let n = |v: Option<u64>| v.unwrap_or(0) as f64;
+        let times = w.times(self.context());
         let written = self.cache_write.unwrap_or(0);
         let (short, long) = (self.write_5m.unwrap_or(0), self.write_1h.unwrap_or(0));
         // What the split leaves out of the total is written at the five-minute price.
         let rest = written.saturating_sub(short + long);
-        let cache_write = if short + long == 0 {
-            written as f64 * CACHE_WRITE_5M
-        } else {
-            short as f64 * CACHE_WRITE_5M + long as f64 * CACHE_WRITE_1H + rest as f64 * CACHE_WRITE_5M
-        };
-        Split { cache_read: n(self.cache_read) * CACHE_READ, cache_write, input: n(self.input) * INPUT, output: n(self.output) * OUTPUT }
+        let cache_write =
+            if short + long == 0 { written as f64 * w.write_5m } else { short as f64 * w.write_5m + long as f64 * w.write_1h + rest as f64 * w.write_5m };
+        Split {
+            cache_read: times * n(self.cache_read) * w.cache_read,
+            cache_write: times * cache_write,
+            input: times * n(self.input) * INPUT,
+            output: times * n(self.output) * w.output,
+        }
     }
 
     /// One request is streamed as several lines: each count is the largest any line gave.
@@ -826,13 +932,22 @@ impl Transcripts for Codex {
 
 /// What a tool result costs while the conversation carries it: written to the cache by the
 /// first request after it, read from the cache by each one after that (`n` requests in all).
+#[cfg(test)]
 pub fn carried(bytes: u64, n: usize) -> f64 {
     bytes as f64 / BYTES_PER_TOKEN * (CACHE_WRITE_5M + CACHE_READ * n.saturating_sub(1) as f64)
 }
 
-/// The estimated cost of a compaction: the conversation read once, the summary written once.
+/// The estimated cost of a compaction at the default prices: the conversation read once, the
+/// summary written once.
+#[cfg(test)]
 pub fn compaction_cost(pre: Option<u64>, post: Option<u64>) -> f64 {
-    CACHE_READ * pre.unwrap_or(0) as f64 + CACHE_WRITE_5M * post.unwrap_or(0) as f64
+    compaction_cost_in(&DEFAULT_WEIGHTS, pre, post)
+}
+
+/// The same at the weights of a model, each part at the price its size pays.
+pub fn compaction_cost_in(w: &Weights, pre: Option<u64>, post: Option<u64>) -> f64 {
+    let (pre, post) = (pre.unwrap_or(0), post.unwrap_or(0));
+    w.times(Some(pre)) * w.cache_read * pre as f64 + w.times(Some(post)) * w.write_5m * post as f64
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -889,18 +1004,25 @@ pub fn cause(prev: &Request, cur: &Request, hour: bool) -> Cause {
 /// `uncached`: what was sent again without being written to the cache counts too, at the
 /// price of uncached input. A Codex provider that reports no cache writes bills a cold
 /// request so. For Claude Code the cache writes alone are counted.
+#[cfg(test)]
 pub fn cold_cost(prev: &Usage, cur: &Usage, uncached: bool) -> Option<f64> {
+    cold_cost_in(prev, cur, uncached, &DEFAULT_WEIGHTS)
+}
+
+/// The same at the weights of `cur`'s model, at the price its prompt pays.
+pub fn cold_cost_in(prev: &Usage, cur: &Usage, uncached: bool, w: &Weights) -> Option<f64> {
     let before = prev.context()?;
     let read = cur.cache_read?;
     if before <= COLD_FROM || read as f64 >= COLD_SHARE * before as f64 {
         return None;
     }
+    let times = w.times(cur.context());
     let written = before.min(cur.cache_write.unwrap_or(0));
-    let mut cost = (cur.write_weight() - CACHE_READ) * written as f64;
+    let mut cost = (cur.write_weight_in(w) - w.cache_read) * written as f64;
     if uncached {
-        cost += (INPUT - CACHE_READ) * (before - written).min(cur.input.unwrap_or(0)) as f64;
+        cost += (INPUT - w.cache_read) * (before - written).min(cur.input.unwrap_or(0)) as f64;
     }
-    Some(cost)
+    Some(times * cost)
 }
 
 /// Whether the harness's own reason for a cache miss names another cause than `cause`. `None`
@@ -982,6 +1104,20 @@ pub struct Thinking {
     pub thinking: u64,
     /// The output tokens of those requests.
     pub output: u64,
+    /// The thinking tokens in weighted tokens, at the output price of each request's model.
+    pub weighted: f64,
+}
+
+/// Requests whose prompt was over the length where their model's price steps up.
+#[derive(Debug, Clone, Default)]
+pub struct Step {
+    pub requests: usize,
+    /// What they cost, and what they would have cost at the lower price.
+    pub cost: f64,
+    pub lower: f64,
+    /// The models, and the length where the price steps.
+    pub models: BTreeSet<String>,
+    pub over: u64,
 }
 
 /// The numbers of one or more sessions.
@@ -1008,6 +1144,9 @@ pub struct Stats {
     pub per_session: Vec<Session>,
     pub cwd: Option<String>,
     pub carry: Carry,
+    pub step: Step,
+    /// `--carry`, when it was given.
+    pub carry_given: Option<u64>,
 }
 
 /// One session in a few numbers.
@@ -1022,22 +1161,26 @@ pub struct Session {
 }
 
 /// Context above a threshold, read again by every request that carries it.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Carry {
+    /// The threshold of `--carry`, or the default.
     pub threshold: u64,
+    /// The thresholds the sessions used: 100,000 for a session of a model whose price steps
+    /// there, unless `--carry` was given.
+    pub thresholds: BTreeSet<u64>,
     /// Main-thread requests with a known context, and those above the threshold.
     pub requests: usize,
     pub above: usize,
     pub peak: u64,
-    /// `0.1 *` the context above the threshold, summed over the requests.
+    /// The context above the threshold read from the cache, summed over the requests.
     pub cost: f64,
     /// The compactions that keeping the context at the threshold would have taken, by
     /// [`sawtooth`].
     pub compactions: u64,
     /// What those compactions would have cost (an estimate).
     pub instead: f64,
-    /// The reads they would have saved: `0.1 *` the context each request would not have
-    /// carried (an estimate).
+    /// The reads they would have saved: the context each request would not have carried, at
+    /// the price of the context it would have had (an estimate).
     pub saved: f64,
 }
 
@@ -1062,14 +1205,28 @@ pub fn median_post(mut posts: Vec<u64>) -> u64 {
     if n % 2 == 1 { posts[n / 2] } else { (posts[n / 2 - 1] + posts[n / 2]) / 2 }
 }
 
-/// What one compaction at `threshold` would cost: the conversation read once, `post` written.
-pub fn compaction_at(threshold: u64, post: u64) -> f64 {
-    compaction_cost(Some(threshold), Some(post))
+/// A tool result the conversation carries: how many requests have carried it so far and what
+/// that cost, and whether it repeats an earlier one.
+struct Open {
+    result: ToolResult,
+    seen: usize,
+    cost: f64,
+    repeat: bool,
 }
 
 impl Stats {
-    pub fn new(kind: Kind, carry: u64) -> Stats {
-        Stats { kind, carry: Carry { threshold: carry, ..Default::default() }, ..Default::default() }
+    /// `carry`: the threshold of `--carry`, when given.
+    pub fn new(kind: Kind, carry: Option<u64>) -> Stats {
+        Stats { kind, carry_given: carry, carry: Carry { threshold: carry.unwrap_or(CARRY), ..Default::default() }, ..Default::default() }
+    }
+
+    /// The weights of a model in this harness. Codex providers price differently, so every Codex
+    /// model is weighed by the defaults.
+    pub fn weights(&self, model: &str) -> Weights {
+        match self.kind {
+            Kind::ClaudeCode => weights(model),
+            Kind::Codex => DEFAULT_WEIGHTS,
+        }
     }
 
     pub fn total(&self) -> f64 {
@@ -1077,15 +1234,25 @@ impl Stats {
     }
 
     fn count(&mut self, r: &Request) -> Split {
-        let split = r.usage.split();
+        let w = self.weights(&r.model);
+        let split = r.usage.weigh(&w);
         let m = self.models.entry(r.model.clone()).or_default();
         m.0 += 1;
         m.1 += split.total();
+        let times = w.times(r.usage.context());
         self.thinking.requests += 1;
         if let (Some(t), Some(o)) = (r.usage.thinking, r.usage.output) {
             self.thinking.recorded += 1;
             self.thinking.thinking += t;
             self.thinking.output += o;
+            self.thinking.weighted += times * w.output * t as f64;
+        }
+        if let (Some(tier), true) = (w.tier, times > 1.0) {
+            self.step.requests += 1;
+            self.step.cost += split.total();
+            self.step.lower += split.total() / times;
+            self.step.models.insert(r.model.clone());
+            self.step.over = tier.over;
         }
         split
     }
@@ -1114,14 +1281,18 @@ impl Stats {
     }
 
     pub fn thinking_cost(&self) -> f64 {
-        OUTPUT * self.thinking.thinking as f64
+        self.thinking.weighted
     }
 
     pub fn repeat_cost(&self) -> f64 {
         self.repeats.iter().map(|r| r.cost).sum()
     }
 
-    /// The findings with their weighted cost, largest first, without those under 1% of the total.
+    /// What the step in price cost: the requests over it, less what they would have cost below.
+    pub fn step_cost(&self) -> f64 {
+        self.step.cost - self.step.lower
+    }
+
     /// What a result given back twice is called: a read in Claude Code, a call's output in Codex.
     pub fn repeat_key(&self) -> &'static str {
         match self.kind {
@@ -1130,6 +1301,7 @@ impl Stats {
         }
     }
 
+    /// The findings with their weighted cost, largest first, without those under 1% of the total.
     pub fn findings(&self) -> Vec<(&'static str, f64)> {
         let mut v = vec![
             ("start", self.start()),
@@ -1139,11 +1311,50 @@ impl Stats {
             ("automatic_compactions", self.compaction_cost(false)),
             (self.repeat_key(), self.repeat_cost()),
             ("carried_context", if self.carry.above > 0 { self.carry.cost } else { 0.0 }),
+            ("price_step", if self.step.requests > 0 { self.step_cost() } else { 0.0 }),
         ];
         let total = self.total();
         v.retain(|(_, cost)| total > 0.0 && *cost >= WORTH_NAMING * total);
         v.sort_by(|a, b| b.1.total_cmp(&a.1));
         v
+    }
+
+    /// Add the numbers of `o`, of the same harness, for a total.
+    pub fn merge(&mut self, o: &Stats) {
+        self.sessions += o.sessions;
+        self.requests += o.requests;
+        self.main.add(&o.main);
+        self.sub.add(&o.sub);
+        self.sub_requests += o.sub_requests;
+        self.unknown_context += o.unknown_context;
+        self.stretches.extend(o.stretches.iter().cloned());
+        self.cold.extend(o.cold.iter().cloned());
+        self.compactions.extend(o.compactions.iter().cloned());
+        self.repeats.extend(o.repeats.iter().cloned());
+        self.thinking.requests += o.thinking.requests;
+        self.thinking.recorded += o.thinking.recorded;
+        self.thinking.thinking += o.thinking.thinking;
+        self.thinking.output += o.thinking.output;
+        self.thinking.weighted += o.thinking.weighted;
+        for (m, (n, w)) in &o.models {
+            let e = self.models.entry(m.clone()).or_default();
+            e.0 += n;
+            e.1 += w;
+        }
+        let c = &o.carry;
+        self.carry.thresholds.extend(c.thresholds.iter().copied());
+        self.carry.requests += c.requests;
+        self.carry.above += c.above;
+        self.carry.peak = self.carry.peak.max(c.peak);
+        self.carry.cost += c.cost;
+        self.carry.compactions += c.compactions;
+        self.carry.instead += c.instead;
+        self.carry.saved += c.saved;
+        self.step.requests += o.step.requests;
+        self.step.cost += o.step.cost;
+        self.step.lower += o.step.lower;
+        self.step.models.extend(o.step.models.iter().cloned());
+        self.step.over = self.step.over.max(o.step.over);
     }
 
     fn keep_largest(&mut self, c: Carried) {
@@ -1152,18 +1363,22 @@ impl Stats {
         self.largest.truncate(3);
     }
 
-    fn close(&mut self, session: &str, first: Option<u64>, k: usize, open: &mut Vec<(ToolResult, usize, bool)>) {
+    /// The end of a stretch: its start, and the tool results it carried. `w`: the weights of its
+    /// last request, for a result no request carried.
+    fn close(&mut self, session: &str, first: Option<u64>, k: usize, start: f64, open: &mut Vec<Open>, w: &Weights) {
         if let (Some(first), true) = (first, k > 0) {
-            self.stretches.push(Stretch { session: session.to_string(), first, requests: k, cost: CACHE_READ * first as f64 * (k - 1) as f64 });
+            self.stretches.push(Stretch { session: session.to_string(), first, requests: k, cost: start });
         }
-        for (r, at, repeat) in open.drain(..) {
-            let cost = carried(r.bytes, k - at);
+        for o in open.drain(..) {
+            // A result after the last request of the stretch is written once all the same.
+            let cost = if o.seen == 0 { o.result.bytes as f64 / BYTES_PER_TOKEN * w.write_5m } else { o.cost };
+            let r = o.result;
             let g = self.groups.entry(r.group.clone()).or_default();
             g.results += 1;
             g.bytes += r.bytes;
             g.cost += cost;
             let c = Carried { session: session.to_string(), group: r.group, path: r.path, bytes: r.bytes, cost };
-            if repeat {
+            if o.repeat {
                 self.repeats.push(c.clone());
             }
             if self.largest.len() < 3 || self.largest.last().is_some_and(|l| l.cost < cost) {
@@ -1181,13 +1396,29 @@ impl Stats {
         let before = self.total();
         let fallbacks: HashSet<(&str, &str)> =
             t.events.iter().filter_map(|e| if let Event::Fallback { from, to } = e { Some((from.as_str(), to.as_str())) } else { None }).collect();
+        let main: Vec<&Request> = t.events.iter().filter_map(|e| if let Event::Request(r) = e { (!r.sidechain).then_some(r) } else { None }).collect();
+        // The model of most of the session's requests: a session of a model whose price steps
+        // is measured against that step, unless `--carry` says otherwise.
+        let mut by_model: BTreeMap<&str, usize> = BTreeMap::new();
+        for r in &main {
+            *by_model.entry(r.model.as_str()).or_default() += 1;
+        }
+        let model = by_model.iter().max_by_key(|(_, n)| **n).map(|(m, _)| *m).unwrap_or("");
+        let threshold = match (self.carry_given, self.weights(model).tier) {
+            (Some(n), _) => n,
+            (None, Some(tier)) => tier.over,
+            (None, None) => CARRY,
+        };
+        if !main.is_empty() {
+            self.carry.thresholds.insert(threshold);
+        }
         let mut prev: Option<&Request> = None;
         let mut compacted = false;
-        let (mut first, mut k) = (None, 0usize);
+        let (mut first, mut k, mut start) = (None, 0usize, 0.0f64);
         let (mut requests, mut first_at, mut last_at) = (0usize, None, None);
-        let mut open: Vec<(ToolResult, usize, bool)> = Vec::new();
+        let mut open: Vec<Open> = Vec::new();
         let mut reads: HashSet<(String, u64)> = HashSet::new();
-        let threshold = self.carry.threshold;
+        let mut last_w = self.weights(model);
         // What a compaction leaves, never more than half the threshold.
         let post = median_post(t.events.iter().filter_map(|e| if let Event::Compaction { post, .. } = e { *post } else { None }).collect()).min(threshold / 2);
         // Whether the stretch has passed the threshold, and the compactions counted in it.
@@ -1196,6 +1427,9 @@ impl Stats {
             match e {
                 Event::Request(r) if r.sidechain => self.sub_request(r),
                 Event::Request(r) => {
+                    let w = self.weights(&r.model);
+                    last_w = w;
+                    let times = w.times(r.usage.context());
                     let split = self.count(r);
                     self.requests += 1;
                     requests += 1;
@@ -1207,17 +1441,18 @@ impl Stats {
                             self.carry.peak = self.carry.peak.max(c);
                             if c > threshold {
                                 self.carry.above += 1;
-                                self.carry.cost += CACHE_READ * (c - threshold) as f64;
+                                self.carry.cost += times * w.cache_read * (c - threshold) as f64;
                                 reached = true;
                             }
                             if reached {
                                 let (would, n) = sawtooth(c, threshold, post);
                                 if n > wraps {
                                     self.carry.compactions += n - wraps;
-                                    self.carry.instead += (n - wraps) as f64 * compaction_at(threshold, post);
+                                    self.carry.instead += (n - wraps) as f64 * compaction_cost_in(&w, Some(threshold), Some(post));
                                     wraps = n;
                                 }
-                                self.carry.saved += CACHE_READ * c.saturating_sub(would) as f64;
+                                // A context kept lower pays the price of its own length.
+                                self.carry.saved += w.cache_read * (times * c as f64 - w.times(Some(would)) * would as f64);
                             }
                         }
                     }
@@ -1227,7 +1462,7 @@ impl Stats {
                         if p.model != r.model {
                             self.switches += 1;
                         }
-                        if let Some(cost) = cold_cost(&p.usage, &r.usage, self.kind == Kind::Codex).filter(|_| !compacted) {
+                        if let Some(cost) = cold_cost_in(&p.usage, &r.usage, self.kind == Kind::Codex, &w).filter(|_| !compacted) {
                             let why = cause(p, r, self.kind.hour_cache());
                             self.cold.push(Cold {
                                 session: t.id.clone(),
@@ -1243,14 +1478,23 @@ impl Stats {
                     }
                     if k == 0 {
                         first = r.usage.context();
+                    } else if let Some(f) = first {
+                        start += times * w.cache_read * f as f64;
+                    }
+                    // Each tool result is written to the cache by the first request after it,
+                    // and read from it by every one after that.
+                    for o in open.iter_mut() {
+                        let weight = if o.seen == 0 { w.write_5m } else { w.cache_read };
+                        o.cost += o.result.bytes as f64 / BYTES_PER_TOKEN * weight * times;
+                        o.seen += 1;
                     }
                     k += 1;
                     compacted = false;
                     prev = Some(r);
                 }
                 Event::Compaction { at, trigger, pre, post } => {
-                    self.close(&t.id, first, k, &mut open);
-                    (first, k, reached, wraps) = (None, 0, false, 0);
+                    self.close(&t.id, first, k, start, &mut open, &last_w);
+                    (first, k, start, reached, wraps) = (None, 0, 0.0, false, 0);
                     reads.clear();
                     compacted = true;
                     self.compactions.push(Compaction {
@@ -1259,17 +1503,17 @@ impl Stats {
                         manual: trigger == "manual",
                         pre: *pre,
                         post: *post,
-                        cost: compaction_cost(*pre, *post),
+                        cost: compaction_cost_in(&last_w, *pre, *post),
                     });
                 }
                 Event::Fallback { .. } => {}
                 Event::ToolResult(r) => {
                     let repeat = r.repeat.as_ref().is_some_and(|k| !reads.insert((k.clone(), r.hash)));
-                    open.push((r.clone(), k, repeat));
+                    open.push(Open { result: r.clone(), seen: 0, cost: 0.0, repeat });
                 }
             }
         }
-        self.close(&t.id, first, k, &mut open);
+        self.close(&t.id, first, k, start, &mut open, &last_w);
         for r in &t.subagents {
             self.sub_request(r);
         }
@@ -1448,7 +1692,9 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
         }
         "carried_context" => {
             let c = &s.carry;
-            let t = short(c.threshold as f64);
+            // One threshold, or the one of each kind of session.
+            let t = c.thresholds.iter().map(|x| short(*x as f64)).collect::<Vec<_>>().join(" or ");
+            let t = if t.is_empty() { short(c.threshold as f64) } else { t };
             push(
                 true,
                 &format!(
@@ -1468,6 +1714,23 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
             } else {
                 push(false, &format!("Compacting at {t} instead: {n}, which would not have paid (an estimate)."));
             }
+        }
+        "price_step" => {
+            let st = &s.step;
+            let models = st.models.iter().cloned().collect::<Vec<_>>().join(", ");
+            let over = short(st.over as f64);
+            push(
+                true,
+                &format!(
+                    "Price step: {} request{} of {models} had a prompt over {over} tokens and cost {}, where the lower price gives {}: the step cost {}.",
+                    count(st.requests),
+                    if st.requests == 1 { "" } else { "s" },
+                    short(st.cost),
+                    short(st.lower),
+                    short(s.step_cost())
+                ),
+            );
+            push(false, &format!("Keep a conversation with this model under {over} tokens, by starting a fresh session or compacting before it gets there."));
         }
         "repeated_reads" | "repeated_outputs" => {
             let bytes: u64 = s.repeats.iter().map(|r| r.bytes).sum();
@@ -1506,6 +1769,34 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
     }
 }
 
+/// The weights of the models of a report, models with the same weights together:
+/// `claude-fable-5-2: a cache read 0.025, a cache write 1.25 (2 for one hour), output 5`.
+fn weights_said(s: &Stats) -> String {
+    let mut groups: Vec<(Weights, Vec<&str>)> = Vec::new();
+    for m in s.models.keys() {
+        let w = s.weights(m);
+        match groups.iter_mut().find(|(g, _)| *g == w) {
+            Some((_, names)) => names.push(m),
+            None => groups.push((w, vec![m])),
+        }
+    }
+    groups
+        .iter()
+        .map(|(w, names)| {
+            let tier = w.tier.map(|t| format!(", and {} times each over a prompt of {} tokens", t.times, short(t.over as f64))).unwrap_or_default();
+            format!(
+                "{}: a cache read {}, a cache write {} ({} for one hour), output {}{tier}",
+                names.join(", "),
+                w.cache_read,
+                w.write_5m,
+                w.write_1h,
+                w.output
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(". ")
+}
+
 /// The report of one project or one session.
 fn text(s: &Stats, ctx: &Ctx, dir: &Path, days: u64, session: Option<&str>) -> String {
     let mut out = String::new();
@@ -1532,11 +1823,12 @@ fn text(s: &Stats, ctx: &Ctx, dir: &Path, days: u64, session: Option<&str>) -> S
     }
     out.push_str(&match s.kind {
         Kind::ClaudeCode => format!(
-            "(A weighted token is one uncached input token of the request's model: a cache read weighs 0.1, a cache write 1.25, or 2 for the one-hour cache, an output token 5. Output and thinking are the counts the transcript recorded, the largest of the lines of a request. Read from {} on this machine.)\n",
+            "(Weights follow each model's published prices of {PRICES_READ}, in its own uncached input tokens: {}. Output and thinking are the counts the transcript recorded. Read from {} on this machine.)\n",
+            weights_said(s),
             ctx.show(dir)
         ),
         Kind::Codex => format!(
-            "(Weighted as for Claude Code, although Codex providers price differently: one uncached input token of the request's model, a cache read 0.1, a cache write 1.25, an output token 5. Output and thinking are the counts the transcript recorded, thinking as a part of output. Read from {} on this machine.)\n",
+            "(Weighted by the defaults, since Codex providers price differently: in the model's own uncached input tokens, a cache read 0.1, a cache write 1.25, output 5. Output and thinking are the counts the transcript recorded, thinking as a part of output. Read from {} on this machine.)\n",
             ctx.show(dir)
         ),
     });
@@ -1678,6 +1970,7 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
         },
         "carried_context": {
             "threshold": s.carry.threshold,
+            "thresholds": s.carry.thresholds,
             "requests": s.carry.requests,
             "requests_above": s.carry.above,
             "share_of_requests": ratio(s.carry.above as f64, s.carry.requests as f64),
@@ -1689,6 +1982,20 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
             "saved_reads_estimate": round(s.carry.saved),
             "difference_estimate": (s.carry.saved - s.carry.instead).round() + 0.0,
         },
+        "price_step": {
+            "requests": s.step.requests,
+            "models": s.step.models,
+            "over_tokens": if s.step.requests > 0 { json!(s.step.over) } else { Value::Null },
+            "weighted": round(s.step.cost),
+            "weighted_at_lower_price": round(s.step.lower),
+            "step_weighted": round(s.step_cost()),
+            "share": ratio(s.step_cost(), total),
+        },
+        "weights": s.models.keys().map(|m| {
+            let w = s.weights(m);
+            (m.clone(), json!({"cache_read": w.cache_read, "cache_write_5m": w.write_5m, "cache_write_1h": w.write_1h, "output": w.output, "tier": w.tier.map(|t| json!({"over_tokens": t.over, "times": t.times}))}))
+        }).collect::<serde_json::Map<String, Value>>(),
+        "prices_read": PRICES_READ,
         "unknown_context_requests": s.unknown_context,
         "findings": s.findings().iter().map(|(k, c)| json!({"finding": k, "weighted": round(*c), "share": ratio(*c, total)})).collect::<Vec<_>>(),
         "by_session": s.per_session.iter().map(|x| json!({"session": x.id, "requests": x.requests, "weighted": round(x.weighted)})).collect::<Vec<_>>(),
@@ -1719,14 +2026,15 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
 
 struct Options {
     days: u64,
-    carry: u64,
+    /// `--carry`, when given.
+    carry: Option<u64>,
     session: Option<String>,
     all: bool,
     json: bool,
 }
 
 fn options(args: &[String]) -> Result<Option<Options>> {
-    let mut o = Options { days: 14, carry: CARRY, session: None, all: false, json: false };
+    let mut o = Options { days: 14, carry: None, session: None, all: false, json: false };
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         let (key, inline) = match arg.split_once('=') {
@@ -1744,7 +2052,7 @@ fn options(args: &[String]) -> Result<Option<Options>> {
             "--session" => o.session = Some(value("--session")?),
             "--carry" => {
                 let v = value("--carry")?;
-                o.carry = v.parse().ok().filter(|n| *n > 0).ok_or_else(|| anyhow::anyhow!("--carry takes a number of tokens above 0, not `{v}`"))?;
+                o.carry = Some(v.parse().ok().filter(|n| *n > 0).ok_or_else(|| anyhow::anyhow!("--carry takes a number of tokens above 0, not `{v}`"))?);
             }
             "--all" => o.all = true,
             "--json" => o.json = true,
@@ -1768,7 +2076,7 @@ fn since(days: u64) -> SystemTime {
     SystemTime::now().checked_sub(Duration::from_secs(days * 86_400)).unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-fn stats(source: &dyn Transcripts, files: &[PathBuf], carry: u64) -> Stats {
+fn stats(source: &dyn Transcripts, files: &[PathBuf], carry: Option<u64>) -> Stats {
     let transcripts: Vec<Transcript> = files.par_iter().map(|f| source.read(f)).collect();
     let mut s = Stats::new(source.kind(), carry);
     for t in &transcripts {
@@ -1799,26 +2107,7 @@ fn all_projects(ctx: &Ctx, o: &Options) -> Result<String> {
                     None => c.to_string(),
                 })
                 .unwrap_or_else(|| "?".to_string());
-            sum.sessions += s.sessions;
-            sum.requests += s.requests;
-            sum.main.add(&s.main);
-            sum.sub.add(&s.sub);
-            sum.sub_requests += s.sub_requests;
-            sum.stretches.extend(s.stretches.iter().cloned());
-            sum.cold.extend(s.cold.iter().cloned());
-            sum.compactions.extend(s.compactions.iter().cloned());
-            sum.repeats.extend(s.repeats.iter().cloned());
-            sum.thinking.requests += s.thinking.requests;
-            sum.thinking.recorded += s.thinking.recorded;
-            sum.thinking.thinking += s.thinking.thinking;
-            sum.thinking.output += s.thinking.output;
-            sum.carry.requests += s.carry.requests;
-            sum.carry.above += s.carry.above;
-            sum.carry.peak = sum.carry.peak.max(s.carry.peak);
-            sum.carry.cost += s.carry.cost;
-            sum.carry.compactions += s.carry.compactions;
-            sum.carry.instead += s.carry.instead;
-            sum.carry.saved += s.carry.saved;
+            sum.merge(&s);
             projects += 1;
             rows.push((name, s));
         }
@@ -2013,7 +2302,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let mut s = Stats::new(Kind::ClaudeCode, CARRY);
+        let mut s = Stats::new(Kind::ClaudeCode, Some(CARRY));
         s.add(&t);
         assert_eq!((s.sessions, s.requests, s.cold.len()), (1, 6, 1));
         assert_eq!(s.cold[0].cause, Cause::IdleHour);
@@ -2039,7 +2328,7 @@ mod tests {
             before = context;
         }
         let t = Transcript { id: "s".into(), events, ..Default::default() };
-        let mut s = Stats::new(Kind::ClaudeCode, CARRY);
+        let mut s = Stats::new(Kind::ClaudeCode, Some(CARRY));
         s.add(&t);
         let c = s.carry;
         // Compacted at 200k down to 25k, the context repeats every 175k: requests of 250k to
@@ -2061,7 +2350,7 @@ mod tests {
         // brings the context down to 225k only, and would not have paid.
         let mut big = vec![Event::Compaction { at: None, trigger: "auto".into(), pre: Some(500_000), post: Some(300_000) }];
         big.extend(t.events.iter().cloned());
-        let mut b = Stats::new(Kind::ClaudeCode, 450_000);
+        let mut b = Stats::new(Kind::ClaudeCode, Some(450_000));
         b.add(&Transcript { id: "b".into(), events: big, ..Default::default() });
         assert_eq!((b.carry.above, b.carry.compactions), (3, 1));
         assert!((b.carry.saved - 0.1 * 3.0 * 225_000.0).abs() < 1e-6);
@@ -2070,7 +2359,7 @@ mod tests {
         finding(&mut out, &b, "carried_context", b.carry.cost, &Ctx::new(Path::new("/")), false);
         assert!(out.contains("Compacting at 450k instead: 1 compaction, about 326k, which would not have paid (an estimate).\n"), "{out}");
         assert!(!out.contains("Start a fresh session"), "{out}");
-        let mut low = Stats::new(Kind::ClaudeCode, 700_000);
+        let mut low = Stats::new(Kind::ClaudeCode, Some(700_000));
         low.add(&t);
         assert_eq!((low.carry.above, low.carry.cost), (0, 0.0));
         assert!(!low.findings().iter().any(|(k, _)| *k == "carried_context"));
@@ -2112,6 +2401,30 @@ mod tests {
         assert_eq!(codex_output(&json!([{"type": "input_text", "text": "a"}, {"type": "input_text", "text": "b"}])), "a\nb");
         let c = Codex { home: PathBuf::new() };
         assert_eq!(c.id(Path::new("/s/rollout-2026-11-14T14-33-46-01a1d94c-6cbb-7f10.jsonl")), "01a1d94c-6cbb-7f10");
+    }
+
+    #[test]
+    fn weights_by_model() {
+        for id in ["claude-fable-5-2", "claude-fable-5-1", "claude-mythos-5-2", "claude-mythos-5-1-20261001"] {
+            assert_eq!(weights(id).cache_read, 0.025, "{id}");
+        }
+        for id in ["claude-opus-5-5", "claude-sonnet-5-5-20261101", "anthropic/claude-sonnet-5-5", "us.anthropic.claude-opus-5-5-v1:0", "claude-opus-5-5[1m]"] {
+            assert_eq!(weights(id), Weights { cache_read: 0.05, ..DEFAULT_WEIGHTS }, "{id}");
+        }
+        let haiku = weights("anthropic/claude-haiku-5-5@20261001");
+        assert_eq!((haiku.cache_read, haiku.tier), (0.1, Some(Tier { over: 100_000, times: 5.0 })));
+        assert_eq!((haiku.times(Some(100_000)), haiku.times(Some(100_001)), haiku.times(None)), (1.0, 5.0, 1.0));
+        // Older models, a family that only begins the same, and models of other providers.
+        for id in ["claude-opus-5", "claude-haiku-4-5", "claude-opus-5-50", "gpt-6", ""] {
+            assert_eq!(weights(id), DEFAULT_WEIGHTS, "{id}");
+        }
+        assert_eq!((DEFAULT_WEIGHTS.cache_read, DEFAULT_WEIGHTS.write_5m, DEFAULT_WEIGHTS.write_1h, DEFAULT_WEIGHTS.output), (0.1, 1.25, 2.0, 5.0));
+        // What a hook asks: a context read warm, and sent cold through the one-hour cache.
+        assert_eq!((read_warm("claude-haiku-5-5", 100_000), read_warm("claude-haiku-5-5", 120_000)), (10_000.0, 60_000.0));
+        assert_eq!((read_warm("claude-fable-5-2", 40_000), send_cold("claude-fable-5-2", 40_000)), (1_000.0, 80_000.0));
+        // A request over the step pays every kind five times.
+        let over = Usage { input: Some(1_000), cache_read: Some(100_000), cache_write: Some(1_000), output: Some(100), ..Default::default() };
+        assert_eq!(over.weigh(&haiku).total(), 5.0 * (1_000.0 + 10_000.0 + 1_250.0 + 500.0));
     }
 
     #[test]
