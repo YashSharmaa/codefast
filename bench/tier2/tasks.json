@@ -240,6 +240,16 @@
    "N-zod-fn-clone",
    "N-zod-ZodLiteral-create",
    "N-zod-ZodObject-create"
+  ],
+  "W": [
+   "W01",
+   "W02",
+   "W03",
+   "W04",
+   "W05",
+   "W06",
+   "W07",
+   "W08"
   ]
  }
 }
