@@ -69,6 +69,13 @@ ARMS = {
     # The same, and the code of that function with its callers and its tests: everything a
     # perfect push could hand over before the session starts.
     "oracle-context": dict(plugin=False, oracle=True, oracle_context=True),
+    # A staged task with every message in a session of its own: what starting fresh for each
+    # job costs, next to one conversation that carries all of them.
+    "control-fresh": dict(plugin=False, fresh=True),
+    "plugin-fresh": dict(plugin=True, fresh=True),
+    # And with the list of what the uncommitted work defines, at the start of each session
+    # (an experiment, see LIVE.md).
+    "plugin-fresh-recap": dict(plugin=True, fresh=True, env={"CODEFAST_START_RECAP": "1"}),
     # How a prompt card gives the uses of a symbol (an experiment, see LIVE.md).
     "uses-count": dict(plugin=True, env={"CODEFAST_CARD_USES": "count"}),
     "uses-list": dict(plugin=True, env={"CODEFAST_CARD_USES": "list"}),
@@ -800,6 +807,36 @@ def staged_session(cmd, row, env, run, timeout):
             late.cancel()
 
 
+def fresh_sessions(cmd, row, env, run, timeout):
+    """The messages of a staged task, each in a session of its own in the same directory: the
+    project is what the next session finds, and the conversation is not. A message after the
+    first says that the project exists, as a user starting a new session on it would."""
+    prompts = json.load(open(run / "prompts.json"))
+    deadline = time.time() + timeout
+    rc = 0
+    with open(run / "run.jsonl", "w") as out, open(run / "err.txt", "w") as err:
+        for k, text in enumerate(prompts, 1):
+            if k > 1:
+                text = f"You are in a project directory ({row['repo']}). SPEC.md describes the first version of the project, and it has been changed since: the code is what counts.\n\n" + text
+            left = deadline - time.time()
+            if left <= 0:
+                return 124
+            try:
+                p = subprocess.run(cmd, cwd=row["repo"], env=env, input=text, stdout=subprocess.PIPE, stderr=err, text=True, timeout=left)
+            except subprocess.TimeoutExpired:
+                return 124
+            out.write(p.stdout)
+            out.write(json.dumps({"type": "bench", "subtype": "session_end", "stage": k}) + "\n")
+            out.write(json.dumps({"type": "bench", "subtype": "stage_done", "stage": k}) + "\n")
+            out.flush()
+            shutil.copytree(row["repo"], run / f"stage-{k:02d}", symlinks=True, ignore=SNAPSHOT_SKIP)
+            rc = p.returncode
+            ended = [json.loads(l) for l in p.stdout.splitlines() if '"type":"result"' in l]
+            if rc != 0 or not ended or ended[-1].get("subtype") != "success":
+                break
+    return rc
+
+
 def session(row, a, binary, plug):
     spec = ARMS[row["arm"]]
     run = Path(row["run"])
@@ -847,7 +884,9 @@ def session(row, a, binary, plug):
     else:
         cmd += ["--strict-mcp-config"]
     t0 = time.time()
-    if row["family"] == "S":
+    if row["family"] == "S" and spec.get("fresh"):
+        rc = fresh_sessions(cmd, row, env, run, a.timeout)
+    elif row["family"] == "S":
         rc = staged_session(cmd, row, env, run, a.timeout)
     else:
         with open(run / "run.jsonl", "w") as out, open(run / "err.txt", "w") as err:
@@ -892,6 +931,7 @@ def parse(path):
     r: dict[str, Any] = dict(requests=0, sub_requests=0, tools={}, cmds=[], cf_cli=0, cf_mcp=0, hooks={}, hook_bytes=0, result_chars={}, init={}, limits={}, final=None, usage={}, cost=0.0, turns=0, denials=0,
                              thinking=None, touched=[])
     seen, names = set(), {}
+    earlier, earlier_cost = dict(input=0, cache_read=0, cache_write=0, output=0), 0.0
     for e in ev:
         t, s = e.get("type"), e.get("subtype")
         if t == "system" and s == "init":
@@ -959,7 +999,6 @@ def parse(path):
             if t is not None:
                 r["thinking"] = (r["thinking"] or 0) + t
             r["messages"] = r.get("messages", 0) + 1
-            r["cost"] = e.get("total_cost_usd", 0.0)
             r["turns"] += e.get("num_turns", 0)
             r["final"] = e.get("subtype")
             r["denials"] = len(e.get("permission_denials") or [])
@@ -968,6 +1007,15 @@ def parse(path):
             if mu:
                 r["usage"] = dict(input=sum(v.get("inputTokens", 0) for v in mu.values()), cache_read=sum(v.get("cacheReadInputTokens", 0) for v in mu.values()),
                                   cache_write=sum(v.get("cacheCreationInputTokens", 0) for v in mu.values()), output=sum(v.get("outputTokens", 0) for v in mu.values()))
+            r["cost"] = earlier_cost + e.get("total_cost_usd", 0.0)
+        elif t == "bench" and s == "session_end":
+            # A run of several sessions (a staged task with a session per message): what the
+            # sessions before this point used is kept, and the next one counts from nothing.
+            for k in earlier:
+                earlier[k] += r["usage"].get(k, 0)
+            earlier_cost, r["usage"] = r["cost"], {}
+    if any(earlier.values()):
+        r["usage"] = {k: earlier[k] + r["usage"].get(k, 0) for k in earlier}
     r["first"] = firsts[0] if firsts else (0, 0, 0)
     r["sizes"] = sizes
     r["early_chars"] = early
