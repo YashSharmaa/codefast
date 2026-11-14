@@ -89,14 +89,6 @@ def score_answer(answer, expected):
 def arm_server(arm, binary):
     if arm == "codefast":
         return {"type": "stdio", "command": str(binary), "args": ["mcp", "--root", str(SUPERSET)]}
-    if arm == "codegraph":
-        # The published arm, run again here as a check of this setup: the sandboxed install
-        # of bench/tools, started the way the published harness starts it.
-        # It answers from the copy that `bench/scripts/competitors/index_codegraph.sh` indexed.
-        copies = sorted((ROOT / "bench/tools/_work/codegraph").glob("copy-superset-*"))
-        if not copies:
-            sys.exit("no CodeGraph index of superset: bench/scripts/competitors/index_codegraph.sh bench/repos/superset OUT.json")
-        return {"type": "stdio", "command": str(ROOT / "bench/scripts/competitors/sbx.sh"), "args": ["codegraph", "serve", "--mcp", "--path", str(copies[-1]), "--no-watch"]}
     sys.exit(f"no such arm: {arm}")
 
 

@@ -180,9 +180,11 @@ python3 -I bench/acb/run_acb.py run --arm codefast --out bench/results/acb-codef
 python3 -I bench/acb/run_acb.py score bench/results/acb-codefast-haiku.jsonl
 ```
 
-This spends model usage: 78 sessions of Haiku 4.5. `--arm codegraph` runs the published
-CodeGraph arm again with the version installed under `bench/tools`, to see how far figures
-from another machine and another month can be set next to figures from here.
+This spends model usage: 78 sessions a model (`--model haiku`, `sonnet` or `opus`, the three of
+the study). The published arms were not run again here. One attempt to run CodeGraph was given
+up: started per session over stdio it is not connected by the first turn, which is why the
+published harness keeps it warm behind a proxy, and the version installed here is a later one
+than the study's. So the published rows are the study's own, from its machine and its month.
 
 ## The rename command, judged by the compiler (`tier2/rename_*.py`)
 
