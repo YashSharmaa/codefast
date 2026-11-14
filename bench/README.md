@@ -136,10 +136,39 @@ uv run --with tiktoken python -I bench/tier2/live.py score --tag F --out rows.js
 python3 -I bench/tier2/score_f.py rows.jsonl    # recall at 1, 5 and 10 and tokens, next to the published rows
 ```
 
+The same reports under the paper's own protocol (its prompt, its system prompts, Haiku 4.5 at
+low effort, 30 turns, its grading rule and its token count), with three arms on the same
+reports: no map, codefast's MCP server, and the paper's own best arm, built and served by the
+code of its repository. `paper_f.py` reads the paper's prompts and runs its server from a clone
+under `bench/tools/hsasc`, which `fetch` makes. Nothing of that repository is copied into this
+one.
+
+```
+python3 -I bench/tier2/paper_f.py fetch
+# For the paper's arm: an environment with the versions its pyproject.toml pins.
+bench/scripts/competitors/sbx.sh uv venv --python 3.12 bench/tools/hsasc/venv
+bench/scripts/competitors/sbx.sh uv pip install --python bench/tools/hsasc/venv/bin/python \
+    mcp==1.27.2 tree-sitter==0.25.2 tree-sitter-language-pack==1.8.1 jedi==0.20.0 griffe==2.0.2 \
+    networkx==3.6.1 pyyaml==6.0.3 tiktoken==0.13.0 ast-grep-cli==0.42.3 grimp==3.14 beniget==0.5.0 gast==0.7.0
+python3 -I bench/tier2/paper_f.py run --tag PF --set final --n 56 --arms baseline,codefast,hybrid --jobs 2 --out rows.jsonl
+python3 -I bench/tier2/paper_f.py score rows.jsonl   # every arm next to the baseline, on the reports both ran
+```
+
+`--set dev` is the 20 development reports and `--set final` the 56 that no session had been
+run on when the build was final. The paper's map of one kernel version takes two to fifteen
+minutes to build and 0.4 to 1.2 GB, kept under `bench/tools/_work/hsasc`.
+
 `tier2/LIVE.md` is the protocol: the arms, the five kinds of task and how each answer is
 checked, what is measured, and why the tables report a cost priced from the size of every
 request instead of the billed cost. `--resume` continues a batch that was interrupted, and a
 batch stops by itself when the login's usage window passes `--limit-stop`.
+
+To set two builds of codefast against each other, run both batches at the same time with
+`--jobs 1` each, so that they see the same hours of the machine, and give each its own index
+directories: `BENCH_INDEX_SUFFIX=-new` for one and `BENCH_INDEX_SUFFIX=-old` for the other. An
+index belongs to the version that wrote it, and two versions that share a directory rebuild
+it for each other inside the sessions. Check too that the prompt hook answered as often in
+both batches: it gives up after 2.5 seconds, which a busy machine does not always leave it.
 
 ## Inside Codex, without a model (`codex`)
 
@@ -159,8 +188,26 @@ It prints one line per check and the bytes of a request that are the plugin's. W
 codex-cli 0.164.0 and codefast 0.3.0 all 14 checks hold: the four hook events fire and their
 text is in the next request, the MCP tools and the command line answer in the read-only
 sandbox, and a session in a repository without an index gets one. What a model in Codex does
-with the cards is not measured by this, and has not been measured: the sessions of
-`tier2/live.py` are Claude Code sessions.
+with the cards is not measured by this. The next part measures it.
+
+## Inside Codex, with a model (`codex/live.py`)
+
+The held-out question tasks of `tier2/live.py`, with the same prompts and the same checks, run
+by `codex exec` in its read-only sandbox: once in a home that has nothing of codefast in it,
+and once in a home where `codefast setup codex --hooks --apply` was run. The model is reached
+through OpenRouter, and Codex reads the key from the environment by name
+(`OPENROUTER_API_KEY`). This spends money at that provider: the 216 sessions of the published
+run cost about nine dollars.
+
+```
+uv run bench/codex/live.py run --tag CX --held N,C,E,K2 --model openai/gpt-6.1-sol --reps 2 --jobs 2 --codefast target/release/codefast
+uv run bench/codex/live.py score --tag CX --out bench/results/codex-live.jsonl
+```
+
+Every session has a home of its own under `target/live/<tag>`, and your own `~/.codex` is not
+read. What is counted is what Codex reports for a session: the tokens of all its requests (those
+served from the provider's cache apart) and the tokens it wrote, priced at the provider's list
+prices of the day. `tier2/LIVE.md` has the table.
 
 ## A published agent benchmark, with codefast as one more arm (`acb`)
 

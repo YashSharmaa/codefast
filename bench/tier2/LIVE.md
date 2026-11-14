@@ -568,18 +568,229 @@ codefast's tools named. On six reports it cost 15% more tokens than no plugin at
 two files where the control found three and the plugin without the sentence four. Forced to
 search through the tools, a session made more requests (24.3) and not fewer.
 
+### The paper's own protocol, and its own best arm on the same reports
+
+The comparison above used a prompt of its own and codefast as it was. Neither is what the paper
+ran, and its repository shows the difference
+(github.com/MelikaSepidband/How-Should-Agents-See-Code, at `1512fa9`).
+
+- **Its prompt asks for candidates.** "Identify up to 10 candidate files that most likely
+  contain the fault, ranked most-likely first." The prompt used above asks for "the source
+  files that would have to be changed to fix it", and a session then lists two or three files
+  and digs for the cause. With the paper's prompt the same model lists five to eight.
+- **Its arms have one tool that returns code.** Each map has an `explore` tool whose answer is
+  the best files with the verbatim source of their symbols, up to 20,000 characters, and a
+  system prompt that says to call it first ("Usually the ONLY call you need"). The notes in
+  its runner say why: "front-loading the code lets the agent conclude without the
+  drill-down/read-reason-read loop (turns * context = cache_read = ~95% of tokens)".
+- **codefast answered an open question with a list.** Free text given to `search` printed ten
+  files with the names of their best functions. A session then fetched the code one function
+  at a time: the drill-down loop.
+
+`bench/tier2/paper_f.py` runs the paper's protocol: its prompt template and its system prompts
+read from a clone of its repository, Haiku 4.5 at low effort, the six built-in tools, 30 turns,
+a dollar a session, its grading rule (the last JSON block of the answer) and its token count
+(everything processed, cached or not). The codefast arm has codefast's MCP server and no hooks,
+a system prompt of the shape the paper gives its own tools with codefast's tools named in it,
+and the paper's sentence that the tools must be used.
+
+The paper's 152 sampled reports are not published, and neither are its transcripts. So its
+best arm was run here as well, on the same reports as the other two: its Hybrid map, built by
+its own builder (`python -m perrep.build --rep hybrid`) for each kernel version, served by its
+own server, with the playbook its own code renders and the same sentence. That arm is the one
+its paper reports as best (0.829 in the ten at 610,910 tokens, against 0.717 at 1,008,163 for
+no map).
+
+**What was built, in three steps, on 45 reports set aside to develop on**
+(`bench/results/paper-protocol-dev.jsonl`, measured on 14 November 2026). Twenty of them are
+development reports of the family above. The other 25 are the reports the first version was
+run on untouched, and they were development from then on.
+
+| Arm | Reports | File first | File in the ten | Tokens | Tool calls | Dollars | Sessions without an answer |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| no map (the paper's baseline) | 45 | 0.400 | 0.556 | 767,291 | 27.1 | 0.196 | 16 of 45 |
+| codefast, first version: source of ten files in the answer | 45 | 0.511 | 0.778 | 786,148 | 17.1 | 0.203 | 3 of 45 |
+| codefast, short answers (tried on 8 reports) | 8 | 0.375 | 0.500 | 869,259 | 24.2 | 0.197 | 3 of 8 |
+| codefast as released in 0.3.1 | 45 | 0.533 | 0.889 | 597,171 | 12.6 | 0.180 | 2 of 45 |
+| the paper's Hybrid map, run here (on 25 of the 45) | 25 | 0.600 | 0.960 | 919,957 | 15.6 | 0.270 | 0 of 25 |
+
+Against the baseline on the same reports: the first version found 13 files it did not and
+missed 3 it found, with 2% more tokens (11% fewer to 17% more at 95%). The released one found
+16 and missed 1, with 22% fewer tokens (9 to 35%) and 9% fewer dollars. The paper's map, on its
+25 reports, found 10 and missed none, with 24% more tokens than the baseline (5% fewer to 57%
+more) and 43% more dollars.
+
+The first version put the source of the candidates into the answer, for ten files, and found
+the file far more often with as many tokens as before. Its sessions showed two things.
+
+- **A call asks several things and one was answered.** These sessions put two or three
+  queries into nearly every call. The answer had one room for all of them, the first query
+  took it, and the others got a few lines: 52% of the queries of such calls were answered in
+  under 700 bytes, and 43% of those were asked about again later in the session. That is
+  about four questions a session asked twice.
+- **A session reads until it has seen the code it needs.** A variant with short answers (a
+  search answer averaged 1,300 tokens) was tried on eight of the reports: its sessions made
+  24 calls, where the first version (2,700 tokens an answer) made 17, and three of the eight
+  reached their thirtieth turn with no answer. What an answer does not give, the session
+  comes back for, and every time it comes back the whole conversation is sent again.
+
+So `search` now answers every query of a call, each in a room of its own. The open questions
+of a call (free text, not a name or a place) are one question asked several ways: their words
+are ranked as one text and answered once. Measured without a model on the first calls of those
+sessions, the file of the fix is first in that ranking for 49% of them, against 37% for the
+first wording alone, and in the first ten for 70% against 60%. The answer goes deep into the
+leading files (the source of up to eight functions of the first, five of the second) and
+names the others with the function to look at. Where the caller names no budget it has 8,000
+tokens for the first open question of a session, 6,000 for the second and 4,000 after that. A
+budget the caller names is the room of the whole call, as it was, and an open question then
+gets the ranking alone in that room, as it did before. The end of this section says why, and
+where else the source is left out.
+
+**On 56 reports no session of any build had been run on**
+(`bench/results/paper-protocol-final.jsonl`, measured on 14 November 2026):
+
+| Arm | File first | File in the ten | Tokens | Tool calls | Dollars | Sessions without an answer |
+|---|---:|---:|---:|---:|---:|---:|
+| no map (the paper's baseline) | 0.464 | 0.571 | 760,282 | 27.4 | 0.192 | 17 of 56 |
+| codefast 0.3.1 | 0.554 | 0.821 | 713,470 | 14.1 | 0.201 | 4 of 56 |
+| the paper's Hybrid map, run here | 0.589 | 0.804 | 809,160 | 14.6 | 0.254 | 6 of 56 |
+
+The 56 reports are of 44 kernel versions. The three arms ran on the same day with the same
+harness (Claude Code 2.1.323), two sessions at a time.
+
+**codefast against no map.** The file is in the ten for 14 reports more and for none fewer
+(+0.250, between 0.143 and 0.357 at 95%). The tokens are 6% fewer, which resampling puts
+anywhere between 21% fewer and 10% more: no difference that can be claimed. Dollars are 5%
+more (6% fewer to 17% more).
+
+**codefast against the paper's map, on the same reports.** In the ten they are level: 0.821
+and 0.804, four files found by codefast alone and three by the map alone. The map has the file
+first for two reports more (0.589 and 0.554). codefast's sessions take 12% fewer tokens (28%
+fewer to 10% more) and 21% fewer dollars (12 to 29%), and that last difference is the one
+that is clear.
+
+**The paper's map against no map.** It finds the file as the paper says, and more (+0.232
+here, +0.11 published). Its saving of 39% of the tokens is not there: here its sessions take
+6% more tokens than no map (14% fewer to 30% more) and 33% more dollars (20 to 46%). In the
+paper a session with the map made 10 tool calls and one without made 25. Here it makes 14.6:
+six `explore` calls of 21 thousand bytes each, one `node` call, and eight reads and searches
+with the built-in tools. What differs from the paper's runs is the reports (its sample is not
+published), the version of Claude Code and five months.
+
+**What the answers held**, apart from what a session did with them. The file of the fix was
+in the first answer of codefast's `search` in 38 of the 56 sessions and in the first answer of
+the map's `explore` in 23. It was in some answer of the session for 51 and for 46. Of the 51,
+six never reached the final list: three in sessions that ran out of turns and three that saw
+it and left it out. The map's sessions listed 45, three of them files that no answer had
+shown, named from what the model knows of the kernel.
+
+**Where the tokens go.** A session that reaches its thirtieth turn has answered nothing and
+has paid the most. Without a map that is 17 of 56 sessions and 40% of the arm's tokens (1.01
+million each). With codefast it is four sessions and 17% (1.73 million each: the context is
+larger when the tail of small lookups begins). A session that does answer costs about the
+same in both arms, 635 thousand tokens with codefast and 651 thousand without. So codefast
+does not make an answering session cheaper under this protocol. It makes more sessions answer.
+
+**What was looked at in the paper's tool and not taken.** Its ranking starts from a text
+search over symbol names, walks one call or include away and ranks by a random walk. Letting
+the first files of codefast's ranking vote for the files they call was tried without a model
+on 85 development reports: two to four more files in the first ten and three fewer in the
+first twenty, depending on the weights, which is not a gain. The idea that was taken is the
+paper's main one, the source in the answer.
+
+**In sessions with the plugin as it is installed.** The paper's protocol gives a session the
+tools and nothing else. The plugin is used another way: Haiku 5.5, the hooks on, one question,
+a card before the first request. So the build was run there as well before it was released,
+on the held-out question families next to 0.3.0: the plugin arm of both, one session of each
+build at a time, each build with index directories of its own
+(`bench/results/live-check-0.3.1.jsonl`, measured on 14 November 2026).
+
+The first build, the one in the table above, did not pass. Error questions cost 0.72 of what
+they cost with 0.3.0 (0.56 to 0.91), because a quoted message is now answered with the
+function that writes it. The others cost more: kernel questions 1.14, callee and caller
+questions 1.09 each, on one run per task and none of them a clear difference alone. Read one
+by one, the dearer sessions had asked one thing in a sentence (`blk_rq_map_user_iov callers`,
+"where io_uring invokes io_fsync through its opcode table") or typed a message that several
+places print, and had been given thousands of tokens of ranked source where 0.3.0 gave a
+list. These sessions also name a budget in half of their `search` calls, which the sessions
+under the paper's protocol did in none of 703, and the source then filled it.
+
+Four rules came out of that:
+
+- A call that names a budget gets, for an open question, the ranking in that size, as in
+  0.3.0.
+- Where a hook of the plugin has run in the repository in the last ten minutes, an open
+  question gets the ranking too. That session has had its card. The source is the default
+  for a session that has the tools and no hooks, which is where it was measured to help.
+  `codefast locate` prints it either way.
+- A text of three words or more that stands in the code exactly as it was typed is answered
+  with the places it stands in.
+- A sentence that names one to three things defined in the repository, or a name with the
+  word for what is wanted of it, is answered about those things.
+
+With them, on two runs per task:
+
+| Family | Tasks | Right, 0.3.0 and 0.3.1 | Requests | Cost with 0.3.1, against 0.3.0 |
+|---|---:|---|---|---:|
+| Where does this error come from? | 12 | 1.00 and 1.00 | 3.7 and 2.3 | **0.62** (0.52 to 0.74) |
+| A question about the Linux kernel | 18 | 1.00 and 1.00 | 2.9 and 2.7 | **0.94** (0.85 to 1.04) |
+| Who calls this method? | 12 | 0.99 and 0.99 | 4.2 and 4.3 | **0.99** (0.75 to 1.28) |
+| What does this function call? | 12 | 0.99 and 0.99 | 2.3 and 2.8 | **1.21** (1.05 to 1.39) |
+| All four | 54 | 0.99 and 1.00 | 3.2 and 3.0 | **0.94** (0.83 to 1.06) |
+
+The callee row is not the build. A callee session gets the same card from both builds, byte
+for byte, and then checks it with one or two reads of its own: a codefast command is run in
+22 of the 120 callee sessions of that evening. The family read 1.09, 0.83 and 1.21 in the
+three checks, and 1.02 (0.93 to 1.12) over all 60 sessions a side. What varies is how the
+model chooses to check a card it has been handed.
+
+The machine was busy with other work during these checks (a load average between 11 and 75
+on 18 cores), and that reaches the result in one place. The prompt hook gives up after 2.5
+seconds, and on the kernel it answered in 26 of the 36 sessions of each build, where on a
+quiet machine it answers in 28. Both builds lost the same cards.
+
+**The build that was released, run again.** The four rules change little of what a session
+under the paper's protocol is given: of the 972 queries that the 56 codefast sessions of the
+table made, the released build answers 15 differently, nearly all of them sentences about a
+name. To see that the table still describes it, that build was run once more on the same 56
+reports (before the last narrowing of the third rule, which touches two of those queries):
+
+| Arm | File first | File in the ten | Tokens | Tool calls | Dollars | Sessions without an answer |
+|---|---:|---:|---:|---:|---:|---:|
+| codefast, the build of the table | 0.554 | 0.821 | 713,470 | 14.1 | 0.201 | 4 of 56 |
+| codefast, the build that was released | 0.518 | 0.821 | 672,421 | 13.4 | 0.203 | 2 of 56 |
+
+The file is in the ten for 46 reports in both runs, and they are not the same 46: 41 in both,
+five in the one alone and five in the other. That is how far two runs of one tool on the same
+reports lie apart here, and it is the measure for the two or three reports that separate
+codefast from the paper's map in either direction. Against no map the second run has 12%
+fewer tokens (24% fewer to 3% more), and against the paper's map 17% fewer tokens (33% fewer
+to 4% more) and 20% fewer dollars (12 to 28%).
+
+One mistake on the way: the first attempt ran the two builds at once on the same index
+directories. An index belongs to the version that wrote it, so each build kept rebuilding the
+kernel's index for the other, inside a session. Those sessions were thrown away, and `live.py`
+takes `BENCH_INDEX_SUFFIX` so that two builds each get directories of their own.
+
 ### What the comparison comes to
 
-The paper's best map takes 39% of the tokens off its baseline and raises recall in the ten by
-0.11. codefast does not repeat that. Under the paper's own settings it changes little, and
-with a current model it takes 22% of the tokens off and does not raise recall.
+The paper reports for its best map, against no map: the file in the ten for 0.11 more of the
+reports, on 39% fewer tokens.
 
-What has changed since those runs is the baseline. A session of Haiku 5.5 with no map at all
-has the file in its ten for 0.771 of the reports at 135,316 tokens. The paper's sessions
-needed 1,008,163 tokens for 0.717, and 610,910 with the best map for 0.829. These are other
-reports and another model, so the figures cannot be set against each other closely. But most
-of what a map bought on this task, the model now does alone, and what is left for a tool here
-is cost and not recall.
+Under its own protocol, on reports no session had been run on and next to its own map on the
+same reports, codefast 0.3.1 has the file in the ten for 0.25 more of the reports than no map
+(the map: 0.23), on 6% fewer tokens than no map (the map: 6% more), and for a fifth less money
+than the map. So on the question the paper asks, which tool lets this model find the file,
+codefast is level with the paper's best map and costs less to run. The paper's other finding
+does not repeat here for either tool: no arm takes a clear share of the tokens off the
+baseline. In this harness a session that answers costs the same with a tool as without, and
+what a tool changes is how many sessions answer.
+
+With a current model and the plugin as it is installed (the sections above: Haiku 5.5, the
+hooks on, a prompt that asks for the files to change) the picture is another one. There the
+session without a plugin already has the file in its ten for 0.771 of the reports at 135,316
+tokens, and the plugin takes cost off and does not find more. Most of what a map bought on
+this task in the paper's setting, a current model does alone.
 
 ### A mistake on the way: which repository a directory belongs to
 
@@ -902,9 +1113,53 @@ The prompt card of version 0.2.2 was settled by three small experiments on devel
    then 0.95 of the control. The body is worth its tokens when the prompt is a question about
    the function, and not when the prompt is a bug to fix.
 
+## The same questions in Codex
+
+Everything above is Claude Code. `bench/codex/live.py` runs the held-out question tasks in
+Codex: the same prompts and the same checks, by `codex exec` in its read-only sandbox
+(codex-cli 0.164.0 with its default model, gpt-6.1-sol, reached through OpenRouter). One arm
+has a home with nothing of codefast in it. The other has what
+`codefast setup codex --hooks --apply` writes there: the MCP server, the four hooks, the skill,
+and the command on `PATH`. Two runs per task and arm, 216 sessions, measured on 14 November
+2026 with the build that became 0.3.1 (`bench/results/codex-live.jsonl`).
+
+| Task | Tasks | Right, without and with | Tool calls | Tokens of a session | Dollars of a session | With the plugin it costs |
+|---|---:|---|---|---|---|---:|
+| Who calls this method? | 12 | 1.00 and 1.00 | 3.8 and 3.5 | 86,681 and 60,106 | 0.0694 and 0.0482 | **0.69** (0.62 to 0.77), cheaper in 12 of 12 |
+| What does this function call? | 12 | 1.00 and 1.00 | 3.1 and 1.0 | 56,006 and 27,991 | 0.0386 and 0.0318 | **0.82** (0.78 to 0.87), cheaper in 12 of 12 |
+| Where does this error come from? | 12 | 1.00 and 1.00 | 3.7 and 2.8 | 59,854 and 46,645 | 0.0393 and 0.0340 | **0.86** (0.79 to 0.93), cheaper in 11 of 12 |
+| A question about the Linux kernel | 18 | 1.00 and 1.00 | 2.4 and 1.8 | 49,076 and 40,232 | 0.0436 and 0.0384 | **0.88** (0.83 to 0.94), cheaper in 14 of 18 |
+| All four | 54 | 1.00 and 1.00 | 3.2 and 2.2 | 61,368 and 43,353 | 0.0473 and 0.0382 | **0.81** (0.76 to 0.85), cheaper in 49 of 54 |
+
+Codex reports the totals of a session and not the size of every request, so the cost here is
+dollars at the provider's list prices of that day for those totals: $2 for a million tokens of
+input, $0.10 where the provider served them from its cache, $10 for output. Tokens are all the
+input of all requests plus the output.
+
+What the sessions show:
+
+- **This model answers every one of these questions right, with the plugin or without.** What
+  changes is the work: 3.2 tool calls become 2.2, and 61 thousand tokens become 43 thousand.
+- **It never called the MCP server.** Codex gives this model one tool that runs a script, and
+  the server's tools are functions inside it (`bench/codex/wiring.py` shows the request). In 108
+  sessions with the plugin they were not used once. What reached the model was the card of the
+  prompt hook and the command line. The caller questions ran `codefast callers` in 23 of 24
+  sessions. In the other three families the card was the answer, and the session checked it
+  with one or two `rg` or `sed` commands of its own.
+- **The saving is smaller than in Claude Code,** where the same four families cost 0.30, 0.56,
+  0.63 and 0.71 of the control. The session without the plugin is already short here: three
+  tool calls, where Haiku in Claude Code makes four to seven requests. And the first request
+  of a Codex session is 57 thousand bytes of Codex's own before any of the task, which no
+  plugin shortens.
+
+Only the four families that change nothing were run. The renames, the code-writing tasks and
+the bug fixes need Codex to build and run tests inside its sandbox, and that was not set up.
+
 ## Limits
 
-* One harness (Claude Code 2.1.323) and, unless a table says otherwise, one model (Haiku 5.5).
+* Two harnesses. All but one section is Claude Code 2.1.323 with, unless a table says
+  otherwise, one model (Haiku 5.5). Codex was run with one model, on the four families of
+  questions.
 * Single pairs vary by a factor of two in either direction, also with two runs each. Read the
   totals.
 * The kernel is code the model has seen in training, and its names are unique. A control agent
@@ -927,11 +1182,14 @@ The prompt card of version 0.2.2 was settled by three small experiments on devel
   lines whose body was taken out of a project that already has their callers and their tests.
   Writing a new function into a project that has neither is a different task, and nothing here
   measures it.
-* The bug reports (F), of the kernel and of the Python projects, were run with the released
-  plugin on Haiku 5.5 only. With the settings of the published comparison (Haiku 4.5 at low
-  effort, 30 turns) what was run is twenty development reports with a build that was not
-  released, and the released plugin on five of them: enough to say that nothing like the
-  paper's gain is there, and not a measurement of the released plugin under those settings.
+* The bug reports (F), of the kernel and of the Python projects, were run with the plugin as
+  it is installed on Haiku 5.5 only, and that was version 0.3.0.
+* Under the protocol of the published comparison each of the 56 final reports was run once in
+  each arm, so a difference of two or three reports between two arms is noise. What ran there
+  is codefast's MCP server with no hooks, which is how the paper runs a tool and not how the
+  plugin is installed. The paper's arm is rebuilt from its repository as its README and its
+  runner describe it. Its own runs, its sampled reports and its transcripts are not published,
+  so nothing here says what its sessions did in the version of Claude Code it used.
 * There is no rename family for a language without a compiler. Two attempts to build one for
   Python (sqlglot) failed for want of a reference to check against: a refactoring library
   renamed the wrong places, and a rename traced from the running tests left 12 of 16

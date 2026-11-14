@@ -31,7 +31,7 @@ model. Through hooks it also hands over the facts at the moment they matter, wit
 The aim is an agent that keeps less in its context, acts in fewer steps and is more reliable
 when it debugs, changes code, writes new code or maintains a very large codebase.
 
-Measured so far (the tables are under [Results](#results)):
+Measured so far (the tables are under [Results](#results), each with the day it was measured):
 
 - **Cheaper sessions where the work is finding things.** In headless Claude Code sessions on tasks
   held out until the build was final, a question about who calls a method costs 0.30 of the same
@@ -45,10 +45,19 @@ Measured so far (the tables are under [Results](#results)):
   model, codefast answers the lookups at 1.00 and the hard tasks at 0.98, where the best published
   arm has 1.00 and 0.94, for the lowest cost of a task and one tool call. It was the first run,
   and nothing was changed for it.
-- **Not on the other one.** Asked which files a kernel bug report points to, as in the published
-  comparison of repository maps on LinuxFLBench, a session with codefast costs 0.77 of the same
-  session without it and does not find the file more often. The paper's best map found it more
-  often. On issues of Python projects the same question costs 0.84, with the file found as often.
+- **Level with the best tool of the other published comparison, and cheaper to run.** Asked which
+  files a kernel bug report points to, under the protocol of the published comparison of
+  repository maps on LinuxFLBench and on 56 reports no session had been run on, a session with
+  codefast has the file among its ten for 0.82 of the reports. A session with no map has it for
+  0.57, and the paper's own best map, built from its repository and run on the same reports, for
+  0.80. codefast's sessions take 12% fewer tokens than the map's and 21% fewer dollars. Against no
+  map the tokens are level (6% fewer, which could be none).
+- **In Codex as well.** The question tasks run in Codex with gpt-6.1-sol: a session with the
+  plugin costs 0.81 of the same session without it (0.76 to 0.85 at 95%) and answers as well.
+- **With a current model, the bug-report question costs less and is not answered better.** With
+  the plugin as it is installed and Haiku 5.5, a session costs 0.77 of the same session without it
+  and does not find the file more often. On issues of Python projects it costs 0.84, with the file
+  found as often.
 - **Right in one call.** 0.96 out of 1 on 72 verified questions about the Linux kernel, at a
   median of 155 tokens per answer. Best-case ripgrep: 0.89, two calls, 384 tokens.
 - **Fast and exact.** The whole Linux kernel indexes in 8 s. The call graph agrees with compilers
@@ -130,7 +139,7 @@ which it is.
 codefast search vfs_read                    # where it is defined, its source, who calls it
 codefast context vfs_read                   # all the reading before an edit, in one answer
 codefast callers ext4_file_read_iter        # every call site, also through ops tables
-codefast locate "paste a bug report here"   # the files to open, ranked
+codefast locate "paste a bug report here"   # the files to open, with the source that points to them
 codefast rename Set.Add Insert              # the definition and every sure reference, in one step
 codefast check                              # what the uncommitted edits left behind
 ```
@@ -160,7 +169,7 @@ that switches each part off, for this project only where the harness has such a 
 | Everything about a function before changing it | `codefast context NAME` |
 | How execution gets from A to B | `codefast path A B` |
 | Which function prints a message | `codefast grep -F "text of the message"` |
-| Where to look for a bug report or stack trace | `codefast locate "text"` |
+| Where to look for a bug report or stack trace: the files, with the source of the functions that point to them | `codefast locate "text"` (`--ranking` for the list alone) |
 | A pasted stack trace, one frame per line | `codefast trace` |
 | The API of an installed dependency | `codefast dep`, `codefast dep NAME SYMBOL` |
 | Rename a function, method, type or field everywhere it is surely meant | `codefast rename Owner.name NewName` (`--dry-run` shows the plan) |
@@ -210,10 +219,24 @@ caller question goes from 8,477 output tokens to 2,731, four of them in one sess
 to 7,860, a rename from 5,100 to 2,823. A bug fix writes the fix and runs the tests, and that
 barely shrinks: 3,578 to 3,301 output tokens when the card lands.
 
-Measured on one machine (Apple M5 Max, 18 cores, 36 GB) in November 2026. A figure for another
-tool is either measured here with the same scripts or that project's own published figure, and
-each table says which. [`bench/README.md`](bench/README.md) has one script per benchmark, and the
-raw results are in `bench/results/`.
+Measured on one machine (Apple M5 Max, 18 cores, 36 GB). A figure for another tool is either
+measured here with the same scripts or that project's own published figure, and each table says
+which. [`bench/README.md`](bench/README.md) has one script per benchmark, and the raw results
+are in `bench/results/`.
+
+Every benchmark below, and the day it was measured:
+
+| Benchmark | What it compares | Measured |
+|---|---|---|
+| [Real sessions in Claude Code](#in-real-sessions), held-out tasks | A session with the plugin against the same session without it, 12 kinds of task, Haiku 5.5 | 13 and 14 Nov 2026 (each row has its day) |
+| The same with Sonnet 5.5 | 5 kinds of task | 13 Nov 2026 |
+| [Real sessions in Codex](#in-codex) | The same question tasks in Codex with gpt-6.1-sol, 4 kinds of task | 14 Nov 2026 |
+| [agent-context-bench](#two-published-agent-benchmarks), a published benchmark | codefast as a fifth arm next to four published ones, three models | 14 Nov 2026 |
+| [LinuxFLBench with an agent](#two-published-agent-benchmarks), a published comparison | No map, codefast and the paper's own best map on the same kernel bug reports | 14 Nov 2026 |
+| [Indexing the Linux kernel](#index-a-huge-repository) | Seconds, memory and disk against five other tools | 13 Nov 2026 |
+| [72 verified kernel questions](#answer-72-kernel-questions-in-one-call) | One call of codefast against ripgrep and five other tools | 13 Nov 2026 |
+| [Call graphs against compilers](#call-graphs-checked-against-compilers) | Precision and recall on five repositories | 13 Nov 2026 |
+| [Files for a bug report, without a model](#find-the-files-for-a-bug-report-without-a-model) | Recall against each benchmark's published figures | 13 Nov 2026 |
 
 ### In real sessions
 
@@ -245,22 +268,25 @@ measured on 0.3.0, the code-writing row on 0.2.9 and 0.2.10, the two bug-fix row
 TypeScript row on 0.2.6 and the rest on 0.2.2. For every prompt of those other families the hooks
 of 0.3.0 print exactly what the hooks of 0.2.10 print (`bench/tier2/card_diff.py`). The prompts of
 the callee questions were used without a model while the card for them was made, and no session
-was run on them before the build was final.
+was run on them before the build was final. Version 0.3.1 was run next to 0.3.0 on four of these
+families before it was released, two runs per task: the error questions cost 0.62 of what they
+cost with 0.3.0, the kernel questions 0.94 and the caller questions 0.99, and the callee questions
+1.02 over three such checks (`bench/results/live-check-0.3.1.jsonl`, 14 Nov 2026).
 
-| Task | Tasks | Right, without and with | Requests | Tool output read, characters | Cost with codefast | Cheaper in |
-|---|---:|---|---|---|---:|---:|
-| **Who calls this method?**<br>12 methods of go-git whose name several types share. Answers checked against the type checker's call graph | 12 | 1.00 and 0.99 | 7.2 and 3.7 | 32.6k and 5.2k | **0.30** | 12 of 12 |
-| **The same question in TypeScript**<br>8 functions and methods of zod whose name something else in the project shares. Answers checked against the type checker's call graph | 8 | 0.62 and 0.62 | 6.8 and 5.0 | 17.6k and 4.8k | **0.53** | 8 of 8 |
-| **Four such questions in one session**<br>The same questions, four to a session | 3 | 0.99 and 0.98 | 19.5 and 5.3 | 96.3k and 11.1k | **0.15** | 3 of 3 |
-| **What does this function call?**<br>12 functions and methods of go-git. Answers checked against the type checker's call graph, each callee named with its file | 12 | 0.98 and 0.98 | 5.0 and 2.4 | 4.4k and 1.9k | **0.56** | 12 of 12 |
-| **Where does this error come from?**<br>An error text of go-git or syft: which function creates it, and who calls that function. Checked against the type checker's call graph | 12 | 0.99 and 1.00 | 5.8 and 3.4 | 4.4k and 4.2k | **0.63** | 11 of 12 |
-| **Rename a Go method everywhere**<br>In go-git, where other types have a method of the same name. Checked by the compiler and by what was renamed | 10 | 10 of 10 in each arm | 9.3 and 5.4 | 19.7k and 8.2k | **0.51** | 9 of 10 |
-| **A question about the Linux kernel**<br>18 of the 72 verified questions, none used in a session before | 18 | 0.97 and 1.00 | 4.2 and 2.7 | 4.2k and 3.1k | **0.71** | 13 of 18 |
-| **Which files is this kernel bug in?**<br>48 bug reports of LinuxFLBench, each in a checkout of the kernel version it was filed against. Right when the file the real fix changed is among the up to ten files of the answer | 48 | 0.77 and 0.73 | 5.2 and 4.2 | 13.8k and 12.9k | **0.77** | 37 of 48 |
-| **The same question for Python projects**<br>40 issues of 27 Python projects from Loc-Bench, none used by another family. Right when a file the real fix changed is among the up to ten files of the answer | 40 | 0.93 and 0.93 | 4.3 and 3.6 | 10.8k and 9.9k | **0.84** | 31 of 40 |
-| **Write a function that was taken out**<br>20 functions of gitleaks and go-git whose body is replaced by a panic. Checked by running the tests of their package | 20 | 20 and 19.5 of 20 solved | 7.3 and 6.8 | 14.4k and 14.2k | **1.03** | 9 of 20 |
-| **Fix a bug, failing tests given**<br>Issues of Django and sqlglot. Checked by running the tests of the real fix | 15 | 15 of 15 in each arm | 6.3 and 5.8 | 12.7k and 10.5k | **0.93** | 9 of 15 |
-| **Fix a bug from the issue text alone**<br>The same issues without their tests. Checked afterwards against the tests of the real fix | 15 | 7.5 and 7.2 of 15 solved | 7.1 and 6.5 | 9.9k and 9.1k | **0.92** | 6 of 15 |
+| Task | Tasks | Right, without and with | Requests | Tool output read, characters | Cost with codefast | Cheaper in | Measured |
+|---|---:|---|---|---|---:|---:|---|
+| **Who calls this method?**<br>12 methods of go-git whose name several types share. Answers checked against the type checker's call graph | 12 | 1.00 and 0.99 | 7.2 and 3.7 | 32.6k and 5.2k | **0.30** | 12 of 12 | 13 and 14 Nov 2026 |
+| **The same question in TypeScript**<br>8 functions and methods of zod whose name something else in the project shares. Answers checked against the type checker's call graph | 8 | 0.62 and 0.62 | 6.8 and 5.0 | 17.6k and 4.8k | **0.53** | 8 of 8 | 14 Nov 2026 |
+| **Four such questions in one session**<br>The same questions, four to a session | 3 | 0.99 and 0.98 | 19.5 and 5.3 | 96.3k and 11.1k | **0.15** | 3 of 3 | 13 Nov 2026 |
+| **What does this function call?**<br>12 functions and methods of go-git. Answers checked against the type checker's call graph, each callee named with its file | 12 | 0.98 and 0.98 | 5.0 and 2.4 | 4.4k and 1.9k | **0.56** | 12 of 12 | 14 Nov 2026 |
+| **Where does this error come from?**<br>An error text of go-git or syft: which function creates it, and who calls that function. Checked against the type checker's call graph | 12 | 0.99 and 1.00 | 5.8 and 3.4 | 4.4k and 4.2k | **0.63** | 11 of 12 | 13 Nov 2026 |
+| **Rename a Go method everywhere**<br>In go-git, where other types have a method of the same name. Checked by the compiler and by what was renamed | 10 | 10 of 10 in each arm | 9.3 and 5.4 | 19.7k and 8.2k | **0.51** | 9 of 10 | 13 Nov 2026 |
+| **A question about the Linux kernel**<br>18 of the 72 verified questions, none used in a session before | 18 | 0.97 and 1.00 | 4.2 and 2.7 | 4.2k and 3.1k | **0.71** | 13 of 18 | 14 Nov 2026 |
+| **Which files is this kernel bug in?**<br>48 bug reports of LinuxFLBench, each in a checkout of the kernel version it was filed against. Right when the file the real fix changed is among the up to ten files of the answer | 48 | 0.77 and 0.73 | 5.2 and 4.2 | 13.8k and 12.9k | **0.77** | 37 of 48 | 14 Nov 2026 |
+| **The same question for Python projects**<br>40 issues of 27 Python projects from Loc-Bench, none used by another family. Right when a file the real fix changed is among the up to ten files of the answer | 40 | 0.93 and 0.93 | 4.3 and 3.6 | 10.8k and 9.9k | **0.84** | 31 of 40 | 14 Nov 2026 |
+| **Write a function that was taken out**<br>20 functions of gitleaks and go-git whose body is replaced by a panic. Checked by running the tests of their package | 20 | 20 and 19.5 of 20 solved | 7.3 and 6.8 | 14.4k and 14.2k | **1.03** | 9 of 20 | 14 Nov 2026 |
+| **Fix a bug, failing tests given**<br>Issues of Django and sqlglot. Checked by running the tests of the real fix | 15 | 15 of 15 in each arm | 6.3 and 5.8 | 12.7k and 10.5k | **0.93** | 9 of 15 | 13 and 14 Nov 2026 |
+| **Fix a bug from the issue text alone**<br>The same issues without their tests. Checked afterwards against the tests of the real fix | 15 | 7.5 and 7.2 of 15 solved | 7.1 and 6.5 | 9.9k and 9.1k | **0.92** | 6 of 15 | 13 and 14 Nov 2026 |
 
 What this says. Where the work is finding things, a session costs a third to two thirds of what it
 did, and the longer the session runs the more it saves, because what an agent reads early is sent
@@ -299,13 +325,13 @@ These are the runs of version 0.2.0, one per task and arm. The hooks were shaped
 sessions of these tasks, so the table above is the one to go by
 (`bench/results/live-haiku.jsonl`).
 
-| Task | Tasks | Right, without and with | Requests | Tool output read, characters | Cost with codefast | Cheaper in |
-|---|---:|---|---|---|---:|---:|
-| **Who calls this method?**<br>13 methods of syft | 13 | 0.99 and 0.99 | 6.8 and 3.5 | 26.9k and 2.6k | **0.30** | 13 of 13 |
-| **Four such questions in one session**<br>The same questions, four to a session | 3 | 0.94 and 0.99 | 10.0 and 4.3 | 96.6k and 12.9k | **0.17** | 3 of 3 |
-| **Rename a Go method everywhere**<br>8 renames in syft | 8 | 8 of 8 in each arm | 10.4 and 4.1 | 12.6k and 2.6k | **0.29** | 8 of 8 |
-| **A question about the Linux kernel**<br>18 questions | 18 | 1.00 and 1.00 | 3.8 and 3.0 | 3.8k and 4.9k | **0.94** | 12 of 18 |
-| **Fix a bug, failing tests given**<br>12 issues of Django and sqlglot | 12 | 12 of 12 in each arm | 5.2 and 4.8 | 7.6k and 6.9k | **0.99** | 8 of 12 |
+| Task | Tasks | Right, without and with | Requests | Tool output read, characters | Cost with codefast | Cheaper in | Measured |
+|---|---:|---|---|---|---:|---:|---|
+| **Who calls this method?**<br>13 methods of syft | 13 | 0.99 and 0.99 | 6.8 and 3.5 | 26.9k and 2.6k | **0.30** | 13 of 13 | 13 Nov 2026 |
+| **Four such questions in one session**<br>The same questions, four to a session | 3 | 0.94 and 0.99 | 10.0 and 4.3 | 96.6k and 12.9k | **0.17** | 3 of 3 | 13 Nov 2026 |
+| **Rename a Go method everywhere**<br>8 renames in syft | 8 | 8 of 8 in each arm | 10.4 and 4.1 | 12.6k and 2.6k | **0.29** | 8 of 8 | 13 Nov 2026 |
+| **A question about the Linux kernel**<br>18 questions | 18 | 1.00 and 1.00 | 3.8 and 3.0 | 3.8k and 4.9k | **0.94** | 12 of 18 | 13 Nov 2026 |
+| **Fix a bug, failing tests given**<br>12 issues of Django and sqlglot | 12 | 12 of 12 in each arm | 5.2 and 4.8 | 7.6k and 6.9k | **0.99** | 8 of 12 | 13 Nov 2026 |
 
 Three of these figures were worse a day earlier. The first build listed, next to the calls it was
 sure of, the calls whose receiver it could not type, as possibly another type's. Agents answered
@@ -330,10 +356,40 @@ compiler error outside the lines the command itself had listed, and 42 more were
 (`bench/results/rename-offline-go-git.jsonl`, `rename-sample*.jsonl`).
 
 
+### In Codex
+
+Measured on 14 November 2026.
+
+The held-out question tasks above, with the same prompts and the same checks, run by
+`codex exec` in its read-only sandbox (codex-cli 0.164.0 with its default model, gpt-6.1-sol,
+reached through OpenRouter): once in a home that has nothing of codefast in it, and once in a
+home where `codefast setup codex --hooks --apply` was run. Two runs per task and arm, 216
+sessions (`bench/results/codex-live.jsonl`).
+
+| Task | Tasks | Right, without and with | Tool calls | Tokens of a session | Dollars of a session | Cost with codefast | Cheaper in |
+|---|---:|---|---|---|---|---:|---:|
+| **Who calls this method?** | 12 | 1.00 and 1.00 | 3.8 and 3.5 | 86,681 and 60,106 | 0.0694 and 0.0482 | **0.69** | 12 of 12 |
+| **What does this function call?** | 12 | 1.00 and 1.00 | 3.1 and 1.0 | 56,006 and 27,991 | 0.0386 and 0.0318 | **0.82** | 12 of 12 |
+| **Where does this error come from?** | 12 | 1.00 and 1.00 | 3.7 and 2.8 | 59,854 and 46,645 | 0.0393 and 0.0340 | **0.86** | 11 of 12 |
+| **A question about the Linux kernel** | 18 | 1.00 and 1.00 | 2.4 and 1.8 | 49,076 and 40,232 | 0.0436 and 0.0384 | **0.88** | 14 of 18 |
+| **All four** | 54 | 1.00 and 1.00 | 3.2 and 2.2 | 61,368 and 43,353 | 0.0473 and 0.0382 | **0.81** (0.76 to 0.85 at 95%) | 49 of 54 |
+
+Cost here is dollars at the provider's list prices for the tokens Codex reports for a session.
+This model answers every one of these questions right with the plugin or without. With it, the
+session gets there in 2.2 tool calls where it took 3.2, and on 43 thousand tokens where it took
+61 thousand. It never called the MCP server: what reached it was the card of the prompt hook
+and the `codefast` command the card names. The saving is smaller than in Claude Code because a
+Codex session without the plugin is already short. [`bench/tier2/LIVE.md`](bench/tier2/LIVE.md)
+has the details, and [`bench/results/codex-wiring.json`](bench/results/codex-wiring.json) the
+check of the hooks and the tools with no model.
+
 ### Two published agent benchmarks
 
+Measured on 14 November 2026.
+
 Both set a coding agent with a context tool against the same agent without one, and both
-publish their tasks. One codefast leads, and one it does not.
+publish their tasks. On the first codefast leads the published arms. On the second it is level
+with the paper's best tool at finding the file, on the same reports, and cheaper to run.
 
 **agent-context-bench**
 ([Rybalchenko, 2026](https://github.com/Neko1313/agent-context-bench)) asks Claude Code 26
@@ -399,31 +455,63 @@ as well. A session was given the five tools of codefast and nothing else.
 
 **LinuxFLBench with an agent** ([arXiv 2611.07286](https://arxiv.org/abs/2611.07286)) gives
 Claude Code a kernel bug report and a checkout of the kernel version it was filed against, and
-asks for the files the fix has to change. The paper's best repository map takes 39% of the
-tokens off its baseline and raises the share of reports whose file is among the first ten of
-the answer by 0.11. codefast does not repeat that.
+asks for up to ten candidate files. It compares a session with no repository map with sessions
+that have one of six, and reports for its best one, the Hybrid map: the file of the real fix
+among the ten for 0.829 of the reports, against 0.717 with no map, on 39% fewer tokens.
 
-| | File first | File in the ten | Tokens of a session |
-|---|---:|---:|---:|
-| As published, Haiku 4.5: no map | 0.572 | 0.717 | 1,008,163 |
-| As published: the best map | 0.526 | 0.829 | 610,910 |
-| Here, Haiku 5.5, 48 held-out reports: no plugin | 0.542 | 0.771 | 135,316 |
-| Here: with the plugin | 0.521 | 0.729 | 105,115 |
-| Here, the paper's settings, 20 development reports: no plugin | 0.350 | 0.550 | 740,085 |
-| Here, the paper's settings: with a build of the plugin that was not released | 0.300 | 0.600 | 667,008 |
+Its sampled reports and its runs are not published, so its protocol was run here
+(`bench/tier2/paper_f.py`): its prompt and its system prompts read from its repository, Haiku
+4.5 at low effort, the six built-in tools, 30 turns, its grading rule and its count of tokens.
+Three arms ran on the same 56 reports, which no session of any build had been run on: no map,
+codefast's MCP server, and the paper's own Hybrid map, built by its builder and served by its
+server (`bench/results/paper-protocol-final.jsonl`).
 
-With a current model the plugin takes 22% of the tokens off (8 to 36% at 95%) and does not
-find the file more often: the difference in the ten lies between -0.10 and +0.01. Under the
-paper's own settings, Haiku 4.5 at low effort with 30 turns, it changes little (10% fewer
-tokens, anywhere between 31% fewer and 15% more), and the paper's sentence that the tools must
-be used made the sessions longer. A card that puts the ranking of `codefast locate` in front
-of the session was built for this task, looked good on the reports it was developed on (19%
-fewer tokens than the released plugin) and did nothing on the held-out ones (5%, which could be
-none), so it was not released. What has changed since the paper is the baseline: a session of
-today's model with no map at all is right for 0.77 of the reports at 135 thousand tokens, where
-the paper's baseline used a million. [`bench/tier2/LIVE.md`](bench/tier2/LIVE.md) has the tables.
+| Arm | File first | File in the ten | Tokens of a session | Tool calls | Dollars | Sessions without an answer |
+|---|---:|---:|---:|---:|---:|---:|
+| No map | 0.464 | 0.571 | 760,282 | 27.4 | **0.192** | 17 of 56 |
+| **codefast 0.3.1** | 0.554 | **0.821** | 713,470 | 14.1 | 0.201 | 4 of 56 |
+| **codefast 0.3.1, as released, run a second time** | 0.518 | **0.821** | **672,421** | **13.4** | 0.203 | **2 of 56** |
+| The paper's Hybrid map, run here | **0.589** | 0.804 | 809,160 | 14.6 | 0.254 | 6 of 56 |
+| As published, other reports: no map | 0.572 | 0.717 | 1,008,163 | 25.4 | | |
+| As published: the Hybrid map | 0.526 | 0.829 | 610,910 | 10 | | |
+
+- **Against no map** codefast has the file in the ten for 14 reports more and for none fewer
+  (+0.25, between 0.14 and 0.36 at 95%). Its tokens are level with no map: 6% fewer, anywhere
+  between 21% fewer and 10% more.
+- **Against the paper's map on the same reports** the two are level at finding the file: four
+  files found by codefast alone, three by the map alone, and the map has it first for two
+  reports more. codefast's sessions take 12% fewer tokens (28% fewer to 10% more) and 21%
+  fewer dollars (12 to 29%).
+- **Two runs of one tool lie as far apart as the tools do.** The second codefast row is the
+  build as it was released, which answers 15 of the 972 queries of those sessions differently
+  from the build of the first row, run again on the same reports. The file is in the ten for
+  46 of the 56 both times, and not for the same 46: 41 in both runs.
+- **The paper's saving of tokens does not repeat here for either tool.** Its map finds the
+  file as published and takes 6% more tokens than no map, not 39% fewer. In this version of
+  Claude Code a session that answers costs about the same with a tool as without. What a tool
+  changes is how many sessions answer before their thirtieth turn: 39 of 56 with no map, 52
+  with codefast.
+
+This is version 0.3.1, which was changed for this task. Version 0.3.0 answered an open question
+with a list of files. Its sessions, read one by one, asked two or three things in a call and got
+one of them answered, and came back for the code a function at a time. Now `search` answers every
+query of a call, ranks the open questions of a call as one text, and prints the source of the
+functions that make the leading files candidates. (A session of the plugin, which a hook has
+handed its card, and a call that names the size of its answer get the list as before: there the
+source was measured to cost more and find no more.) That was developed on 45 other reports, where
+the paper's map was run as well (`bench/results/paper-protocol-dev.jsonl`). The answer of the tool
+itself is the better one: the file of the fix is in codefast's first answer in 38 of the 56
+sessions, and in the first answer of the map's `explore` in 23.
+
+With the plugin as it is installed and a current model the question looks different: Haiku 5.5
+with no plugin already has the file in its ten for 0.77 of 48 other reports at 135 thousand
+tokens. There the plugin (0.3.0) takes 22% of the tokens off (8 to 36% at 95%) and does not
+find the file more often. [`bench/tier2/LIVE.md`](bench/tier2/LIVE.md) has both protocols,
+every table and what was tried and not kept.
 
 ### Index a huge repository
+
+Measured on 13 November 2026.
 
 <p align="center">
   <picture>
@@ -471,6 +559,8 @@ Writing out the whole call graph of Kubernetes (345,000 edges) takes 12 s, and o
 
 ### Answer 72 kernel questions in one call
 
+Measured on 13 November 2026.
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/kernel-questions-dark.svg">
@@ -502,6 +592,8 @@ question is recorded as unsupported for it, which is most of the list for ctags 
 definitions).
 
 ### Call graphs checked against compilers
+
+Measured on 13 November 2026.
 
 The call graph codefast reports was compared with what a compiler or type checker resolves for the
 same code ([`bench/oracles`](bench/oracles)). Precision is the share of reported edges the
@@ -538,6 +630,8 @@ On redis repowise publishes 0.938 and 0.717.
 </details>
 
 ### Find the files for a bug report, without a model
+
+Measured on 13 November 2026.
 
 The issue text goes in, a ranked list of files comes out. No model is involved. The last column
 is the figure each project or paper publishes for the same task list.
@@ -645,9 +739,9 @@ hand are small, and the five languages added in 0.2.0 are the youngest.
   compiler can. It is also cautious: on go-git, which it had not seen, it refused two of ten
   methods that could safely be renamed, and left alone the lines on which two different
   methods of the same name are called.
-* Live sessions were run in Claude Code only. In Codex every hook was fired by codex-cli 0.164.0
-  itself and its text was in the next request, which `bench/codex/wiring.py` checks with a
-  stand-in for the model. What a model in Codex does with the cards has not been measured.
+* Live sessions were run in Claude Code and, for the four families of questions, in Codex with
+  one model (gpt-6.1-sol). The renames, the code-writing tasks and the bug fixes were not run in
+  Codex: they need it to build and run tests inside its sandbox, which was not set up.
 
 ## Contributing
 
