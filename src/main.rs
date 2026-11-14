@@ -253,6 +253,10 @@ struct LocateArgs {
     /// Machine-readable ranking (for scripts and benchmarks)
     #[arg(long)]
     plain: bool,
+    /// With each file, the source of the functions that make it a candidate (what `search`
+    /// prints for free text)
+    #[arg(long)]
+    code: bool,
 }
 
 #[derive(Args)]
@@ -491,6 +495,13 @@ fn run(cli: Cli) -> Result<()> {
                 if i > 0 {
                     out.push("");
                 }
+                // Free text with no budget named: the answer carries code and gets the room for it.
+                if cli.budget == 1500 && query::search::is_free_text(&ix, &rs, q, &common) {
+                    let mut roomy = Out::new(query::locate::CODE_BUDGET);
+                    query::search::search(&ix, &rs, q, &common, &query::search::SearchOpts::default(), &mut roomy);
+                    out.push(roomy.finish().trim_end());
+                    continue;
+                }
                 query::search::search(&ix, &rs, q, &common, &query::search::SearchOpts::default(), &mut out);
             }
         }
@@ -530,8 +541,15 @@ fn run(cli: Cli) -> Result<()> {
             } else {
                 a.text.join(" ")
             };
-            let opts = query::locate::LocateOpts { top_files: a.limit, syms_per_file: a.symbols, plain: a.plain };
-            query::locate::locate(&ix, &text, &common, &opts, &mut out);
+            let opts = query::locate::LocateOpts { top_files: a.limit, syms_per_file: a.symbols, plain: a.plain, code: a.code };
+            if a.code && cli.budget == 1500 {
+                // An answer with code in it has a default budget of its own.
+                let mut roomy = Out::new(query::locate::CODE_BUDGET);
+                query::locate::locate(&ix, &text, &common, &opts, &mut roomy);
+                out.push(roomy.finish().trim_end());
+            } else {
+                query::locate::locate(&ix, &text, &common, &opts, &mut out);
+            }
         }
         Cmd::Trace(a) => {
             let text = if a.file == "-" {

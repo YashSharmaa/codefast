@@ -79,7 +79,7 @@ fn tools() -> Value {
     json!([
         {
             "name": "search",
-            "description": "Entry point for code questions. Give a symbol name (`vfs_read`, `Owner.method`), a file path or `path:line`, or free text (a bug report, an error message, a stack trace). Returns the definition with its body and every place that calls or uses it, or for free text the files and functions it most likely means.",
+            "description": "Entry point for code questions. Give a symbol name (`vfs_read`, `Owner.method`), a file path or `path:line`, or free text (a bug report, an error message, a stack trace). Returns the definition with its body and every place that calls or uses it, or for free text the files it most likely means with the source of the functions that make them candidates, in one answer.",
             "inputSchema": {"type": "object", "properties": {
                 "queries": {"type": "array", "items": {"type": "string"}, "description": "One or more queries, answered in turn."},
                 "path": path, "budget": budget, "root": root
@@ -214,10 +214,15 @@ fn bounded(mut text: String, budget: usize) -> String {
     text
 }
 
+/// How many answers with code this process has given (see [`query::locate::code_budget`]).
+static CODE_ANSWERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// Run one tool against the repository at `root` and return its text.
 pub fn call_tool(root: &Path, name: &str, args: &Value) -> Result<String> {
     // Validate the arguments before opening the index, so that a malformed call is answered at once.
     let budget = budget_of(args)?;
+    // A caller that named no budget gets the larger one for an answer that carries code.
+    let budget_named = args.get("budget").is_some_and(|b| !b.is_null());
     let common = Common { paths: string_list(args, "path")?, budget, tests: flag(args, "tests")?, ..Default::default() };
     enum Call {
         Search(Vec<String>),
@@ -267,12 +272,27 @@ pub fn call_tool(root: &Path, name: &str, args: &Value) -> Result<String> {
     let ix = fresh::open(root, &OpenOptions { quiet: true, ..Default::default() })?;
     let rs = Resolver::new(&ix);
     let mut out = Out::new(budget);
+    // The bound on the whole answer, which grows with an answer that carries code.
+    let mut limit = budget;
     match call {
         Call::Search(queries) => {
             // Two wordings of one question get one answer: the second is not printed again.
             let mut answers: Vec<String> = Vec::new();
+            // Free text is answered with the code of the candidates, once in a call: a second
+            // free-text query of the same call gets the ranking alone.
+            let mut roomy_left = !budget_named;
             for q in &queries {
-                let mut one = Out::new(out.remaining().min(budget));
+                let roomy = roomy_left && query::search::is_free_text(&ix, &rs, q, &common);
+                let mut one = if roomy {
+                    roomy_left = false;
+                    // One server is one session: its later open questions get shorter answers.
+                    let room = query::locate::code_budget(CODE_ANSWERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+                    limit = limit.max(room + budget);
+                    Out::new(room)
+                } else {
+                    // Never 0, which would mean no bound at all.
+                    Out::new(out.remaining().min(budget).max(200))
+                };
                 query::search::search(&ix, &rs, q, &common, &query::search::SearchOpts::default(), &mut one);
                 let text = one.finish();
                 if answers.contains(&text) {
@@ -302,7 +322,7 @@ pub fn call_tool(root: &Path, name: &str, args: &Value) -> Result<String> {
             return Ok(bounded(text, budget));
         }
     }
-    Ok(bounded(out.finish(), budget))
+    Ok(bounded(out.finish(), limit))
 }
 
 // ----- workspace root -----

@@ -483,3 +483,25 @@ fn the_instructions_say_what_the_tools_leave_out() {
     let head: String = instructions.chars().take(512).collect();
     assert!(head.contains("Use it before grep and file reads") && head.contains("`search` is the entry point"), "{head}");
 }
+
+/// Free text is an open question: the answer carries the source of the functions that make a
+/// file a candidate, so that it can be read instead of followed up one function at a time. A
+/// caller that names a small budget gets the ranking alone, and a symbol is answered as ever.
+#[test]
+fn free_text_is_answered_with_the_code_of_the_candidates() {
+    let repo = Repo::new("free-text");
+    let mut s = Session::in_repo(&repo);
+    let question = "the copy stops after a short write to the device";
+
+    let r = s.call("search", json!({"queries": [question]}));
+    let t = text(&r);
+    assert!(t.contains("with the source of the functions that make each a candidate"), "{t}");
+    assert!(t.contains("src/io.c") && t.contains("log_msg(\"dev_write: %d bytes\", count);"), "the body is part of the answer: {t}");
+
+    let r = s.call("search", json!({"queries": [question], "budget": 600}));
+    let t = text(&r);
+    assert!(t.contains("candidate files; top") && !t.contains("log_msg("), "a short answer is the ranking: {t}");
+
+    let r = s.call("search", json!({"queries": ["dev_write"]}));
+    assert!(text(&r).contains("src/io.c:11") && !text(&r).contains("candidate files"), "{}", text(&r));
+}

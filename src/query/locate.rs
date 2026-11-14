@@ -952,11 +952,100 @@ pub struct LocateOpts {
     /// Machine-readable ranking: `F<TAB>path` rows for files, then `S<TAB>path<TAB>name<TAB>line`
     /// rows for symbols, best first.
     pub plain: bool,
+    /// Print the source of the functions that make a file a candidate, with the file: an answer
+    /// to read, where the ranking alone is a list to follow up call by call.
+    pub code: bool,
 }
 
 impl Default for LocateOpts {
     fn default() -> Self {
-        LocateOpts { top_files: 10, syms_per_file: 3, plain: false }
+        LocateOpts { top_files: 10, syms_per_file: 3, plain: false, code: false }
+    }
+}
+
+/// The budget of an answer that carries code, where the caller named none. What an agent
+/// spends on an open question is the number of requests it takes, each of which sends the
+/// whole conversation again. An answer with the code of the candidates in it is read once
+/// and saves the requests that would have fetched that code one function at a time. The
+/// published comparison that front-loads the source this way (arXiv 2611.07286) settled at
+/// 20,000 characters and found that more did not help.
+pub const CODE_BUDGET: usize = 6000;
+/// Below this an answer has no room for code and stays a ranking.
+pub const CODE_MIN_BUDGET: usize = 2500;
+
+/// The default budget of the `nth` answer with code that one session is given (0 for the
+/// first). The first open question of a session is where it finds its bearings, and gets the
+/// full answer. The ones after it refine, with that code already read: they get less, and
+/// what does not fit is still named with its place.
+pub fn code_budget(nth: usize) -> usize {
+    match nth {
+        0 => CODE_BUDGET,
+        1 => 3500,
+        _ => CODE_MIN_BUDGET,
+    }
+}
+/// Lines of one function that are printed, for the files that lead and for the others.
+const CODE_LINES: (u32, u32) = (60, 40);
+
+/// The ranking with the source of what makes each file a candidate. A file gets at most a
+/// sixth of the answer, so that the first one cannot use it up, and the files that no room is
+/// left for are still named, each with its best function.
+fn with_code(ix: &Index, q: &Query, ranked: &Ranked, opts: &LocateOpts, out: &mut Out) {
+    let files: Vec<FileId> = ranked.files.iter().take(opts.top_files).map(|x| x.0).collect();
+    out.push(&format!(
+        "{} candidate files. The {} that match best, with the source of the functions that make each a candidate (as on disk: no need to read these again):",
+        count(ranked.candidates),
+        files.len()
+    ));
+    // In a short answer three files with enough of their code say more than six with a few
+    // lines each.
+    let per_file = if out.budget() == 0 { usize::MAX } else { (out.budget() / 6).max(700) };
+    let brief = |i: usize, f: FileId| match file_symbols(ix, f, ranked, q, 1).first().map(|&d| ix.def(d)) {
+        Some(v) => format!("{}. {}  {} {}-{}", i + 1, ix.path(f), v.qualified(), v.rec.line, v.rec.end_line),
+        None => format!("{}. {}", i + 1, ix.path(f)),
+    };
+    let mut without: Vec<String> = Vec::new();
+    for (i, &f) in files.iter().enumerate() {
+        // Keep room to name the files that follow.
+        let reserve = 30 * (files.len() - i - 1);
+        let room = out.remaining().saturating_sub(reserve).min(per_file);
+        let syms = file_symbols(ix, f, ranked, q, if i < 3 { 3 } else if i < 8 { 2 } else { 1 });
+        let src = if room >= 120 && !syms.is_empty() { ix.source(f) } else { None };
+        let Some(src) = src else {
+            without.push(brief(i, f));
+            continue;
+        };
+        let starts = super::show::line_starts(&src);
+        let mut part = Out::new(room);
+        part.push(&format!("{}. {}", i + 1, ix.path(f)));
+        let cap = if i < 3 { CODE_LINES.0 } else { CODE_LINES.1 };
+        for d in syms {
+            let v = ix.def(d);
+            let (from, to) = (v.rec.line, v.rec.end_line.max(v.rec.line));
+            if !part.fits(40) {
+                break;
+            }
+            part.push(&format!("{}-{} {}", from, to, v.qualified()));
+            let end = to.min(from + cap - 1);
+            let unfit = super::show::print_lines(&mut part, &src, &starts, from, end);
+            let last = end - unfit;
+            if last < to {
+                part.push(&format!("… {} more lines ({}:{}-{})", to - last, ix.path(f), last + 1, to));
+            }
+            if unfit > 0 {
+                break;
+            }
+        }
+        out.push(part.finish().trim_end());
+    }
+    if !without.is_empty() {
+        out.push("ranked as well, without their source:");
+        for line in without {
+            out.push(&line);
+        }
+    }
+    if ranked.candidates > opts.top_files {
+        out.push(&format!("… {} more candidates (narrow with a path, or add identifiers from the report)", count(ranked.candidates - opts.top_files.min(ranked.candidates))));
     }
 }
 
@@ -992,6 +1081,10 @@ pub fn locate(ix: &Index, text: &str, common: &Common, opts: &LocateOpts, out: &
         out.line(&format!("  {}:{}{}  \"{}\"", ix.path(h.file), h.line, encl, crate::output::clip(&h.text, 60)));
         n_exact += 1;
     }
+    if opts.code {
+        with_code(ix, &q, &ranked, opts, out);
+        return;
+    }
     out.push(&format!("{} candidate files; top {}:", count(ranked.candidates), ranked.files.len().min(opts.top_files)));
     for (i, (f, _)) in ranked.files.iter().take(opts.top_files).enumerate() {
         if !out.line(&format!("{}. {}", i + 1, ix.path(*f))) {
@@ -1022,5 +1115,20 @@ pub fn locate(ix: &Index, text: &str, common: &Common, opts: &LocateOpts, out: &
             "… {} more candidates (narrow with --path DIR or add identifiers from the report)",
             count(ranked.candidates - opts.top_files.min(ranked.candidates))
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The first open question of a session gets the full answer, the later ones less, and
+    /// none so little that the code is left out.
+    #[test]
+    fn later_answers_with_code_are_shorter_and_still_have_room_for_it() {
+        assert_eq!(code_budget(0), CODE_BUDGET);
+        assert!(code_budget(1) < code_budget(0) && code_budget(2) < code_budget(1));
+        assert_eq!(code_budget(2), code_budget(40));
+        assert!(code_budget(40) >= CODE_MIN_BUDGET);
     }
 }

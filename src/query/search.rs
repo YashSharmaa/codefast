@@ -255,6 +255,14 @@ fn owner_has(ix: &Index, spec: &str) -> bool {
     ix.defs_named(name.as_bytes()).iter().any(|&d| ix.def(d).parent_name() == Some(owner.as_bytes()))
 }
 
+/// Whether `search` takes this query for free text (a report, a question) and not for a symbol,
+/// a path or a place. Callers that have a default budget use it to give such a query the
+/// larger one, [`super::locate::CODE_BUDGET`].
+pub fn is_free_text(ix: &Index, rs: &Resolver, query: &str, common: &Common) -> bool {
+    let q = query.trim();
+    q.split_whitespace().count() > 1 && super::split_kind_prefix(q).0.is_none() && symbol_in_words(ix, rs, q, common).is_none()
+}
+
 pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &SearchOpts, out: &mut Out) {
     let q = query.trim();
     if q.is_empty() {
@@ -270,7 +278,10 @@ pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &Se
             search(ix, rs, &name, &narrowed, opts, out);
             return;
         }
-        locate(ix, q, common, &LocateOpts::default(), out);
+        // An open question is answered with the code of the candidates where there is room
+        // for it, and with the ranking alone where the caller asked for a short answer.
+        let code = out.budget() == 0 || out.remaining() >= super::locate::CODE_MIN_BUDGET;
+        locate(ix, q, common, &LocateOpts { code, ..Default::default() }, out);
         return;
     }
     let pf = PathFilter::new(&common.paths);
