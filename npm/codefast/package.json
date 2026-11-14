@@ -1,6 +1,6 @@
 {
   "name": "@yashsharmaa/codefast",
-  "version": "0.2.10",
+  "version": "0.3.0",
   "description": "LLM-free code intelligence for AI coding agents: a command-line tool and MCP server that answers where, who-calls and call-path questions about a repository in few tokens.",
   "keywords": ["code-intelligence", "code-search", "call-graph", "mcp", "agents"],
   "homepage": "https://github.com/YashSharmaa/codefast",
@@ -20,10 +20,10 @@
     "node": ">=18"
   },
   "optionalDependencies": {
-    "@yashsharmaa/codefast-darwin-arm64": "0.2.10",
-    "@yashsharmaa/codefast-darwin-x64": "0.2.10",
-    "@yashsharmaa/codefast-linux-arm64": "0.2.10",
-    "@yashsharmaa/codefast-linux-x64": "0.2.10",
-    "@yashsharmaa/codefast-win32-x64": "0.2.10"
+    "@yashsharmaa/codefast-darwin-arm64": "0.3.0",
+    "@yashsharmaa/codefast-darwin-x64": "0.3.0",
+    "@yashsharmaa/codefast-linux-arm64": "0.3.0",
+    "@yashsharmaa/codefast-linux-x64": "0.3.0",
+    "@yashsharmaa/codefast-win32-x64": "0.3.0"
   }
 }
