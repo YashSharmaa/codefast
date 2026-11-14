@@ -1,0 +1,72 @@
+{"id": "F1-01", "family": "F1", "card": true, "bytes": 972, "score": 1.0, "used": "kernel_questions_round1", "question": "Where is the io_uring_enter system call implemented? I'm looking for the body of sys_io_uring_enter, not its prototype."}
+{"id": "F1-02", "family": "F1", "card": true, "bytes": 489, "score": 1.0, "used": "kernel_questions_round2", "question": "Where is the per-CPU `runqueues` variable (the one cpu_rq() indexes) actually defined?"}
+{"id": "F1-03", "family": "F1", "card": true, "bytes": 523, "score": 1.0, "used": "kernel_questions_held_out", "question": "ext4 registers a slab constructor called init_once for its inode cache. Where is ext4's init_once defined? (Many filesystems have a static function with this name.)"}
+{"id": "F1-04", "family": "F1", "card": false, "bytes": 0, "score": 0.0, "used": "never run live", "question": "In the e1000e driver (the PCIe one, not the legacy e1000), where is the transmit entry point e1000_xmit_frame defined?"}
+{"id": "F1-05", "family": "F1", "card": true, "bytes": 522, "score": 1.0, "used": "kernel_questions_round1", "question": "Where is the x86 page fault exception handler exc_page_fault defined (the C body)?"}
+{"id": "F1-06", "family": "F1", "card": true, "bytes": 369, "score": 1.0, "used": "kernel_questions_round2", "question": "Where is blk_mq_submit_bio defined?"}
+{"id": "F1-07", "family": "F1", "card": true, "bytes": 625, "score": 1.0, "used": "kernel_questions_held_out", "question": "Where is SELinux's avc_has_perm function defined?"}
+{"id": "F1-08", "family": "F1", "card": false, "bytes": 0, "score": 0.0, "used": "never run live", "question": "Where is the for_each_vma() iteration macro defined in the kernel proper?"}
+{"id": "F2-01", "family": "F2", "card": true, "bytes": 445, "score": 1.0, "used": "kernel_questions_round1", "question": "What is the signature of __dev_queue_xmit (return type and parameters)?"}
+{"id": "F2-02", "family": "F2", "card": true, "bytes": 418, "score": 1.0, "used": "kernel_questions_round2", "question": "What arguments does handle_mm_fault take, and what does it return?"}
+{"id": "F2-03", "family": "F2", "card": true, "bytes": 362, "score": 1.0, "used": "kernel_questions_held_out", "question": "What is the signature of copy_thread on x86?"}
+{"id": "F2-04", "family": "F2", "card": true, "bytes": 424, "score": 1.0, "used": "never run live", "question": "What is the signature of try_to_wake_up?"}
+{"id": "F2-05", "family": "F2", "card": true, "bytes": 433, "score": 1.0, "used": "kernel_questions_round1", "question": "What parameters does nvme_submit_sync_cmd take?"}
+{"id": "F2-06", "family": "F2", "card": true, "bytes": 360, "score": 1.0, "used": "kernel_questions_round2", "question": "What fields does struct bio_vec have?"}
+{"id": "F2-07", "family": "F2", "card": true, "bytes": 616, "score": 1.0, "used": "kernel_questions_held_out", "question": "What members does struct kiocb have?"}
+{"id": "F2-08", "family": "F2", "card": false, "bytes": 0, "score": 0.0, "used": "never run live", "question": "What does struct io_uring_cqe look like - which fields does a completion queue entry carry?"}
+{"id": "F3-01", "family": "F3", "card": true, "bytes": 459, "score": 1.0, "used": "kernel_questions_round1", "question": "Which functions call wake_up_new_task()?"}
+{"id": "F3-02", "family": "F3", "card": true, "bytes": 705, "score": 1.0, "used": "kernel_questions_round2", "question": "Who calls folio_add_new_anon_rmap()? I need every caller before changing its arguments."}
+{"id": "F3-03", "family": "F3", "card": true, "bytes": 652, "score": 1.0, "used": "kernel_questions_held_out", "question": "Which functions send a TCP reset through tcp_send_active_reset()?"}
+{"id": "F3-04", "family": "F3", "card": true, "bytes": 554, "score": 1.0, "used": "never run live", "question": "Which functions call blk_rq_map_user_iov()?"}
+{"id": "F3-05", "family": "F3", "card": true, "bytes": 612, "score": 1.0, "used": "kernel_questions_round1", "question": "Which functions call nvme_start_ctrl()?"}
+{"id": "F3-06", "family": "F3", "card": true, "bytes": 489, "score": 1.0, "used": "kernel_questions_round2", "question": "Where is inode_doinit_with_dentry() called from in SELinux?"}
+{"id": "F3-07", "family": "F3", "card": true, "bytes": 567, "score": 1.0, "used": "kernel_questions_held_out", "question": "Which io_uring functions post an extra CQE with io_req_post_cqe()?"}
+{"id": "F3-08", "family": "F3", "card": true, "bytes": 468, "score": 1.0, "used": "never run live", "question": "Who calls switch_fpu_return() on x86?"}
+{"id": "F4-01", "family": "F4", "card": true, "bytes": 582, "score": 1.0, "used": "kernel_questions_round1", "question": "What does vfs_get_tree() call directly?"}
+{"id": "F4-02", "family": "F4", "card": true, "bytes": 1042, "score": 1.0, "used": "kernel_questions_round2", "question": "What functions does __do_fault() in mm/memory.c call?"}
+{"id": "F4-03", "family": "F4", "card": true, "bytes": 1358, "score": 1.0, "used": "kernel_questions_held_out", "question": "What does tcp_send_fin() call?"}
+{"id": "F4-04", "family": "F4", "card": true, "bytes": 613, "score": 1.0, "used": "never run live", "question": "Which functions does blk_insert_flush() call?"}
+{"id": "F4-05", "family": "F4", "card": true, "bytes": 742, "score": 1.0, "used": "kernel_questions_round1", "question": "What does selinux_file_open() call?"}
+{"id": "F4-06", "family": "F4", "card": true, "bytes": 793, "score": 1.0, "used": "kernel_questions_round2", "question": "What does io_issue_sqe() call directly?"}
+{"id": "F4-07", "family": "F4", "card": true, "bytes": 1979, "score": 1.0, "used": "kernel_questions_held_out", "question": "What does the scheduler tick handler sched_tick() call directly?"}
+{"id": "F4-08", "family": "F4", "card": true, "bytes": 1531, "score": 1.0, "used": "never run live", "question": "What does flush_tlb_mm_range() call on x86?"}
+{"id": "F5-01", "family": "F5", "card": true, "bytes": 404, "score": 1.0, "used": "kernel_questions_round1", "question": "Which function implements file_operations.read_iter for regular files on ext4?"}
+{"id": "F5-02", "family": "F5", "card": false, "bytes": 0, "score": 0.0, "used": "kernel_questions_round2", "question": "Which function is the fair (CFS/EEVDF) scheduling class's enqueue_task method?"}
+{"id": "F5-03", "family": "F5", "card": true, "bytes": 489, "score": 1.0, "used": "kernel_questions_held_out", "question": "Which function handles blk_mq_ops.queue_rq for the NVMe PCI driver?"}
+{"id": "F5-04", "family": "F5", "card": true, "bytes": 765, "score": 0.0, "used": "never run live", "question": "Which SELinux function is registered for the LSM file_permission hook?"}
+{"id": "F5-05", "family": "F5", "card": true, "bytes": 317, "score": 0.0, "used": "kernel_questions_round1", "question": "For Intel VMX in KVM, which function ends up behind kvm_x86_ops.vcpu_run?"}
+{"id": "F5-06", "family": "F5", "card": true, "bytes": 805, "score": 1.0, "used": "kernel_questions_round2", "question": "special_mapping_fault() in mm/mmap.c is never called by name. Which ops table is it registered in, and under which member?"}
+{"id": "F5-07", "family": "F5", "card": true, "bytes": 282, "score": 1.0, "used": "kernel_questions_held_out", "question": "Where is io_sendmsg() hooked up - which table and which member point at it?"}
+{"id": "F5-08", "family": "F5", "card": true, "bytes": 743, "score": 1.0, "used": "never run live", "question": "Which ops struct is cubictcp_cong_avoid() registered in, and as which callback?"}
+{"id": "F6-01", "family": "F6", "card": true, "bytes": 396, "score": 1.0, "used": "kernel_questions_round1", "question": "task_tick_fair() has no direct callers. Where does the scheduler actually invoke it?"}
+{"id": "F6-02", "family": "F6", "card": true, "bytes": 405, "score": 1.0, "used": "kernel_questions_round2", "question": "dd_dispatch_request() in mq-deadline is only reachable through a function pointer. Where is it dispatched from?"}
+{"id": "F6-03", "family": "F6", "card": true, "bytes": 327, "score": 1.0, "used": "kernel_questions_held_out", "question": "ext4_alloc_inode() is installed as a callback. Which function in the VFS calls it?"}
+{"id": "F6-04", "family": "F6", "card": true, "bytes": 681, "score": 1.0, "used": "never run live", "question": "Where does io_uring actually invoke io_fsync()? I can't find a direct call."}
+{"id": "F6-05", "family": "F6", "card": true, "bytes": 565, "score": 1.0, "used": "kernel_questions_round1", "question": "The loopback driver's loopback_xmit() is never called by name. Through which pointer is it called, and where is that call made?"}
+{"id": "F6-06", "family": "F6", "card": true, "bytes": 841, "score": 1.0, "used": "kernel_questions_round2", "question": "selinux_file_permission() is an LSM hook. Which function dispatches to it?"}
+{"id": "F6-07", "family": "F6", "card": true, "bytes": 449, "score": 1.0, "used": "kernel_questions_held_out", "question": "intel_pmu_handle_irq() is never called directly. Where is it invoked from when a PMI fires?"}
+{"id": "F6-08", "family": "F6", "card": true, "bytes": 393, "score": 1.0, "used": "never run live", "question": "shmem_fault() is only installed in vm_ops tables. Which functions make the indirect call that reaches it on a page fault?"}
+{"id": "F7-01", "family": "F7", "card": true, "bytes": 579, "score": 1.0, "used": "kernel_questions_round1", "question": "How does an IORING_OP_READ request get from io_submit_sqes() to io_read()? Show the call chain."}
+{"id": "F7-02", "family": "F7", "card": true, "bytes": 553, "score": 1.0, "used": "kernel_questions_round2", "question": "On a read fault in a tmpfs/shmem mapping, how does handle_pte_fault() end up in shmem_fault()?"}
+{"id": "F7-03", "family": "F7", "card": true, "bytes": 626, "score": 0.8333333333333334, "used": "kernel_questions_held_out", "question": "What is the call path from submit_bio() down to blk_mq_submit_bio() for a blk-mq device?"}
+{"id": "F7-04", "family": "F7", "card": true, "bytes": 555, "score": 0.5714285714285714, "used": "never run live", "question": "How does wake_up_process() reach enqueue_task_fair() for a CFS task?"}
+{"id": "F7-05", "family": "F7", "card": true, "bytes": 975, "score": 0.2857142857142857, "used": "kernel_questions_round1", "question": "When a file is opened, how does do_dentry_open() get to SELinux's avc_has_perm() check?"}
+{"id": "F7-06", "family": "F7", "card": true, "bytes": 464, "score": 1.0, "used": "kernel_questions_round2", "question": "On x86, how does a user-space page fault get from exc_page_fault() to handle_mm_fault()?"}
+{"id": "F7-07", "family": "F7", "card": true, "bytes": 655, "score": 1.0, "used": "kernel_questions_held_out", "question": "How does a packet sent on the loopback device get from __dev_queue_xmit() to loopback_xmit()?"}
+{"id": "F7-08", "family": "F7", "card": true, "bytes": 416, "score": 0.8, "used": "never run live", "question": "When mounting ext4, how does vfs_get_tree() end up running ext4_fill_super()?"}
+{"id": "F8-01", "family": "F8", "card": true, "bytes": 503, "score": 1.0, "used": "kernel_questions_round1", "question": "After an unmount dmesg shows \"VFS: Busy inodes after unmount of sdb1 (ext4)\". Where does that message come from and which function emits it?"}
+{"id": "F8-02", "family": "F8", "card": true, "bytes": 385, "score": 1.0, "used": "kernel_questions_round2", "question": "I got \"BUG: scheduling while atomic: kworker/3:1/127/0x00000002\" in the log. Which function prints this and where?"}
+{"id": "F8-03", "family": "F8", "card": true, "bytes": 448, "score": 1.0, "used": "kernel_questions_held_out", "question": "Where does the kernel log \"TCP: request_sock_TCP: Possible SYN flooding on port 0.0.0.0:8080. Sending cookies.\" come from?"}
+{"id": "F8-04", "family": "F8", "card": false, "bytes": 0, "score": 0.0, "used": "never run live", "question": "dmesg says \"kworker/u8:2: page allocation failure: order:4, mode:0x40cc0(GFP_KERNEL|__GFP_COMP)\". Where is the \"page allocation failure\" text and which function reports it?"}
+{"id": "F8-05", "family": "F8", "card": false, "bytes": 0, "score": 0.0, "used": "kernel_questions_round1", "question": "An oops starts with \"BUG: unable to handle page fault for address: ffffffffc0a81000\". Which function prints that line on x86?"}
+{"id": "F8-06", "family": "F8", "card": true, "bytes": 481, "score": 1.0, "used": "kernel_questions_round2", "question": "Which code prints \"nvme nvme0: I/O tag 12 (100c) opcode 0x2 (I/O Cmd) QID 3 timeout, aborting req_op:READ(0) size:4096\"?"}
+{"id": "F8-07", "family": "F8", "card": false, "bytes": 0, "score": 0.0, "used": "kernel_questions_held_out", "question": "The log shows \"I/O error, dev sda, sector 2048 op 0x0:(READ) flags 0x80700 phys_seg 1 prio class 2\". Where is this printed?"}
+{"id": "F8-08", "family": "F8", "card": true, "bytes": 383, "score": 1.0, "used": "never run live", "question": "Where does the warning \"io-wq is not configured for unbound workers\" come from?"}
+{"id": "F9-01", "family": "F9", "card": true, "bytes": 531, "score": 1.0, "used": "kernel_questions_round1", "question": "Which functions write the on_rq field of struct task_struct (p->on_rq)?"}
+{"id": "F9-02", "family": "F9", "card": true, "bytes": 689, "score": 1.0, "used": "kernel_questions_round2", "question": "Which functions assign struct request_queue's nr_requests?"}
+{"id": "F9-03", "family": "F9", "card": true, "bytes": 632, "score": 1.0, "used": "kernel_questions_held_out", "question": "Which functions set the mnt_ns field of struct mount?"}
+{"id": "F9-04", "family": "F9", "card": true, "bytes": 785, "score": 1.0, "used": "never run live", "question": "In SELinux, which functions write the sid field of struct inode_security_struct?"}
+{"id": "F9-05", "family": "F9", "card": true, "bytes": 808, "score": 1.0, "used": "kernel_questions_round1", "question": "Which functions modify mm_struct's locked_vm counter?"}
+{"id": "F9-06", "family": "F9", "card": true, "bytes": 814, "score": 1.0, "used": "kernel_questions_round2", "question": "Which functions change the queue_count of struct nvme_ctrl?"}
+{"id": "F9-07", "family": "F9", "card": true, "bytes": 651, "score": 1.0, "used": "kernel_questions_held_out", "question": "Which code writes the saved kernel stack pointer thread.sp (struct thread_struct, x86)?"}
+{"id": "F9-08", "family": "F9", "card": true, "bytes": 472, "score": 1.0, "used": "never run live", "question": "Which functions set ctx->cq_entries in struct io_ring_ctx?"}

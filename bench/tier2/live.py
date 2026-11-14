@@ -104,8 +104,8 @@ def held_out(name):
 
 
 def choose(a):
-    d, r, i, e, w = load("d"), load("r") + load("r2"), load("i"), load("e"), load("w") + load("w2")
-    k = k_tasks() + k_tasks("kernel_questions_held_out")
+    d, r, i, e, w, c = load("d"), load("r") + load("r2"), load("i"), load("e"), load("w") + load("w2"), load("c")
+    k = k_tasks() + k_tasks("kernel_questions_held_out") + k_tasks("kernel_questions_held_out_2")
     n, long = n_tasks()
     n2 = load("n2") + load("nz")
     # Sessions of four on the second repository, from its held-out caller questions.
@@ -113,7 +113,7 @@ def choose(a):
     long2 = [dict(id=f"L-gogit-{j // 4 + 1}", family="L", repo_name="go-git/go-git", parts=held_n[j : j + 4]) for j in range(0, len(held_n) - 3, 4)]
     if a.ids or a.held:
         want = a.ids.split(",") if a.ids else [x for fam in a.held.split(",") for x in held_out(fam)]
-        by = {t["id"]: t for t in d + r + k + n + long + i + n2 + e + long2 + w}
+        by = {t["id"]: t for t in d + r + k + n + long + i + n2 + e + long2 + w + c}
         return [by[x] for x in want]
     order = lambda ts: sorted(ts, key=lambda t: hashlib.sha256(t["id"].encode()).hexdigest())
     if a.dev:
@@ -163,6 +163,15 @@ A run of the program ended with this error:
 Which function creates this error, and which functions call that function? Direct callers only. Callers in test code do not have to be listed.
 
 Rules: do not change any file and do not read anything outside {repo}. End with the complete list: first the function that creates the error, then one line per calling function, each with the file it is in."""
+    if t["family"] == "C":
+        which = f"the method {t['name']} of {t['receiver']}" if t["receiver"] else f"the function {t['name']}"
+        return f"""You are in a checkout of {ABOUT[t['repo_name']]}. It is in the current directory ({repo}).
+
+Answer this question about the code:
+
+Which functions of this repository does {which} (defined in {t['file']}) call directly? Calls into the Go standard library and into other modules do not have to be listed.
+
+Rules: do not change any file and do not read anything outside {repo}. End with the complete list: one line per called function, with the file it is defined in."""
     if t["family"] in ("N", "L"):
         if t["family"] == "N":
             ask = f"Answer this question about the code:\n\n{n_question(t)}"
@@ -282,7 +291,7 @@ def prepare(t, arm, rep, a, binary):
         (run / "prompt.txt").write_text(prompt_for(t, LINUX))
         json.dump(row, open(run / "task.json", "w"), indent=1)
         return row
-    if t["family"] in ("N", "L", "E"):
+    if t["family"] in ("N", "L", "E", "C"):
         parts = t["parts"] if t["family"] == "L" else [t]
         where, index = repo_of(parts[0])
         row = dict(id=t["id"], family=t["family"], arm=arm, rep=rep, repo=str(where), run=str(run), repo_name=t["repo_name"], model=a.model, tree_state=tree_state(where),
@@ -397,8 +406,28 @@ def score_callers(text, part):
     return 2 * recall * precision / (recall + precision)
 
 
+def score_listed(text, part):
+    """F1 of a list that names each function with its file on one line, which is what a
+    question about callees asks for. A name and a file that merely both occur somewhere in the
+    answer do not count: the file of the function asked about is in every answer, and a callee
+    often has a namesake there."""
+    def on_a_line(who):
+        base = who["file"].rsplit("/", 1)[-1]
+        name = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(who["name"]) + r"(?![A-Za-z0-9_])")
+        return any(base in line and name.search(line) for line in text.splitlines())
+
+    found = sum(1 for g in part["gold"] if on_a_line(g))
+    wrong = sum(1 for w in part["wrong"] if on_a_line(w) and not any(g["name"] == w["name"] and g["file"].rsplit("/", 1)[-1] == w["file"].rsplit("/", 1)[-1] for g in part["gold"]))
+    if not found:
+        return 0.0
+    recall, precision = found / len(part["gold"]), found / (found + wrong)
+    return 2 * recall * precision / (recall + precision)
+
+
 def verify_n(row):
     text = final_text(row["run"])
+    if row["family"] == "C":
+        return score_listed(text, row["parts"][0])
     if row["family"] in ("N", "E"):
         return score_callers(text, row["parts"][0])
     # One section per question. An answer that has no headings is read as a whole for each.
@@ -419,7 +448,7 @@ def test_tree_hash(repo):
 
 
 def verify(row):
-    if row["family"] in ("N", "L", "E"):
+    if row["family"] in ("N", "L", "E", "C"):
         s = verify_n(row)
         row["kscore"] = s
         return s >= 0.9, row.get("tree_state") in (None, tree_state(row["repo"]))
@@ -466,7 +495,7 @@ def session(row, a, binary, plug):
     env.pop("CODEFAST_INDEX_DIR", None)
     if row["family"] == "K" and spec["plugin"]:
         env["CODEFAST_INDEX_DIR"] = str(LINUX_INDEX)
-    if row["family"] in ("N", "L", "E") and spec["plugin"]:
+    if row["family"] in ("N", "L", "E", "C") and spec["plugin"]:
         env["CODEFAST_INDEX_DIR"] = row.get("index") or str(SYFT_INDEX)
     env.update(spec.get("env", {}))
     cmd = [
@@ -635,7 +664,7 @@ def cmd_run(a):
         e = dict(os.environ, CODEFAST_INDEX_DIR=str(LINUX_INDEX))
         subprocess.run([str(binary), "--root", str(LINUX), "status"], capture_output=True, text=True, env=e)
     if any(ARMS[arm]["plugin"] for _, arm, _ in todo):
-        for where, index in {repo_of((t.get("parts") or [t])[0]) for t, _, _ in todo if t["family"] in ("N", "L", "E")}:
+        for where, index in {repo_of((t.get("parts") or [t])[0]) for t, _, _ in todo if t["family"] in ("N", "L", "E", "C")}:
             e = dict(os.environ, CODEFAST_INDEX_DIR=str(index))
             subprocess.run([str(binary), "--root", str(where), "index"], capture_output=True, text=True, env=e)
     for where, check in {(repo_of(t)[0], t["check_cmd"]) for t, _, _ in todo if t["family"] == "R"}:
@@ -845,7 +874,7 @@ def main():
     p.add_argument("--model", default="haiku", choices=sorted(BUDGET))
     p.add_argument("--dev", action="store_true")
     p.add_argument("--ids", default="")
-    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,D,I,N,R,E,L,NZ,W,W2")
+    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,K2,C,D,I,N,R,E,L,NZ,W,W2")
     p.add_argument("--d", type=int, default=16)
     p.add_argument("--r", type=int, default=8)
     p.add_argument("--k", type=int, default=0, help="kernel questions")
