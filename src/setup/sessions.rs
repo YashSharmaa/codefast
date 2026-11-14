@@ -642,45 +642,71 @@ fn last_of(path: &Path, agent: bool) -> Option<Last> {
     None
 }
 
-/// The last thing a person typed into the conversation at `path`, word for word: the newest
-/// line of the main thread that is a prompt, and not the result of a tool, a summary, or
-/// something the harness wrote in the person's name. Found from the end of the file.
+/// What a person typed, if this line of a transcript is a prompt of the main thread: not the
+/// result of a tool, a summary, or something the harness wrote in the person's name. A prompt
+/// typed while the model was at work is kept as a queued command, not as a user line.
+fn prompt_of(line: &[u8]) -> Option<String> {
+    use memchr::memmem::find;
+    let queued = find(line, b"\"queued_command\"").is_some();
+    // Most lines of the kind `user` are tool results, and long: those are not parsed.
+    if !queued && (find(line, b"\"user\"").is_none() || find(line, b"\"tool_result\"").is_some()) {
+        return None;
+    }
+    let v = serde_json::from_slice::<Value>(line).ok()?;
+    let made_up = ["isSidechain", "isCompactSummary", "isMeta", "isVisibleInTranscriptOnly"].iter().any(|key| v[*key] == true);
+    if made_up {
+        return None;
+    }
+    let text = match v["type"].as_str()? {
+        // A notice of the harness is queued the same way, and is no turn of the person's.
+        "attachment" => {
+            let a = &v["attachment"];
+            let human = a["humanTurn"] == true || a["origin"]["kind"] == "human";
+            if a["type"] != "queued_command" || a["commandMode"] != "prompt" || !human {
+                return None;
+            }
+            result_text(&a["prompt"])
+        }
+        "user" if v["origin"]["kind"].as_str().is_none_or(|kind| kind == "human") => result_text(&v["message"]["content"]),
+        _ => return None,
+    };
+    let text = text.trim();
+    // What the harness writes as if typed: a command's output, a notice, an interruption.
+    let typed = !(text.is_empty() || text.starts_with('<') || text.starts_with("Caveat:") || text.starts_with("[Request interrupted"));
+    typed.then(|| text.to_string())
+}
+
+/// The last thing a person typed into the conversation at `path`, word for word. Looked for
+/// from the end of the file, and through all of it where a conversation has worked on by
+/// itself for so long that its last prompt lies far back.
 pub fn last_prompt(path: &Path) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = std::fs::File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
-    for window in [1u64 << 19, 1 << 22, 1 << 25] {
+    for window in [1u64 << 19, 1 << 23] {
         let from = len.saturating_sub(window);
         file.seek(SeekFrom::Start(from)).ok()?;
         let mut buf = Vec::new();
         file.by_ref().take(window).read_to_end(&mut buf).ok()?;
         let start = if from == 0 { 0 } else { memchr::memchr(b'\n', &buf).map_or(buf.len(), |i| i + 1) };
-        for line in buf[start..].rsplit(|b| *b == b'\n') {
-            if memchr::memmem::find(line, b"\"user\"").is_none() {
-                continue;
-            }
-            let Ok(v) = serde_json::from_slice::<Value>(line) else { continue };
-            let made_up = ["isSidechain", "isCompactSummary", "isMeta", "isVisibleInTranscriptOnly"].iter().any(|key| v[*key] == true);
-            if v["type"] != "user" || made_up {
-                continue;
-            }
-            let text = match &v["message"]["content"] {
-                Value::String(s) => s.clone(),
-                Value::Array(blocks) if !blocks.iter().any(|b| b["type"] == "tool_result") => result_text(&v["message"]["content"]),
-                _ => continue,
-            };
-            let text = text.trim();
-            // What the harness writes as if typed: a command's output, a notice, an interruption.
-            if text.is_empty() || text.starts_with('<') || text.starts_with("Caveat:") || text.starts_with("[Request interrupted") {
-                continue;
-            }
-            return Some(text.to_string());
+        if let Some(found) = buf[start..].rsplit(|b| *b == b'\n').find_map(prompt_of) {
+            return Some(found);
         }
         if from == 0 {
             return None;
         }
     }
-    None
+    file.seek(SeekFrom::Start(0)).ok()?;
+    let mut reader = std::io::BufReader::with_capacity(1 << 16, file);
+    let (mut line, mut last) = (Vec::new(), None);
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => last = prompt_of(&line).or(last),
+        }
+    }
+    last
 }
 
 /// Which kind of line this is worth parsing as, decided without parsing it. Most of a large

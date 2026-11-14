@@ -404,6 +404,17 @@ fn after_a_compaction_the_session_gets_the_request_back_word_for_word() {
     // A session that was not compacted is told nothing of it.
     let fresh = hook(&home, &repo.dir, "session-start", payload("claude-session-start", &repo.dir, &home).as_bytes(), &claude).context("SessionStart");
     assert!(!fresh.contains("word for word"), "{fresh}");
+    // A request typed while the model was at work is kept as a queued command, and a notice
+    // of the harness queued the same way is not the person's.
+    let queued = |prompt: &str, human: bool| {
+        serde_json::json!({"type": "attachment", "isSidechain": false, "attachment": {"type": "queued_command", "prompt": prompt, "commandMode": "prompt", "humanTurn": human,
+            "origin": {"kind": if human { "human" } else { "task-notification" }}}})
+    };
+    let mut lines = vec![typed(request), said("m1", true), queued("Also keep `ordinal(0)` an error.", true), queued("A background task finished.", false)];
+    lines.extend(after_request.iter().cloned());
+    transcript(&lines);
+    let typed_later = hook(&home, &repo.dir, "session-start", input.as_bytes(), &claude).context("SessionStart");
+    assert!(typed_later.ends_with(&format!("{lead}:\nAlso keep `ordinal(0)` an error.")), "{typed_later}");
     // A request longer than a hook may add is given from its start, and says so.
     let long = format!("Port the scheduler.\n{}", "Keep `Critical` as it is. ".repeat(400));
     let mut lines = vec![typed(&long)];
