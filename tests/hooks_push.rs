@@ -517,6 +517,10 @@ fn what_a_conversation_wrote_itself_is_not_explained_to_it() {
         hook(&home, &repo.dir, "post-tool-use", wrote(&repo, &home, session, rel).as_bytes(), &[]).assert_quiet("a file written as it was");
     }
     hook(&home, &repo.dir, "user-prompt-submit", prompt.as_bytes(), &[]).assert_quiet("a card about a file the conversation wrote");
+    // A file written through the shell from a here document is written whole as well.
+    let heredoc = ran(&repo, &home, "heredoc", "cat > src/io.c <<'EOF'\n#include \"io.h\"\nEOF");
+    hook(&home, &repo.dir, "post-tool-use", heredoc.as_bytes(), &[]).assert_quiet("a file written from a here document, as it was");
+    hook(&home, &repo.dir, "user-prompt-submit", in_session(&prompt, "heredoc").as_bytes(), &[]).assert_quiet("a card about a file written through the shell");
     hook(&home, &repo.dir, "post-tool-use", payload("claude-post-bash-grep", &repo.dir, &home).as_bytes(), &[]).assert_quiet("a grep for a symbol of that file");
     hook(&home, &repo.dir, "pre-tool-use", payload("claude-pre-read", &repo.dir, &home).as_bytes(), &[]).assert_quiet("a read of a long file the conversation wrote");
     // Another conversation is told as ever.

@@ -800,10 +800,11 @@ What they add, each said once per session:
 - Before a whole-file read of a source file longer than 400 lines, one line naming the outline
   command.
 - None of the notes above about a file the conversation wrote in full (the harness's write tool,
-  or a file a patch adds): where its definitions are and what they look like is not news to
-  whoever wrote them, and every line a hook adds is read again with each later request. A
-  rename still gets its command. After a compaction or `/clear` the conversation has the text
-  no longer, and the notes come back.
+  a file a patch adds, or `cat > FILE <<EOF` in the shell): where its definitions are and what
+  they look like is not news to whoever wrote them, and every line a hook adds is read again
+  with each later request. A rename still gets its command. After a compaction or `/clear`,
+  which Claude Code reports to its hooks, the conversation has the text no longer and the
+  notes come back.
 - After a compaction, the definitions the uncommitted changes added, removed and altered, and
   in Claude Code the last request the person typed, word for word. A summary shortens the
   request a conversation was working on, and what it drops are the exact strings and rules: in

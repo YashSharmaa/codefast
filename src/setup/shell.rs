@@ -1014,6 +1014,57 @@ pub fn analyse(command: &str) -> Found {
     analyse_at(command, Dir::Start, 0)
 }
 
+/// The files a command writes whole from a here document: `cat > PATH <<'EOF'`, `cat <<EOF >
+/// PATH`, `tee PATH <<EOF`. This is how a model writes a file through its shell, and what it
+/// wrote that way it has in front of it as much as a file written with the harness's own tool.
+/// Appends (`>>`, `tee -a`) are left out, and so is a path that is not written out in full
+/// (a variable, a pattern) or that follows a `cd`, which moves what a relative path means.
+pub fn heredoc_files(command: &str) -> Vec<String> {
+    // One word of a command line as a path: quotes removed, nothing the shell would expand.
+    fn path(s: &str) -> Option<String> {
+        let s = s.trim_start();
+        let w = match s.chars().next()? {
+            q @ ('\'' | '"') => &s[1..1 + s[1..].find(q)?],
+            _ => s.split(|c: char| c.is_whitespace() || matches!(c, ';' | '|' | '&' | '<' | '>' | ')')).next()?,
+        };
+        (!w.is_empty() && !w.starts_with('-') && !w.contains(['$', '`', '*', '?', '~', '{'])).then(|| w.to_string())
+    }
+    let mut out = Vec::new();
+    let mut moved = false;
+    for line in command.lines() {
+        let at = line.find("<<");
+        let before = &line[..at.unwrap_or(line.len())];
+        if moved {
+            break;
+        }
+        if before.split(|c: char| matches!(c, ';' | '&' | '|' | '(')).any(|c| matches!(c.split_whitespace().next(), Some("cd" | "pushd" | "popd"))) {
+            moved = true;
+        }
+        let Some(at) = at else { continue };
+        if line[at..].starts_with("<<<") {
+            continue;
+        }
+        let start = before.rfind([';', '|', '&', '(']).map_or(0, |i| i + 1);
+        let cmd = before[start..].trim();
+        // What follows the delimiter word on the same line: `<<'EOF' > PATH`.
+        let after = line[at + 2..].trim_start_matches('-').trim_start();
+        let after = after.split_once(char::is_whitespace).map_or("", |(_, rest)| rest).trim_start();
+        let redirect = |s: &str| s.strip_prefix('>').filter(|t| !t.starts_with('>')).and_then(path);
+        let file = if let Some(rest) = cmd.strip_prefix("cat") {
+            let rest = rest.trim_start();
+            if rest.is_empty() { redirect(after) } else { redirect(rest) }
+        } else if let Some(rest) = cmd.strip_prefix("tee ") {
+            path(rest)
+        } else {
+            None
+        };
+        if let Some(f) = file.filter(|_| !moved) {
+            out.push(f);
+        }
+    }
+    out
+}
+
 /// Whether a command line runs something of the project (its tests, a build, the program) and
 /// does not only look at files or tidy them: one of its commands starts with a program that is
 /// neither a viewer, a search nor a piece of housekeeping. This is the moment a conversation
@@ -1397,6 +1448,26 @@ mod tests {
         // Reading the error stream elsewhere does not make it a partial read.
         assert_eq!(reads("cat src/big.c 2>/dev/null"), ["src/big.c"]);
         assert_eq!(reads("cat src/big.c 2>&1"), ["src/big.c"]);
+    }
+
+    #[test]
+    fn a_file_written_from_a_here_document_is_named() {
+        for (command, want) in [
+            ("cat > src/errors.ts <<'EOF'\nexport class A {}\nEOF", vec!["src/errors.ts"]),
+            ("cat >src/a.py << EOF\nx = 1\nEOF\ncat > 'my file.py' <<-\"END\"\ny = 2\nEND", vec!["src/a.py", "my file.py"]),
+            ("cat <<'EOF' > notes/plan.md\ntext\nEOF", vec!["notes/plan.md"]),
+            ("mkdir -p out && tee out/conf.toml <<EOF\na = 1\nEOF", vec!["out/conf.toml"]),
+            // An append adds to a file the conversation may not hold, and these paths are not written out.
+            ("cat >> src/a.py <<EOF\nx = 1\nEOF", vec![]),
+            ("tee -a log.txt <<EOF\nx\nEOF", vec![]),
+            ("cat > \"$OUT/a.py\" <<EOF\nx\nEOF", vec![]),
+            ("cd sub && cat > a.py <<EOF\nx\nEOF", vec![]),
+            ("python3 - <<'EOF'\nopen('a.py', 'w').write('x')\nEOF", vec![]),
+            ("cat src/a.py", vec![]),
+            ("grep -c x <<< \"$text\"", vec![]),
+        ] {
+            assert_eq!(heredoc_files(command), want, "{command}");
+        }
     }
 
     #[test]

@@ -2312,18 +2312,23 @@ fn edit_findings(place: Place, base: Option<PathBuf>, did: Did, session_id: Opti
     let files: Vec<String> = match &did {
         Did::Wrote { paths, whole } => {
             let named: Vec<String> = paths.iter().filter_map(relative).collect();
-            for rel in &named {
+            let whole: Vec<String> = whole.iter().filter_map(relative).collect();
+            for rel in named.iter().chain(&whole) {
                 session.mark_edited(rel);
             }
-            for rel in whole.iter().filter_map(relative) {
-                session.hold(&rel);
+            for rel in &whole {
+                session.hold(rel);
             }
             if !refresh_allowed() {
                 return;
             }
             if paths.is_empty() {
+                // A shell command: whatever differs from the last commit, and what the command
+                // is seen to have written (the only files there are to check without git).
                 dirty = crate::query::changed::dirty_files(&place.root);
-                dirty.iter().filter(|f| crate::lang::Lang::from_path(f).has_extractor()).take(CHECK_FILES).cloned().collect()
+                let mut files: Vec<String> = dirty.iter().filter(|f| crate::lang::Lang::from_path(f).has_extractor()).take(CHECK_FILES).cloned().collect();
+                files.extend(whole.into_iter().filter(|f| !dirty.contains(f) && crate::lang::Lang::from_path(f).has_extractor()));
+                files
             } else {
                 named
             }
@@ -2425,7 +2430,7 @@ fn post_tool_use(passed: &Path, payload: &Payload, started: Instant) -> String {
             // written files gets the check of what the edits left behind.
             let asks = searches.iter().any(|s| shell::identifier(s).is_some());
             if !asks && shell::may_write(&command) {
-                return after_edit(passed, payload, Did::Wrote { paths: Vec::new(), whole: Vec::new() }, dir, started);
+                return after_edit(passed, payload, Did::Wrote { paths: Vec::new(), whole: shell::heredoc_files(&command) }, dir, started);
             }
             if !asks && shell::runs_code(&command) {
                 return after_edit(passed, payload, Did::Ran, dir, started);
