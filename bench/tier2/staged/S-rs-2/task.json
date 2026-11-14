@@ -1,0 +1,14 @@
+{
+  "id": "S-rs-2",
+  "family": "S",
+  "language": "rust",
+  "title": "patchwork: minimal line diff, hunks with context, unified diff writing and parsing, fuzzy patch application and reversal with a CLI, then fuzz levels, three-way merge, GNU short headers with multi-file and directory diffs, whitespace-insensitive comparison and stricter no-newline markers",
+  "split": "held",
+  "from": "G-rs-2",
+  "check_cmd": "cargo test",
+  "tests": 96,
+  "timeout": 300,
+  "stages": 6,
+  "reference_lines": 787,
+  "reference_files": 9
+}

@@ -1,0 +1,14 @@
+{
+  "id": "S-py-2",
+  "family": "S",
+  "language": "python",
+  "title": "csvq: SQL SELECT engine over CSV tables grown over six requests: joins, scalar functions, three-valued NULL logic with CASE, error positions and quoted CSV text",
+  "split": "held",
+  "from": "G-py-2",
+  "check_cmd": "python3 -m unittest discover -s tests_hidden -t . -v",
+  "tests": 98,
+  "timeout": 120,
+  "stages": 6,
+  "reference_lines": 964,
+  "reference_files": 11
+}

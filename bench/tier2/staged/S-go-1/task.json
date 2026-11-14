@@ -1,0 +1,14 @@
+{
+  "id": "S-go-1",
+  "family": "S",
+  "language": "go",
+  "title": "Build-dependency planner grown over six requests: parser, cycles and rebuild plan, then pattern rules and phony targets, parallel waves, merged targets, rules for goals and inline comments",
+  "split": "dev",
+  "from": "G-go-1",
+  "check_cmd": "go test ./...",
+  "tests": 96,
+  "timeout": 300,
+  "stages": 6,
+  "reference_lines": 827,
+  "reference_files": 6
+}

@@ -1,0 +1,14 @@
+{
+  "id": "S-ts-2",
+  "family": "S",
+  "language": "typescript",
+  "title": "stencil: text template engine grown over six requests: filters, loops, includes, escaping and a command line, then arithmetic and set, macros with imports and globals, richer loops with break and range, error locations, and code point strings",
+  "split": "held",
+  "from": "G-ts-2",
+  "check_cmd": "node --test tests_hidden/",
+  "tests": 85,
+  "timeout": 120,
+  "stages": 6,
+  "reference_lines": 1112,
+  "reference_files": 8
+}

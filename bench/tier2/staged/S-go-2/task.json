@@ -1,0 +1,14 @@
+{
+  "id": "S-go-2",
+  "family": "S",
+  "language": "go",
+  "title": "Rate-limit policy engine grown over six requests: policy parser, exact token buckets, decisions and HTTP surface, then fixed windows, traffic replay, batch checks, request costs and path cleaning",
+  "split": "held",
+  "from": "G-go-2",
+  "check_cmd": "go test ./...",
+  "tests": 97,
+  "timeout": 300,
+  "stages": 6,
+  "reference_lines": 820,
+  "reference_files": 7
+}
