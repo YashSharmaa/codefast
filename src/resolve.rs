@@ -725,21 +725,10 @@ impl<'a> Resolver<'a> {
         if let Some(hit) = self.inc_files.borrow().get(&f) {
             return hit.clone();
         }
-        let ix = self.ix;
-        let from = ix.path(f);
         let mut out: Vec<FileId> = Vec::new();
         for inc in self.include_targets(f).iter() {
-            let cands = self.files_with_suffix(inc);
-            if cands.is_empty() {
-                continue;
-            }
-            let key = |c: FileId| {
-                let p = ix.path(c);
-                (common_prefix_dirs(from, p) as i32, -(p.bytes().filter(|&b| b == b'/').count() as i32))
-            };
-            let best = cands.iter().map(|&c| key(c)).max().unwrap_or((0, 0));
-            for &c in cands.iter() {
-                if key(c) == best && !out.contains(&c) {
+            for c in self.include_candidates(f, inc) {
+                if !out.contains(&c) {
                     out.push(c);
                 }
             }
@@ -747,6 +736,72 @@ impl<'a> Resolver<'a> {
         let rc = Rc::new(out);
         self.inc_files.borrow_mut().insert(f, rc.clone());
         rc
+    }
+
+    /// The files one include target of `f` names: the nearest of those with that path suffix,
+    /// then the shallowest. All of the candidates that tie on both.
+    fn include_candidates(&self, f: FileId, inc: &[u8]) -> Vec<FileId> {
+        let ix = self.ix;
+        let from = ix.path(f);
+        let cands = self.files_with_suffix(inc);
+        let key = |c: FileId| {
+            let p = ix.path(c);
+            (common_prefix_dirs(from, p) as i32, -(p.bytes().filter(|&b| b == b'/').count() as i32))
+        };
+        let best = cands.iter().map(|&c| key(c)).max().unwrap_or((0, 0));
+        cands.iter().copied().filter(|&c| key(c) == best).collect()
+    }
+
+    /// Every import of `f` that names files of this repository, as (line of the import, file).
+    /// An include is resolved as `includes` resolves it, a module import through
+    /// `module_files`. For `from pkg import mod` (Python) and `use a::{b}` (Rust) the submodule
+    /// is tried before the package. Imports of other packages name no file and are left out.
+    pub fn import_files(&self, f: FileId) -> Vec<(u32, FileId)> {
+        let ix = self.ix;
+        let lang = ix.lang(f);
+        let mut out: Vec<(u32, FileId)> = Vec::new();
+        for im in ix.imports_of_file(f) {
+            let Some(target) = ix.local_name(f, im.target) else { continue };
+            let files: Vec<FileId> = if !module_language(lang) {
+                if im.flags & iflag::WILDCARD != 0 || im.name != crate::facts::NONE || im.alias != crate::facts::NONE || target.windows(2).any(|w| w == b"::") {
+                    continue;
+                }
+                let mut t = target;
+                loop {
+                    if let Some(r) = t.strip_prefix(b"./") {
+                        t = r;
+                    } else if let Some(r) = t.strip_prefix(b"../") {
+                        t = r;
+                    } else {
+                        break;
+                    }
+                }
+                if t.is_empty() {
+                    continue;
+                }
+                self.include_candidates(f, t)
+            } else {
+                let sep: &[u8] = match lang {
+                    Lang::Python => b".",
+                    Lang::Rust => b"::",
+                    _ => b"",
+                };
+                let mut files = Vec::new();
+                if let Some(name) = ix.local_name(f, im.name).filter(|_| !sep.is_empty()) {
+                    files = self.module_files(f, &[target, sep, name].concat()).to_vec();
+                }
+                if files.is_empty() {
+                    files = self.module_files(f, target).to_vec();
+                }
+                files
+            };
+            for g in files {
+                if g != f && !out.contains(&(im.line, g)) {
+                    out.push((im.line, g));
+                }
+            }
+        }
+        out
     }
 
     /// Does `f` include `header` directly?
