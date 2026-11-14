@@ -490,7 +490,7 @@ fn a_command_that_outlived_the_prompt_cache_is_said_at_once() {
     let (said, _) = to_user(&ran);
     assert_eq!(
         said,
-        "codefast: that command ran for 7 minutes, and this conversation's prompt cache lives 5 minutes: the next request sends the conversation's 150k tokens again as new input, with claude-sonnet-5 about 12 times what a warm request pays for them. A long command costs less run in the background and looked at every few minutes."
+        "codefast: that call took 7 minutes, and this conversation's prompt cache lives 5 minutes: the next request sends the conversation's 150k tokens again as new input, with claude-sonnet-5 about 12 times what a warm request pays for them. A long command costs less run in the background and looked at every few minutes."
     );
     assert_eq!(for_model(&ran), said, "the model is told the same");
     run(&slow("five", 9)).assert_quiet("once for a conversation");
@@ -500,7 +500,7 @@ fn a_command_that_outlived_the_prompt_cache_is_said_at_once() {
     transcript(&home, 150_000, 1, true);
     run(&slow("hour", 7)).assert_quiet("seven minutes with the one-hour cache");
     let ran = run(&slow("long", 61));
-    assert!(for_model(&ran).contains("ran for 1 hour 1 minutes, and this conversation's prompt cache lives an hour"), "{}", ran.stdout);
+    assert!(for_model(&ran).contains("took 1 hour 1 minutes, and this conversation's prompt cache lives an hour"), "{}", ran.stdout);
     transcript(&home, 20_000, 1, false);
     run(&slow("small", 7)).assert_quiet("a small conversation");
     hook(&home, &repo.dir, "post-tool-use", slow("off", 7).to_string().as_bytes(), &[("CLAUDECODE", "1"), ("CODEFAST_COST_NOTES", "off")]).assert_quiet("switched off");
@@ -520,7 +520,7 @@ fn a_command_that_outlived_the_prompt_cache_is_said_at_once() {
     let ran = run(&agent);
     assert_eq!(
         ran.context("PostToolUse"),
-        "codefast: that command ran for 7 minutes, and this conversation's prompt cache lives 5 minutes: the next request sends the conversation's 80k tokens again as new input, with claude-opus-5-5 about 25 times what a warm request pays for them. A long command costs less run in the background and looked at every few minutes."
+        "codefast: that call took 7 minutes, and this conversation's prompt cache lives 5 minutes: the next request sends the conversation's 80k tokens again as new input, with claude-opus-5-5 about 25 times what a warm request pays for them. A long command costs less run in the background and looked at every few minutes."
     );
     run(&agent).assert_quiet("once for an agent");
     // An agent id that is no name of a file finds nothing.
@@ -533,7 +533,7 @@ fn a_command_that_outlived_the_prompt_cache_is_said_at_once() {
     grep["duration_ms"] = serde_json::json!(420_000);
     let ran = run(&grep);
     let told = for_model(&ran);
-    assert!(told.starts_with("codefast: dev_read") && told.contains("\n\ncodefast: that command ran for 7 minutes"), "{told}");
+    assert!(told.starts_with("codefast: dev_read") && told.contains("\n\ncodefast: that call took 7 minutes"), "{told}");
 }
 
 /// Past the life of its prompt cache, a conversation is sent again at the price of new input.

@@ -1154,7 +1154,7 @@ fn outlived_note(passed: &Path, payload: &Payload) -> Option<(String, bool)> {
     let w = super::sessions::weights(&last.model);
     let times = if one_hour { w.write_1h } else { w.write_5m } / w.cache_read;
     let note = format!(
-        "codefast: that command ran for {}, and this conversation's prompt cache lives {}: the next request sends the conversation's {} tokens again as new input, {}about {times:.0} times what a warm request pays for them. A long command costs less run in the background and looked at every few minutes.",
+        "codefast: that call took {}, and this conversation's prompt cache lives {}: the next request sends the conversation's {} tokens again as new input, {}about {times:.0} times what a warm request pays for them. A long command costs less run in the background and looked at every few minutes.",
         idle_text(ran.as_secs()),
         if one_hour { "an hour" } else { "5 minutes" },
         super::sessions::short(last.context as f64),
