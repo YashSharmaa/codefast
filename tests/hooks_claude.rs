@@ -376,7 +376,7 @@ fn the_owner_of_a_very_long_conversation_is_told_what_each_request_carries() {
     assert!(said.starts_with("codefast: this conversation is 440k tokens long, and every request reads all of it again"), "{said}");
     // A cache read of this model is a tenth of its input price and a fiftieth of its output price.
     assert!(said.contains("with claude-sonnet-5 that alone costs what 9k tokens of output cost, each time."), "{said}");
-    assert!(said.contains("`/compact` pays for itself in about 5 requests") && said.contains("`/clear`") && said.contains("doctor sessions`"), "{said}");
+    assert!(said.contains("`/compact` pays for itself in about 4 requests") && said.contains("`/clear`") && said.contains("doctor sessions`"), "{said}");
     assert!(!for_model, "nothing of it is context for the model");
     hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude).assert_quiet("said once for this size");
     transcript(&home, 460_000, 1, true);
@@ -397,10 +397,10 @@ fn the_owner_of_a_very_long_conversation_is_told_what_each_request_carries() {
     sub["agent_id"] = serde_json::json!("a1b2c3");
     hook(&home, &repo.dir, "user-prompt-submit", sub.to_string().as_bytes(), &claude).assert_quiet("a subagent");
     hook(&home, &repo.dir, "user-prompt-submit", fresh("elsewhere").as_bytes(), &[]).assert_quiet("not Claude Code");
-    transcript(&home, 150_000, 1, true);
-    hook(&home, &repo.dir, "user-prompt-submit", fresh("short").as_bytes(), &claude).assert_quiet("150k tokens are not worth a word");
-    let (said, _) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", fresh("lower").as_bytes(), &[("CLAUDECODE", "1"), ("CODEFAST_CARRY", "100000")]));
-    assert!(said.contains("150k tokens long") && said.contains("in about 20 requests"), "the threshold can be set: {said}");
+    transcript(&home, 100_000, 1, true);
+    hook(&home, &repo.dir, "user-prompt-submit", fresh("short").as_bytes(), &claude).assert_quiet("100k tokens are not worth a word");
+    let (said, _) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", fresh("lower").as_bytes(), &[("CLAUDECODE", "1"), ("CODEFAST_CARRY", "80000")]));
+    assert!(said.contains("100k tokens long") && said.contains("in about 16 requests"), "the threshold can be set: {said}");
 }
 
 /// What carrying a conversation costs follows the model: where a cache read is cheaper, a
@@ -411,25 +411,25 @@ fn the_note_about_a_long_conversation_follows_the_prices_of_its_model() {
     let claude = [("CLAUDECODE", "1")];
     let plain = payload("claude-user-prompt", &repo.dir, &home).replace("dev_read returns -1 for a device that is open. Find out why and fix it.", "go on");
     let ask = |id: &str| hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, id).as_bytes(), &claude);
-    // A cache read at 0.05: a compaction pays for itself within fifteen requests from 270k.
-    transcript_of(&home, "claude-opus-5-5", 250_000, 1, true);
-    ask("opus-short").assert_quiet("250k tokens on Opus 5.5");
+    // A cache read at 0.05: a compaction pays for itself within twelve requests from 200k.
+    transcript_of(&home, "claude-opus-5-5", 180_000, 1, true);
+    ask("opus-short").assert_quiet("180k tokens on Opus 5.5");
     transcript_of(&home, "claude-opus-5-5", 430_000, 1, true);
     let (said, _) = to_user(&ask("opus"));
-    assert!(said.contains("with claude-opus-5-5 that alone costs what 4k tokens of output cost") && said.contains("in about 9 requests"), "{said}");
-    // At 0.025, from 450k.
+    assert!(said.contains("with claude-opus-5-5 that alone costs what 4k tokens of output cost") && said.contains("in about 7 requests"), "{said}");
+    // At 0.025, from 430k.
     transcript_of(&home, "claude-fable-5-2", 400_000, 1, true);
     ask("fable-short").assert_quiet("400k tokens on Fable 5.2");
     transcript_of(&home, "claude-fable-5-2", 720_000, 1, true);
     let (said, _) = to_user(&ask("fable"));
-    assert!(said.contains("720k tokens long") && said.contains("with claude-fable-5-2 that alone costs what 4k tokens of output cost") && said.contains("in about 10 requests"), "{said}");
+    assert!(said.contains("720k tokens long") && said.contains("with claude-fable-5-2 that alone costs what 4k tokens of output cost") && said.contains("in about 9 requests"), "{said}");
     // A session that writes to the five-minute cache pays less to send what a compaction
-    // leaves: from 150k at the default prices, where the one-hour cache has it from 170k.
-    transcript(&home, 160_000, 1, true);
-    ask("one-hour-short").assert_quiet("160k tokens with the one-hour cache");
-    transcript(&home, 160_000, 1, false);
+    // leaves: from 100k at the default prices, where the one-hour cache has it from 120k.
+    transcript(&home, 110_000, 1, true);
+    ask("one-hour-short").assert_quiet("110k tokens with the one-hour cache");
+    transcript(&home, 110_000, 1, false);
     let (said, _) = to_user(&ask("five-minutes"));
-    assert!(said.contains("160k tokens long"), "{said}");
+    assert!(said.contains("110k tokens long"), "{said}");
 }
 
 /// The price of Claude Haiku 5.5 steps up for a prompt over 100,000 tokens: the person is told
@@ -483,7 +483,7 @@ fn the_owner_is_told_when_the_prompt_cache_has_run_out() {
     let (said, _) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "five").as_bytes(), &claude));
     assert!(said.contains("idle for 6 minutes") && said.contains("about 12 times"), "{said}");
     // Half an hour is inside the one-hour cache, and a small conversation costs little either way.
-    transcript(&home, 150_000, 30, true);
+    transcript(&home, 100_000, 30, true);
     hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "warm").as_bytes(), &claude).assert_quiet("the cache still holds");
     transcript(&home, 40_000, 300, true);
     hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "small").as_bytes(), &claude).assert_quiet("a small conversation");

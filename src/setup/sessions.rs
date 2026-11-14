@@ -44,19 +44,25 @@ const IDLE_HOUR_MS: i64 = 55 * 60 * 1000;
 const IDLE_FIVE_MS: i64 = 5 * 60 * 1000;
 /// A manual compaction of a conversation shorter than this is early.
 const EARLY_COMPACTION: u64 = 100_000;
-/// What a compaction writes and leaves, where a session has none of its own to measure. The
-/// summary is written as output by a request that reads the conversation, and the first request
-/// after it sends as new what the conversation now is: the summary, and the files and lists the
-/// harness puts back. Measured on 31 compactions of long Claude Code 2.1 sessions in November
-/// 2026: summaries of 12,000 to 35,000 characters (24,000 in the middle), and 28,000 to 110,000
-/// tokens sent as new after them (57,000 in the middle).
-const SUMMARY_TOKENS: u64 = 6_000;
-const RESENT_TOKENS: u64 = 50_000;
+/// What a compaction writes, where a session has none of its own to measure. The summary is
+/// written as output by a request that reads the conversation, and the first request after it
+/// sends as new what the conversation now is: the summary, and the files and lists the harness
+/// puts back. Both grow with the conversation, and each is taken from the line through what was
+/// measured at two sizes with Claude Code 2.1 in November 2026. Sixteen compactions at 66,000
+/// to 77,000 tokens: summaries of 7,000 to 16,000 characters (13,000 in the middle, which is
+/// 3,600 tokens) and 14,000 to 28,000 tokens sent as new (23,500 in the middle). Thirty-one at
+/// 509,000 to 975,000 tokens, nearly all of them at 967,000: summaries of 12,000 to 35,000
+/// characters (24,000 in the middle) and 28,000 to 110,000 tokens sent as new (57,000 in the
+/// middle).
+const SUMMARY_BASE: u64 = 3_300;
+const SUMMARY_PER: u64 = 270;
+const RESENT_BASE: u64 = 21_000;
+const RESENT_PER: u64 = 27;
 /// The start of a session where it is not known: what stays in the cache across a compaction.
 const START_TOKENS: u64 = 25_000;
 /// The hooks speak of a long conversation from where a compaction would pay for itself within
 /// this many requests ([`carry_from`]).
-const PAYBACK: f64 = 15.0;
+const PAYBACK: f64 = 12.0;
 /// The lengths at which an earlier compaction is tried for a session (`--carry N` tries one).
 const WINDOWS: [u64; 7] = [150_000, 200_000, 300_000, 400_000, 500_000, 600_000, 800_000];
 /// Every compaction loses some of the conversation, so the length the report speaks of is the
@@ -148,9 +154,11 @@ pub struct Shape {
 }
 
 impl Shape {
-    /// Where there is no compaction to measure, after a start of `start` tokens.
-    pub fn typical(start: Option<u64>) -> Shape {
-        Shape { summary: SUMMARY_TOKENS, resent: RESENT_TOKENS, left: start.unwrap_or(START_TOKENS) + RESENT_TOKENS }
+    /// A compaction of a conversation of `at` tokens where there is none to measure, after a
+    /// start of `start` tokens.
+    pub fn typical(start: Option<u64>, at: u64) -> Shape {
+        let resent = RESENT_BASE + at / RESENT_PER;
+        Shape { summary: SUMMARY_BASE + at / SUMMARY_PER, resent, left: start.unwrap_or(START_TOKENS) + resent }
     }
 
     /// What compacting a conversation of `pre` tokens costs at the weights `w` (an estimate):
@@ -175,17 +183,13 @@ impl Shape {
 
 /// The length from which a hook speaks of carrying a conversation: where the price of the model
 /// steps up, or else where a compaction of the usual shape would pay for itself within
-/// [`PAYBACK`] requests. With a one-hour cache that is 170,000 tokens at the default prices,
-/// 270,000 where a cache read is 0.05 and 450,000 where it is 0.025.
+/// [`PAYBACK`] requests. With a one-hour cache that is 120,000 tokens at the default prices,
+/// 200,000 where a cache read is 0.05 and 430,000 where it is 0.025.
 pub fn carry_from(w: &Weights, resend: f64) -> u64 {
     if let Some(tier) = w.tier {
         return tier.over;
     }
-    let shape = Shape::typical(None);
-    // `cost(c) = PAYBACK * saves(c)`, solved for c.
-    let fixed = w.output * shape.summary as f64 + resend * shape.resent as f64;
-    let c = (fixed + PAYBACK * w.cache_read * shape.left as f64) / (w.cache_read * (PAYBACK - 1.0));
-    (c / 10_000.0).round() as u64 * 10_000
+    (5..100).map(|k| k * 10_000).find(|c| Shape::typical(None, *c).pays_after(w, *c, resend).is_some_and(|n| n <= PAYBACK)).unwrap_or(1_000_000)
 }
 
 const USAGE: &str = "Where the tokens of this project's sessions went, read from the harnesses' own transcripts on
@@ -1046,19 +1050,34 @@ pub fn resend_weight(main: &[&Request], w: &Weights) -> f64 {
 fn summary_tokens(bytes: Option<u64>, pre: Option<u64>) -> u64 {
     match bytes {
         Some(b) => (b as f64 / BYTES_PER_TOKEN) as u64,
-        None => SUMMARY_TOKENS.min(pre.unwrap_or(0) / 8),
+        None => pre.map_or(SUMMARY_BASE, |p| (SUMMARY_BASE + p / SUMMARY_PER).min(p / 8)),
     }
 }
 
-/// What a compaction writes and leaves in a session: the middle of its own compactions, and
-/// the usual shape for what none of them recorded.
-pub fn shape_of(events: &[Event]) -> Shape {
+/// What the compactions of a session wrote and left, the middle of each, and the context of the
+/// session's first request. `None` for what no compaction of it recorded.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Measured {
+    pub summary: Option<u64>,
+    pub resent: Option<u64>,
+    pub left: Option<u64>,
+    pub start: Option<u64>,
+}
+
+impl Measured {
+    /// A compaction at `at` tokens in this session: as its own were, and the usual shape for
+    /// what none of them recorded.
+    pub fn at(&self, at: u64) -> Shape {
+        let usual = Shape::typical(self.start, at);
+        Shape { summary: self.summary.unwrap_or(usual.summary), resent: self.resent.unwrap_or(usual.resent), left: self.left.unwrap_or(usual.left) }
+    }
+}
+
+pub fn measured(events: &[Event]) -> Measured {
     let main = |e: &Event| match e {
         Event::Request(r) if !r.sidechain => Some(r.usage),
         _ => None,
     };
-    // The start of a session that was resumed is the whole conversation: not what stays.
-    let usual = Shape::typical(events.iter().find_map(main).and_then(|u| u.context()).map(|c| c.min(100_000)));
     let (mut summaries, mut resents, mut lefts) = (Vec::new(), Vec::new(), Vec::new());
     for (i, e) in events.iter().enumerate() {
         let Event::Compaction { summary, pre, .. } = e else { continue };
@@ -1070,7 +1089,13 @@ pub fn shape_of(events: &[Event]) -> Shape {
             resents.push(u.cache_write.unwrap_or(0) + u.input.unwrap_or(0));
         }
     }
-    Shape { summary: median(summaries).unwrap_or(usual.summary), resent: median(resents).unwrap_or(usual.resent), left: median(lefts).unwrap_or(usual.left) }
+    Measured {
+        summary: median(summaries),
+        resent: median(resents),
+        left: median(lefts),
+        // The start of a session that was resumed is the whole conversation: not what stays.
+        start: events.iter().find_map(main).and_then(|u| u.context()).map(|c| c.min(100_000)),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -1643,7 +1668,7 @@ impl Stats {
         let model = by_model.iter().max_by_key(|(_, n)| **n).map(|(m, _)| *m).unwrap_or("");
         let resend = resend_weight(&main, &self.weights(model));
         // What a compaction writes and leaves in this session.
-        let shape = shape_of(&t.events);
+        let own = measured(&t.events);
         // The lengths an earlier compaction is tried at: the one asked for, or the step of a
         // model whose price steps (which goes with that finding), or the usual ones.
         let step = self.weights(model).tier.filter(|_| self.carry_given.is_none());
@@ -1652,6 +1677,7 @@ impl Stats {
             (None, Some(tier)) => vec![tier.over],
             (None, None) => WINDOWS.to_vec(),
         };
+        let shapes: Vec<Shape> = tried.iter().map(|at| own.at(*at)).collect();
         // For each: whether the stretch has passed it, and the compactions counted in it.
         let mut runs = vec![(false, 0u64); tried.len()];
         let mut prev: Option<&Request> = None;
@@ -1682,10 +1708,10 @@ impl Stats {
                         Some(c) => {
                             self.carry.peak = self.carry.peak.max(c);
                             let base = split.total() / times;
-                            for (threshold, run) in tried.iter().zip(runs.iter_mut()) {
+                            for ((threshold, shape), run) in tried.iter().zip(&shapes).zip(runs.iter_mut()) {
                                 let window = if step.is_some() { &mut self.step.window } else { self.carry.window(*threshold) };
                                 window.threshold = *threshold;
-                                window.request(c, base, times, &w, &shape, resend, run);
+                                window.request(c, base, times, &w, shape, resend, run);
                             }
                         }
                     }
@@ -1768,13 +1794,14 @@ impl Stats {
         }
         let model = by_model.iter().max_by_key(|(_, n)| **n).map(|(m, _)| *m).unwrap_or("");
         let resend = resend_weight(&own, &self.weights(model));
-        let shape = shape_of(events);
+        let own_shape = measured(events);
         let step = self.weights(model).tier.filter(|_| self.carry_given.is_none());
         let tried: Vec<u64> = match (self.carry_given, step) {
             (Some(n), _) => vec![n],
             (None, Some(tier)) => vec![tier.over],
             (None, None) => WINDOWS.to_vec(),
         };
+        let shapes: Vec<Shape> = tried.iter().map(|at| own_shape.at(*at)).collect();
         let mut runs = vec![(false, 0u64); tried.len()];
         self.agents.count += 1;
         // Which cache it writes to decides how long it may wait.
@@ -1796,10 +1823,10 @@ impl Stats {
                     if let Some(c) = r.usage.context() {
                         self.agents.carry.peak = self.agents.carry.peak.max(c);
                         let base = split.total() / times;
-                        for (threshold, run) in tried.iter().zip(runs.iter_mut()) {
+                        for ((threshold, shape), run) in tried.iter().zip(&shapes).zip(runs.iter_mut()) {
                             let window = if step.is_some() { &mut self.step.window } else { self.agents.carry.window(*threshold) };
                             window.threshold = *threshold;
-                            window.request(c, base, times, &w, &shape, resend, run);
+                            window.request(c, base, times, &w, shape, resend, run);
                         }
                     }
                     if let Some(p) = prev
@@ -2707,16 +2734,23 @@ mod tests {
         // From where a hook speaks of carrying: where a compaction of the usual shape pays for
         // itself within fifteen requests, which follows the price of a cache read, or where the
         // price steps.
-        assert_eq!(Shape::typical(None), Shape { summary: 6_000, resent: 50_000, left: 75_000 });
-        assert_eq!(carry_from(&DEFAULT_WEIGHTS, 2.0), 170_000);
-        assert_eq!(carry_from(&DEFAULT_WEIGHTS, 1.25), 150_000);
-        assert_eq!(carry_from(&weights("claude-opus-5-5"), 2.0), 270_000);
-        assert_eq!(carry_from(&weights("claude-fable-5-2"), 2.0), 450_000);
+        assert_eq!(carry_from(&DEFAULT_WEIGHTS, 2.0), 120_000);
+        assert_eq!(carry_from(&DEFAULT_WEIGHTS, 1.25), 100_000);
+        assert_eq!(carry_from(&weights("claude-opus-5-5"), 2.0), 200_000);
+        assert_eq!(carry_from(&weights("claude-fable-5-2"), 2.0), 430_000);
         assert_eq!(carry_from(&haiku, 2.0), 100_000);
-        let at = |w: &Weights| Shape::typical(None).pays_after(w, carry_from(w, 2.0), 2.0).unwrap();
-        assert!((at(&DEFAULT_WEIGHTS) - 15.0).abs() < 0.6 && (at(&weights("claude-fable-5-2")) - 15.0).abs() < 0.6);
+        // A compaction where there is none to measure writes more for a longer conversation.
+        assert_eq!(Shape::typical(None, 270_000), Shape { summary: 4_300, resent: 31_000, left: 56_000 });
+        assert_eq!(Shape::typical(Some(18_000), 67_500), Shape { summary: 3_550, resent: 23_500, left: 41_500 });
+        // At that length a compaction has paid for itself within twelve requests, and ten
+        // thousand tokens before it has not.
+        let after = |w: &Weights, c: u64| Shape::typical(None, c).pays_after(w, c, 2.0).unwrap();
+        for w in [DEFAULT_WEIGHTS, weights("claude-opus-5-5"), weights("claude-fable-5-2")] {
+            let c = carry_from(&w, 2.0);
+            assert!(after(&w, c) <= 12.0 && after(&w, c - 10_000) > 12.0, "{c}");
+        }
         assert_eq!((median(vec![]), median(vec![9, 1, 5]), median(vec![4, 10])), (None, Some(5), Some(7)));
-        assert_eq!((summary_tokens(Some(7_000), None), summary_tokens(None, Some(1_000_000)), summary_tokens(None, Some(16_000))), (2_000, 6_000, 2_000));
+        assert_eq!((summary_tokens(Some(7_000), None), summary_tokens(None, Some(1_000_000)), summary_tokens(None, Some(16_000))), (2_000, 7_003, 2_000));
     }
 
     #[test]
@@ -2784,26 +2818,36 @@ mod tests {
         assert_eq!((c.summary, c.resent), (2_000, Some(5_010)));
         assert!((c.cost - (4_000.0 + 10_000.0 + 1.25 * 5_000.0 + 10.0)).abs() < 1e-6);
         // What this session's own compaction wrote and left is what another would.
-        assert_eq!(shape_of(&t.events), Shape { summary: 2_000, resent: 5_010, left: 5_010 });
+        assert_eq!(measured(&t.events), Measured { summary: Some(2_000), resent: Some(5_010), left: Some(5_010), start: Some(30_010) });
+        assert_eq!(measured(&t.events).at(200_000), Shape { summary: 2_000, resent: 5_010, left: 5_010 });
     }
 
     #[test]
     fn context_carried_above_the_threshold() {
-        // A start of 25k, the context climbing from 150k to 600k in ten requests, each reading
-        // the one before, and twenty more requests at 600k.
-        let mut events = vec![req("a", 0, u(0, 0, 25_000, 10))];
-        let mut before = 25_000;
+        // A start of 25k and a first compaction, which wrote a summary of 6k tokens and left 75k,
+        // of which 50k were sent as new. Then the context climbs from 150k to 600k in ten
+        // requests, each reading the one before, and stays there for twenty more.
+        let mut events = vec![
+            req("a", 0, u(0, 0, 25_000, 10)),
+            req("a", 1, u(0, 25_000, 55_000, 10)),
+            Event::Compaction { at: None, trigger: "auto".into(), pre: Some(80_000), post: Some(75_000), summary: Some(21_000) },
+            req("a", 2, u(0, 25_000, 50_000, 10)),
+        ];
+        let mut before = 75_000;
         for i in 0..10u64 {
             let context = 150_000 + 50_000 * i;
-            events.push(req("a", 1 + i as i64, u(0, before, context - before, 10)));
+            events.push(req("a", 3 + i as i64, u(0, before, context - before, 10)));
             before = context;
         }
         for i in 0..20 {
-            events.push(req("a", 11 + i, u(0, 600_000, 0, 10)));
+            events.push(req("a", 13 + i, u(0, 600_000, 0, 10)));
         }
         let t = Transcript { id: "s".into(), events, ..Default::default() };
-        // No compaction to measure: the usual shape after this start.
-        assert_eq!(shape_of(&t.events), Shape { summary: 6_000, resent: 50_000, left: 75_000 });
+        // Its own compaction is the shape of another one, at any length.
+        assert_eq!(measured(&t.events).at(200_000), Shape { summary: 6_000, resent: 50_000, left: 75_000 });
+        assert_eq!(measured(&t.events).at(800_000), Shape { summary: 6_000, resent: 50_000, left: 75_000 });
+        // A session without one is given the usual shape for the length, after its own start.
+        assert_eq!(measured(&t.events[..2]).at(270_000), Shape { summary: 4_300, resent: 31_000, left: 56_000 });
         let mut s = Stats::new(Kind::ClaudeCode, Some(200_000));
         s.add(&t);
         let c = s.carry.windows[0].clone();
@@ -2816,7 +2860,7 @@ mod tests {
         }
         assert_eq!((sawtooth(150_000, 200_000, 75_000), sawtooth(60_000, 200_000, 75_000)), ((150_000, 0), (60_000, 0)));
         let saved: u64 = would.iter().enumerate().map(|(i, w)| 250_000 + 50_000 * i as u64 - w * 1000).sum::<u64>() + 20 * 500_000;
-        assert_eq!((c.requests, c.above, s.carry.peak, c.compactions, c.left_above), (31, 28, 600_000, 4, 0));
+        assert_eq!((c.requests, c.above, s.carry.peak, c.compactions, c.left_above), (33, 28, 600_000, 4, 0));
         assert!((c.cost - 0.1 * (50_000.0 * 36.0 + 20.0 * 400_000.0)).abs() < 1e-6);
         assert!((c.saved - 0.1 * saved as f64).abs() < 1e-3);
         // Each compaction: 200k read and a summary of 6k written, then 50k sent as new at the
@@ -2827,12 +2871,12 @@ mod tests {
         assert!((s.carry.cost() - (c.saved - c.instead)).abs() < 1e-6);
         let mut out = String::new();
         finding(&mut out, &s, "carried_context", s.carry.cost(), &Ctx::new(Path::new("/")), false);
-        assert!(out.contains("Carried context: 28 of 31 requests (90%) carried more than 200k tokens, at most 600k.\n"), "{out}");
+        assert!(out.contains("Carried context: 28 of 33 requests (85%) carried more than 200k tokens, at most 600k.\n"), "{out}");
         assert!(out.contains("Compacting at 200k instead: 4 more compactions for about 450k, and about 1.2M less to pay for after them, so about 78"), "{out}");
         assert!(out.contains("Start a fresh session at a natural break"), "{out}");
         // Without the twenty requests at 600k the four compactions cost more than they save.
         let mut climb = Stats::new(Kind::ClaudeCode, Some(200_000));
-        climb.add(&Transcript { id: "c".into(), events: t.events[..11].to_vec(), ..Default::default() });
+        climb.add(&Transcript { id: "c".into(), events: t.events[..14].to_vec(), ..Default::default() });
         assert_eq!((climb.carry.windows[0].above, climb.carry.windows[0].compactions), (8, 4));
         // It is ranked by what reading the part above the length cost, and says so.
         assert!((climb.carry.cost() - 180_000.0).abs() < 1e-6);
@@ -2857,7 +2901,7 @@ mod tests {
             before = context;
         }
         let big = Transcript { id: "b".into(), events: big, ..Default::default() };
-        assert_eq!(shape_of(&big.events), Shape { summary: 10_000, resent: 280_000, left: 300_000 });
+        assert_eq!(measured(&big.events).at(450_000), Shape { summary: 10_000, resent: 280_000, left: 300_000 });
         let mut b = Stats::new(Kind::ClaudeCode, Some(450_000));
         b.add(&big);
         // What it cost: 440k read, 10k written as output, 280k sent as new.
@@ -2903,7 +2947,7 @@ mod tests {
         assert!((all.carry.cost() - 792_500.0).abs() < 1e-3);
         let mut out = String::new();
         finding(&mut out, &all, "carried_context", all.carry.cost(), &Ctx::new(Path::new("/")), false);
-        assert!(out.contains("Carried context: 22 of 31 requests (71%) carried more than 500k tokens, at most 600k.\n"), "{out}");
+        assert!(out.contains("Carried context: 22 of 33 requests (67%) carried more than 500k tokens, at most 600k.\n"), "{out}");
         assert!(out.contains("Compacting at 500k instead: 1 more compaction for about 14"), "{out}");
         // The best is named beside it only where it gains a tenth more.
         assert!(!out.contains("At 300k"), "{out}");

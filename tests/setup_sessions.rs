@@ -74,6 +74,15 @@ fn jsonl(path: &Path, lines: &[Value]) {
     write(path, &text);
 }
 
+/// A compaction as Claude Code writes it: the boundary, and the summary it wrote. `sub`: in a
+/// sub-agent's own transcript.
+fn compacted(minute: i64, pre: u64, summary_bytes: usize, sub: bool) -> [Value; 2] {
+    [
+        json!({"type": "system", "subtype": "compact_boundary", "isSidechain": sub, "timestamp": ts(minute), "compactMetadata": {"trigger": "auto", "preTokens": pre, "postTokens": 9_000, "durationMs": 20_000}}),
+        json!({"type": "user", "isSidechain": sub, "isCompactSummary": true, "message": {"role": "user", "content": "s".repeat(summary_bytes)}, "timestamp": ts(minute)}),
+    ]
+}
+
 /// A file of 7,000 bytes, as a read gives it back.
 fn file_text() -> String {
     "fn x() {}\n".repeat(700)
@@ -384,17 +393,23 @@ fn days_and_other_projects() {
 fn a_large_conversation_carried_for_long() {
     let sb = Sandbox::new("sessions-carry");
     let root = project(&sb, "long");
-    // A start of 25k, ten requests from 150k to 600k tokens, each reading the one before from
-    // the cache, and twenty more at 600k.
-    let mut lines = vec![assistant("s", "claude-opus-5", 0, usage(0, 0, 25_000, 10, 0), json!([]), &root)];
-    let mut before = 25_000u64;
+    // A start of 25k and a first compaction at 80k, which wrote a summary of 21,000 bytes and
+    // left 75k tokens, 50k of them sent as new. Then ten requests from 150k to 600k tokens, each
+    // reading the one before from the cache, and twenty more at 600k.
+    let mut lines = vec![
+        assistant("s", "claude-opus-5", 0, usage(0, 0, 25_000, 10, 0), json!([]), &root),
+        assistant("s2", "claude-opus-5", 1, usage(0, 25_000, 55_000, 10, 0), json!([]), &root),
+    ];
+    lines.extend(compacted(2, 80_000, 21_000, false));
+    lines.push(assistant("s3", "claude-opus-5", 2, usage(0, 25_000, 50_000, 10, 0), json!([]), &root));
+    let mut before = 75_000u64;
     for i in 0..10u64 {
         let context = 150_000 + 50_000 * i;
-        lines.push(assistant(&format!("c{i}"), "claude-opus-5", 1 + i as i64, usage(0, before, context - before, 10, 0), json!([]), &root));
+        lines.push(assistant(&format!("c{i}"), "claude-opus-5", 3 + i as i64, usage(0, before, context - before, 10, 0), json!([]), &root));
         before = context;
     }
     for i in 0..20 {
-        lines.push(assistant(&format!("h{i}"), "claude-opus-5", 11 + i, usage(0, 600_000, 0, 10, 0), json!([]), &root));
+        lines.push(assistant(&format!("h{i}"), "claude-opus-5", 13 + i, usage(0, 600_000, 0, 10, 0), json!([]), &root));
     }
     jsonl(&transcripts(&sb, &root).join(format!("{FIRST}.jsonl")), &lines);
     let r = report(&sb, &root, &[]);
@@ -406,14 +421,14 @@ fn a_large_conversation_carried_for_long() {
     assert_eq!(tried, [(150, 7), (200, 4), (300, 2), (400, 1), (500, 1), (600, 0), (800, 0)], "{c:#}");
     assert_eq!(
         (c["threshold"].as_u64(), c["requests_above"].as_u64(), c["requests"].as_u64(), c["peak_context"].as_u64(), c["spoken_of"].as_bool()),
-        (Some(500_000), Some(22), Some(31), Some(600_000), Some(true)),
+        (Some(500_000), Some(22), Some(33), Some(600_000), Some(true)),
         "{c:#}"
     );
     // 50k and 100k above it and twenty times 100k, read again at 0.1.
     near(&c["weighted"], 0.1 * (150_000.0 + 20.0 * 100_000.0));
-    // Compacting at 500k down to 75k (the start and the 50k a compaction usually has sent
-    // again): 550k and 600k become 125k and 175k. 500k read, a summary of 6k written and 50k
-    // sent as new, against 425k less to read for 22 requests.
+    // Compacting at 500k as this session's own compaction did, down to 75k: 550k and 600k
+    // become 125k and 175k. 500k read, a summary of 6k tokens written and 50k sent as new,
+    // against 425k less to read for 22 requests.
     assert_eq!(c["compactions_instead"], 1);
     near(&c["compactions_weighted_estimate"], 0.1 * 500_000.0 + 5.0 * 6_000.0 + 1.25 * 50_000.0);
     near(&c["saved_reads_estimate"], 0.1 * 425_000.0 * 22.0);
@@ -422,7 +437,7 @@ fn a_large_conversation_carried_for_long() {
     assert_eq!(r["findings"][0]["finding"], "carried_context", "{r:#}");
     near(&r["findings"][0]["weighted"], 792_500.0);
     let text = run(&sb, &root, &[]);
-    assert!(text.contains("Carried context: 22 of 31 requests (71%) carried more than 500k tokens, at most 600k.\n"), "{text}");
+    assert!(text.contains("Carried context: 22 of 33 requests (67%) carried more than 500k tokens, at most 600k.\n"), "{text}");
     assert!(text.contains("Compacting at 500k instead: 1 more compaction for about 14"), "{text}");
     assert!(text.contains(", and about 935k less to pay for after them, so about 79"), "{text}");
     assert!(text.contains("`/autocompact 500k` moves it there: the harness compacts about 33k tokens under the window it is given.\n"), "{text}");
@@ -474,17 +489,19 @@ fn sub_agents_are_conversations_of_their_own() {
             line("w4", opus, 9, usage(5, 36_000, 100, 50, 0)),
         ],
     );
-    // The second, started by a workflow, climbs from 25k to 600k and stays there for twenty
-    // requests.
-    let mut long = vec![line("l", "claude-opus-5", 0, usage(0, 0, 25_000, 10, 0))];
-    let mut before = 25_000u64;
+    // The second, started by a workflow, is compacted once at 80k, then climbs to 600k and
+    // stays there for twenty requests.
+    let mut long = vec![line("l", "claude-opus-5", 0, usage(0, 0, 25_000, 10, 0)), line("l2", "claude-opus-5", 1, usage(0, 25_000, 55_000, 10, 0))];
+    long.extend(compacted(2, 80_000, 21_000, true));
+    long.push(line("l3", "claude-opus-5", 2, usage(0, 25_000, 50_000, 10, 0)));
+    let mut before = 75_000u64;
     for i in 0..10u64 {
         let context = 150_000 + 50_000 * i;
-        long.push(line(&format!("l{i}"), "claude-opus-5", 1 + i as i64, usage(0, before, context - before, 10, 0)));
+        long.push(line(&format!("l{i}x"), "claude-opus-5", 3 + i as i64, usage(0, before, context - before, 10, 0)));
         before = context;
     }
     for i in 0..20 {
-        long.push(line(&format!("h{i}"), "claude-opus-5", 11 + i, usage(0, 600_000, 0, 10, 0)));
+        long.push(line(&format!("h{i}"), "claude-opus-5", 13 + i, usage(0, 600_000, 0, 10, 0)));
     }
     jsonl(&dir.join(FIRST).join("subagents/workflows/run-1/agent-long.jsonl"), &long);
 
@@ -492,7 +509,7 @@ fn sub_agents_are_conversations_of_their_own() {
     let a = &r["subagents"];
     assert_eq!(
         (a["requests"].as_u64(), a["agents_with_transcripts"].as_u64(), a["agents_on_the_five_minute_cache"].as_u64()),
-        (Some(35), Some(2), Some(2)),
+        (Some(37), Some(2), Some(2)),
         "{a:#}"
     );
     // The wait: 35,005 tokens written again at 1.25 where a read is 0.05.
@@ -505,7 +522,7 @@ fn sub_agents_are_conversations_of_their_own() {
     let c = &a["carried_context"];
     assert_eq!(
         (c["threshold"].as_u64(), c["requests"].as_u64(), c["requests_above"].as_u64(), c["compactions_instead"].as_u64(), c["peak_context"].as_u64()),
-        (Some(500_000), Some(35), Some(22), Some(1), Some(600_000)),
+        (Some(500_000), Some(37), Some(22), Some(1), Some(600_000)),
         "{c:#}"
     );
     near(&c["difference_estimate"], 935_000.0 - 142_500.0);
@@ -516,7 +533,7 @@ fn sub_agents_are_conversations_of_their_own() {
     assert!(found.contains(&"agent_cold_restarts"), "{found:?}");
 
     let text = run(&sb, &root, &[]);
-    assert!(text.contains(" 35 requests (") && text.contains("), 2 agents with transcripts of their own: cache reads "), "{text}");
+    assert!(text.contains(" 37 requests (") && text.contains("), 2 agents with transcripts of their own: cache reads "), "{text}");
     assert!(
         text.contains(
             "Cold restarts in sub-agents: 1 request of sub-agents sent the agent's conversation again at the price of new input: 1 idle for more than five minutes (42k).\n"
@@ -529,7 +546,7 @@ fn sub_agents_are_conversations_of_their_own() {
         ),
         "{text}"
     );
-    assert!(text.contains("Carried context in sub-agents: 22 of 35 requests of sub-agents (63%) carried more than 500k tokens, at most 600k.\n"), "{text}");
+    assert!(text.contains("Carried context in sub-agents: 22 of 37 requests of sub-agents (59%) carried more than 500k tokens, at most 600k.\n"), "{text}");
     assert!(text.contains("A long job costs less given to several agents in turn"), "{text}");
     // One session broken down names the dearest cold request of its agents.
     let one = run(&sb, &root, &["--session", FIRST]);
@@ -722,19 +739,26 @@ fn a_codex_session_in_numbers() {
 fn codex_carried_context() {
     let sb = Sandbox::new("sessions-codex-carry");
     let root = project(&sb, "cxlong");
-    // The same session as the Claude Code one: a start of 25k, a climb from 150k to 600k, and
-    // twenty requests at 600k.
-    let mut lines = vec![meta(&root), model(0, "gpt-6"), tokens(0, 25_000, 0, 25_000, 10, 0, 25_010)];
-    let (mut before, mut total) = (25_000u64, 25_010u64);
+    // The same session as the Claude Code one: a start of 25k, a compaction that left 75k, a
+    // climb from 150k to 600k, and twenty requests at 600k.
+    let mut lines = vec![
+        meta(&root),
+        model(0, "gpt-6"),
+        tokens(0, 25_000, 0, 25_000, 10, 0, 25_010),
+        tokens(1, 80_000, 25_000, 55_000, 10, 0, 105_020),
+        cx(2, "compacted", json!({"message": "s".repeat(21_000)})),
+        tokens(2, 75_000, 25_000, 50_000, 10, 0, 180_030),
+    ];
+    let (mut before, mut total) = (75_000u64, 180_030u64);
     for i in 0..10u64 {
         let context = 150_000 + 50_000 * i;
         total += context + 10;
-        lines.push(tokens(1 + i as i64, context, before, context - before, 10, 0, total));
+        lines.push(tokens(3 + i as i64, context, before, context - before, 10, 0, total));
         before = context;
     }
     for i in 0..20 {
         total += 600_010;
-        lines.push(tokens(11 + i, 600_000, 600_000, 0, 10, 0, total));
+        lines.push(tokens(13 + i, 600_000, 600_000, 0, 10, 0, total));
     }
     jsonl(&rollout_path(&sb, ROLLOUT), &lines);
     let c = of(&sb, &root, &[], "Codex")["carried_context"].clone();
@@ -829,12 +853,13 @@ fn haiku_steps_up_over_a_prompt_of_100k() {
     let c = &step["compacting_at_the_step"];
     assert_eq!((c["threshold"].as_u64(), c["requests"].as_u64(), c["requests_above"].as_u64()), (Some(100_000), Some(6), Some(2)), "{c:#}");
     near(&c["weighted"], 5.0 * 0.1 * (20_000.0 + 40_000.0));
-    // Compacted at 100k down to 70k (the start and the 50k a compaction usually has sent
-    // again), the two would have carried 90k and 80k, below the step: two compactions at the
-    // lower price. What they save is each request at the lower price, with less to read.
-    assert_eq!(c["compactions_instead"], 2);
-    near(&c["compactions_weighted_estimate"], 2.0 * (0.1 * 100_000.0 + 5.0 * 6_000.0 + 1.25 * 50_000.0));
-    near(&c["saved_reads_estimate"], (5.0 * over[0] - (over[0] - 0.1 * 30_000.0)) + (5.0 * over[1] - (over[1] - 0.1 * 60_000.0)));
+    // There is no compaction to measure here. One at 100k usually writes a summary of 3,670
+    // tokens and has 24,703 sent as new, which with the start of 20k leaves 44,703: the two
+    // requests would have carried 64,703 and 84,703, below the step, after one compaction at
+    // the lower price. What it saves is each request at the lower price, with 55,297 less to read.
+    assert_eq!(c["compactions_instead"], 1);
+    near(&c["compactions_weighted_estimate"], 0.1 * 100_000.0 + 5.0 * 3_670.0 + 1.25 * 24_703.0);
+    near(&c["saved_reads_estimate"], (5.0 * over[0] - (over[0] - 0.1 * 55_297.0)) + (5.0 * over[1] - (over[1] - 0.1 * 55_297.0)));
     assert_eq!(r["weights"]["claude-haiku-5-5"]["tier"], json!({"over_tokens": 100_000, "times": 5.0}));
 
     let text = run(&sb, &root, &[]);
@@ -854,7 +879,9 @@ fn haiku_steps_up_over_a_prompt_of_100k() {
     );
     assert!(!text.contains("Carried context"), "{text}");
     assert!(
-        text.contains("Compacting at 100k instead: 2 more compactions for about 205k, and about 301k less to pay for after them, so about 96k less in all (an estimate).\n"),
+        text.contains(
+            "Compacting at 100k instead: 1 more compaction for about 59k, and about 303k less to pay for after them, so about 244k less in all (an estimate).\n"
+        ),
         "{text}"
     );
     assert!(
