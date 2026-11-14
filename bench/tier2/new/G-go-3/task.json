@@ -1,0 +1,12 @@
+{
+  "id": "G-go-3",
+  "family": "G",
+  "language": "go",
+  "title": "Segmented event journal: binary records with CRC, crash recovery, replay, snapshots, compaction, inventory state machine and CLI",
+  "split": "held",
+  "check_cmd": "go test ./...",
+  "tests": 39,
+  "timeout": 300,
+  "reference_lines": 566,
+  "reference_files": 5
+}

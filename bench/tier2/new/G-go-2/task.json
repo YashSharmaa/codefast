@@ -1,0 +1,12 @@
+{
+  "id": "G-go-2",
+  "family": "G",
+  "language": "go",
+  "title": "Rate-limit policy engine: policy file parser, exact token buckets, multi-policy decisions and an HTTP surface",
+  "split": "held",
+  "check_cmd": "go test ./...",
+  "tests": 39,
+  "timeout": 300,
+  "reference_lines": 464,
+  "reference_files": 5
+}

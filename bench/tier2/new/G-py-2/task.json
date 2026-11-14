@@ -1,0 +1,12 @@
+{
+  "id": "G-py-2",
+  "family": "G",
+  "language": "python",
+  "title": "csvq: SQL SELECT engine over CSV tables with grouping, ordering and a command line",
+  "split": "held",
+  "check_cmd": "python3 -m unittest discover -s tests_hidden -t . -v",
+  "tests": 35,
+  "timeout": 120,
+  "reference_lines": 574,
+  "reference_files": 10
+}

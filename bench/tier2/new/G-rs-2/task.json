@@ -1,0 +1,12 @@
+{
+  "id": "G-rs-2",
+  "family": "G",
+  "language": "rust",
+  "title": "patchwork: minimal line diff, hunks with context, unified diff writing and parsing, fuzzy patch application and reversal with a CLI",
+  "split": "held",
+  "check_cmd": "cargo test",
+  "tests": 35,
+  "timeout": 300,
+  "reference_lines": 476,
+  "reference_files": 8
+}

@@ -1,0 +1,12 @@
+{
+  "id": "G-py-1",
+  "family": "G",
+  "language": "python",
+  "title": "recur: recurring-date rule expander with schedules and a command line",
+  "split": "dev",
+  "check_cmd": "python3 -m unittest discover -s tests_hidden -t . -v",
+  "tests": 38,
+  "timeout": 120,
+  "reference_lines": 375,
+  "reference_files": 8
+}

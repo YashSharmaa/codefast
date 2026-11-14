@@ -1,0 +1,12 @@
+{
+  "id": "G-rs-1",
+  "family": "G",
+  "language": "rust",
+  "title": "verso: semantic-version parsing, constraint matching, a package registry format and a dependency solver with a CLI",
+  "split": "dev",
+  "check_cmd": "cargo test",
+  "tests": 38,
+  "timeout": 300,
+  "reference_lines": 532,
+  "reference_files": 7
+}

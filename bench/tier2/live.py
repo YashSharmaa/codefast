@@ -34,6 +34,7 @@ AB = ROOT / "target/ab"
 LIVE = ROOT / "target/live"
 SYFT = ROOT / "bench/repos/syft"
 LINUX = ROOT / "bench/repos/linux"
+NEW = ROOT / "bench/tier2/new"
 # The indexes of the shared trees. An index belongs to the version of codefast that wrote it,
 # and a build that finds another version's index rebuilds it. Two builds that are measured
 # side by side therefore each get directories of their own: BENCH_INDEX_SUFFIX names them.
@@ -113,8 +114,21 @@ def held_out(name):
     return json.load(open(ROOT / "bench/tier2/tasks.json")).get("held_out", {}).get(name, [])
 
 
+def g_tasks():
+    """Projects to create from nothing (`bench/tier2/new`): each is a specification, hidden tests
+    written against the interface it gives, and a reference implementation that shows those
+    tests can be passed. A session gets the specification and an empty directory."""
+    out = []
+    for p in sorted(NEW.glob("*/task.json")):
+        t = json.load(open(p))
+        t.update(dir=str(p.parent), repo_name="a new project")
+        out.append(t)
+    return out
+
+
 def choose(a):
     d, r, i, e, w, c, f = load("d"), load("r") + load("r2"), load("i"), load("e"), load("w") + load("w2"), load("c"), load("f") + load("fdev") + load("f2")
+    g = g_tasks()
     k = k_tasks() + k_tasks("kernel_questions_held_out") + k_tasks("kernel_questions_held_out_2")
     n, long = n_tasks()
     n2 = load("n2") + load("nz")
@@ -122,8 +136,10 @@ def choose(a):
     held_n = [t for t in n2 if t["id"] in held_out("N")]
     long2 = [dict(id=f"L-gogit-{j // 4 + 1}", family="L", repo_name="go-git/go-git", parts=held_n[j : j + 4]) for j in range(0, len(held_n) - 3, 4)]
     if a.ids or a.held:
-        want = a.ids.split(",") if a.ids else [x for fam in a.held.split(",") for x in held_out(fam)]
-        by = {t["id"]: t for t in d + r + k + n + long + i + n2 + e + long2 + w + c + f}
+        # The new projects carry their split themselves: G is the held-out half, Gdev the other.
+        split = {"G": [t["id"] for t in g if t["split"] == "held"], "Gdev": [t["id"] for t in g if t["split"] == "dev"]}
+        want = a.ids.split(",") if a.ids else [x for fam in a.held.split(",") for x in (split[fam] if fam in split else held_out(fam))]
+        by = {t["id"]: t for t in d + r + k + n + long + i + n2 + e + long2 + w + c + f + g}
         return [by[x] for x in want]
     order = lambda ts: sorted(ts, key=lambda t: hashlib.sha256(t["id"].encode()).hexdigest())
     if a.dev:
@@ -163,6 +179,14 @@ def n_question(t):
 
 
 def prompt_for(t, repo):
+    if t["family"] == "G":
+        return f"""You are in a new, empty project directory ({repo}). The only file in it is SPEC.md.
+
+Build the project that SPEC.md describes: write the code, write tests of your own, and run them until they pass.
+
+When you are done, the project is checked by other tests, written against exactly the interface SPEC.md gives.
+
+Rules: work only inside {repo}. Do not read, list or run anything outside it, apart from the language tools the specification names. Do not install anything and do not use the network. When you are done, say in two or three sentences what you built."""
     if t["family"] == "E":
         return f"""You are in a checkout of {ABOUT[t['repo_name']]}. It is in the current directory ({repo}).
 
@@ -396,6 +420,23 @@ def prepare(t, arm, rep, a, binary):
         (run / "prompt.txt").write_text(prompt_for(t, where))
         json.dump(row, open(run / "task.json", "w"), indent=1)
         return row
+    if t["family"] == "G":
+        # Nothing but the specification, in a work tree of its own (see family F for why).
+        repo.mkdir()
+        shutil.copy2(Path(t["dir"]) / "SPEC.md", repo / "SPEC.md")
+        git = ["git", "-c", "user.name=bench", "-c", "user.email=bench@localhost", "-c", "commit.gpgsign=false"]
+        subprocess.run(git + ["init", "-q", "."], cwd=repo, check=True)
+        (repo / ".git/info/exclude").write_text(".codefast/\n")
+        subprocess.run(git + ["add", "-A"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(git + ["commit", "-q", "-m", "specification"], cwd=repo, check=True, capture_output=True)
+        row = dict(id=t["id"], family="G", arm=arm, rep=rep, repo=str(repo), run=str(run), repo_name=t["repo_name"], model=a.model, language=t["language"],
+                   check=t["check_cmd"], hidden=str(Path(t["dir"]) / "hidden"), tests=t["tests"], check_timeout=t.get("timeout", 300))
+        if spec["plugin"]:
+            e = dict(os.environ, CODEFAST_NO_REFRESH="")
+            subprocess.run([str(binary), "--root", str(repo), "index"], capture_output=True, text=True, env=e)
+        (run / "prompt.txt").write_text(prompt_for(t, repo))
+        json.dump(row, open(run / "task.json", "w"), indent=1)
+        return row
     src = repo_of(t)[0] if t["family"] == "R" else t["base"]
     shutil.copytree(src, repo, symlinks=True, ignore=shutil.ignore_patterns(".git", ".codefast", "__pycache__"))
     if spec.get("rules"):
@@ -544,7 +585,73 @@ def test_tree_hash(repo):
     return h.hexdigest()
 
 
+def hidden_passed(language, hidden, out):
+    """How many of the hidden tests the output of the check reports as passed. Tests a session
+    wrote for itself are run by some of these commands as well, and are not counted."""
+    hidden = Path(hidden)
+    if language == "python":
+        # `unittest discover -s tests_hidden` runs the hidden tests and nothing else.
+        ran = re.search(r"^Ran (\d+) tests?", out, re.M)
+        bad = re.search(r"^FAILED \(([^)]*)\)", out, re.M)
+        lost = sum(int(n) for n in re.findall(r"(?:failures|errors|skipped|unexpected successes)=(\d+)", bad.group(1))) if bad else 0
+        return max(0, int(ran.group(1)) - lost) if ran else 0
+    if language == "go":
+        names = {m for p in hidden.rglob("*_test.go") for m in re.findall(r"^func (Test\w+)\(", p.read_text(), re.M)}
+        return len({m for m in re.findall(r"^--- PASS: (\w+)", out, re.M) if m in names})
+    if language == "rust":
+        # One test binary per file under tests/: count the passes of the hidden ones.
+        n, mine = 0, False
+        for line in out.splitlines():
+            m = re.match(r"\s*Running (\S+)", line)
+            if m:
+                mine = Path(m.group(1)).name.startswith("hidden")
+            elif line.lstrip().startswith("Doc-tests"):
+                mine = False
+            elif mine and re.match(r"test \S+ \.\.\. ok\b", line):
+                n += 1
+        return n
+    if language == "typescript":
+        # `node --test tests_hidden/` runs the hidden tests alone, and reports in TAP when it
+        # is not on a terminal ("# pass 31") and in its own format when it is.
+        m = re.search(r"^(?:#|\u2139) pass (\d+)", out, re.M)
+        return int(m.group(1)) if m else 0
+    raise ValueError(language)
+
+
+def verify_g(row):
+    """The hidden tests come into a copy of what the session built, and are run there."""
+    run = Path(row["run"])
+    graded = run / "graded"
+    if graded.exists():
+        shutil.rmtree(graded)
+    shutil.copytree(row["repo"], graded, symlinks=True, ignore=shutil.ignore_patterns(".git", ".codefast", "__pycache__", "target", "node_modules"))
+    shutil.copytree(row["hidden"], graded, dirs_exist_ok=True)
+    cmd = row["check"]
+    if row["language"] == "go" and " -v" not in cmd:
+        cmd += " -v -count=1"
+    if row["language"] == "rust" and "--no-fail-fast" not in cmd:
+        # Without it cargo stops at the first test binary that has a failure, and the tests of
+        # the binaries after it are never run.
+        cmd += " --no-fail-fast"
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", CARGO_TARGET_DIR=str(run / "cargo-target"), CARGO_BUILD_JOBS="2", NO_COLOR="1", GOFLAGS="-mod=mod")
+    try:
+        # One stream, in the order it was written: cargo names the test binary it starts on
+        # stderr and the binary prints its tests on stdout.
+        p = subprocess.run(["nice", "-n", "10", "/bin/sh", "-c", cmd], cwd=graded, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=row.get("check_timeout", 300), env=env)
+        rc, out = p.returncode, p.stdout
+    except subprocess.TimeoutExpired as e:
+        rc, out = 124, (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+    (run / "check.txt").write_text(out[-40000:])
+    shutil.rmtree(run / "cargo-target", ignore_errors=True)
+    got = min(hidden_passed(row["language"], row["hidden"], out), row["tests"])
+    row["tests_passed"] = got
+    row["kscore"] = round(got / row["tests"], 3)
+    return rc == 0 and got == row["tests"], True
+
+
 def verify(row):
+    if row["family"] == "G":
+        return verify_g(row)
     if row["family"] in ("N", "L", "E", "C"):
         s = verify_n(row)
         row["kscore"] = s
@@ -677,7 +784,8 @@ def parse(path):
     firsts = []  # (cache read, cache write, uncached input) of the session's first request
     sizes = []  # per request of the main thread: (tokens of prompt, tokens of output)
     early = 0  # characters hooks added before the first request
-    r: dict[str, Any] = dict(requests=0, sub_requests=0, tools={}, cmds=[], cf_cli=0, cf_mcp=0, hooks={}, hook_bytes=0, result_chars={}, init={}, limits={}, final=None, usage={}, cost=0.0, turns=0, denials=0)
+    r: dict[str, Any] = dict(requests=0, sub_requests=0, tools={}, cmds=[], cf_cli=0, cf_mcp=0, hooks={}, hook_bytes=0, result_chars={}, init={}, limits={}, final=None, usage={}, cost=0.0, turns=0, denials=0,
+                             thinking=None, touched=[])
     seen, names = set(), {}
     for e in ev:
         t, s = e.get("type"), e.get("subtype")
@@ -721,6 +829,7 @@ def parse(path):
                     n = c["name"]
                     names[c["id"]] = n
                     r["tools"][n] = r["tools"].get(n, 0) + 1
+                    r["touched"].append(json.dumps(c.get("input") or {}))
                     if n == "Bash":
                         cmd = c["input"].get("command", "")
                         r["cmds"].append(cmd)
@@ -738,6 +847,8 @@ def parse(path):
         elif t == "result":
             u = e.get("usage", {})
             r["usage"] = dict(input=u.get("input_tokens", 0), cache_read=u.get("cache_read_input_tokens", 0), cache_write=u.get("cache_creation_input_tokens", 0), output=u.get("output_tokens", 0))
+            # Of the output, what was thinking: not shown, and billed like the rest.
+            r["thinking"] = (u.get("output_tokens_details") or {}).get("thinking_tokens")
             r["cost"] = e.get("total_cost_usd", 0.0)
             r["turns"] = e.get("num_turns", 0)
             r["final"] = e.get("subtype")
@@ -867,6 +978,13 @@ def rows_of(tag):
         if res["family"] == "F":
             row["rank"], row["answered"] = res.get("rank"), res.get("answered")
         row["violations"] = (["control arm used the tool"] if res["arm"] == "control" and (r["cf_cli"] or r["cf_mcp"]) else []) + (["ended early: " + str(r["final"])] if r["final"] != "success" else [])
+        row["thinking"] = r["thinking"]
+        if res["family"] in ("G", "S"):
+            row["tests_passed"], row["tests"] = res.get("tests_passed"), res.get("tests")
+            # The hidden tests and the reference live in this repository: a session that went
+            # looking for them is not a session that built the project.
+            if any("tier2/new" in t or "tier2/staged" in t for t in r["touched"]):
+                row["violations"].append("looked at the task's own files")
         rows.append(row)
     return rows
 
@@ -961,6 +1079,32 @@ def report(rows):
                       f"output = {ratio('output'):.2f}  tool results = {ratio('result_chars'):.2f}  cheaper in {wins}/{len(pairs)}")
 
 
+def cmd_check_new(a):
+    """The grader and the tasks, checked against each other: the reference implementation of a
+    task, graded as a session's work would be, passes every hidden test, and an empty project
+    passes none."""
+    want = set(a.ids.split(",")) if a.ids else None
+    bad = 0
+    for t in g_tasks():
+        if want and t["id"] not in want:
+            continue
+        run = LIVE / "check-new" / t["id"]
+        if run.exists():
+            shutil.rmtree(run)
+        run.mkdir(parents=True)
+        row = dict(run=str(run), repo=str(Path(t["dir"]) / "reference"), language=t["language"], check=t["check_cmd"], hidden=str(Path(t["dir"]) / "hidden"), tests=t["tests"], check_timeout=t.get("timeout", 300))
+        ok, _ = verify_g(row)
+        (run / "empty").mkdir()
+        (run / "empty/SPEC.md").write_text("nothing built")
+        none = dict(row, run=str(run / "none"), repo=str(run / "empty"))
+        Path(none["run"]).mkdir()
+        ok0, _ = verify_g(none)
+        fine = ok and not ok0 and none["tests_passed"] == 0
+        bad += not fine
+        print(f"{t['id']:10} {t['language']:10} {t['split']:4} reference {row['tests_passed']:2d}/{t['tests']:2d}  empty project {none['tests_passed']}/{t['tests']}  {'ok' if fine else 'NOT OK'}  {t['title']}")
+    sys.exit(1 if bad else 0)
+
+
 def cmd_show(a):
     run = LIVE / a.tag / a.id / a.arm  # ARM, or ARM.N for a repetition
     names = {}
@@ -1009,7 +1153,7 @@ def main():
     p.add_argument("--model", default="haiku", choices=sorted(BUDGET))
     p.add_argument("--dev", action="store_true")
     p.add_argument("--ids", default="")
-    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,K2,C,F,F2,D,I,N,R,E,L,NZ,W,W2")
+    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,K2,C,F,F2,D,I,N,R,E,L,NZ,W,W2, and G (new projects, held out) or Gdev (the ones to develop on)")
     p.add_argument("--d", type=int, default=16)
     p.add_argument("--r", type=int, default=8)
     p.add_argument("--k", type=int, default=0, help="kernel questions")
@@ -1029,6 +1173,8 @@ def main():
     p.add_argument("--claude", default=os.environ.get("CLAUDE_BIN", str(Path.home() / ".local/bin/claude")))
     p.add_argument("--config-dir", default=os.environ.get("CLAUDE_CONFIG_DIR", ""))
     p.add_argument("--codefast", default=os.environ.get("CODEFAST_BIN", str(ROOT / "target/release/codefast")))
+    p = sub.add_parser("check-new", help="grade the reference implementation of every new-project task: each must pass all of its hidden tests")
+    p.add_argument("--ids", default="")
     p = sub.add_parser("verify")
     p.add_argument("--tag", required=True)
     p.add_argument("--force", action="store_true", help="also runs that have an outcome")
@@ -1042,7 +1188,7 @@ def main():
     p.add_argument("--arm", required=True)
     p.add_argument("--width", type=int, default=220)
     a = ap.parse_args()
-    {"run": cmd_run, "verify": cmd_verify, "score": cmd_score, "show": cmd_show}[a.cmd](a)
+    {"run": cmd_run, "verify": cmd_verify, "score": cmd_score, "show": cmd_show, "check-new": cmd_check_new}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,12 @@
+{
+  "id": "G-py-3",
+  "family": "G",
+  "language": "python",
+  "title": "dimcalc: unit conversion with dimensional analysis, quantity arithmetic and a command line",
+  "split": "held",
+  "check_cmd": "python3 -m unittest discover -s tests_hidden -t . -v",
+  "tests": 33,
+  "timeout": 120,
+  "reference_lines": 371,
+  "reference_files": 8
+}

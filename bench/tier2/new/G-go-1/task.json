@@ -1,0 +1,12 @@
+{
+  "id": "G-go-1",
+  "family": "G",
+  "language": "go",
+  "title": "Build-dependency planner: Makefile-like parser, dependency order with cycle reporting, rebuild plan and CLI",
+  "split": "dev",
+  "check_cmd": "go test ./...",
+  "tests": 39,
+  "timeout": 300,
+  "reference_lines": 515,
+  "reference_files": 5
+}

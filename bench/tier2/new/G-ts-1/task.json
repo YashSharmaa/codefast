@@ -1,0 +1,12 @@
+{
+  "id": "G-ts-1",
+  "family": "G",
+  "language": "typescript",
+  "title": "roomplan: meeting-room scheduler with interval index, slot finder and a web Request/Response handler",
+  "split": "dev",
+  "check_cmd": "node --test tests_hidden/",
+  "tests": 28,
+  "timeout": 120,
+  "reference_lines": 360,
+  "reference_files": 5
+}
