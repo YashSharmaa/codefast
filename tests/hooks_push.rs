@@ -89,6 +89,80 @@ fn a_prompt_gets_no_card_for_what_the_index_cannot_pin_down() {
     );
 }
 
+/// A prompt that asks a question the index answers whole gets the answer: what the command
+/// for it would print, about the one definition the prompt can mean. A call for it would
+/// cost the session a request.
+#[test]
+fn a_question_the_index_answers_whole_is_answered_in_the_card() {
+    let repo = Repo::new("prompt-asks");
+    // A counter that two functions write and one reads.
+    write(
+        &repo.path("src/count.c"),
+        "struct counter { int hits; int limit; };\n\nvoid bump(struct counter *c)\n{\n    c->hits++;\n}\n\nvoid reset(struct counter *c)\n{\n    c->hits = 0;\n}\n\nint peek(struct counter *c)\n{\n    return c->hits;\n}\n",
+    );
+    // One function of a name per file system, and one binding of a slot per file system.
+    for (fs, file) in [("ext4", "super.c"), ("fat", "inode.c")] {
+        write(
+            &repo.path(&format!("fs/{fs}/{file}")),
+            &format!(
+                "#include \"../../src/io.h\"\n\nstatic void init_once(void *foo)\n{{\n    log_msg(\"{fs}\");\n}}\n\nstatic int {fs}_read(struct dev *d, char *buf, int count)\n{{\n    return count;\n}}\n\nconst struct dev_ops {fs}_ops = {{\n    .read = {fs}_read,\n}};\n"
+            ),
+        );
+    }
+    let home = scratch("home");
+    let (code, out, err) = run(&home, &repo.dir, &["index"], &[], None);
+    assert_eq!(code, 0, "codefast index: {out}{err}");
+    let ask = |session: &str, prompt: &str| {
+        let mut v: serde_json::Value = serde_json::from_str(&payload("claude-user-prompt", &repo.dir, &home)).unwrap();
+        v["prompt"] = prompt.into();
+        v["session_id"] = session.into();
+        hook(&home, &repo.dir, "user-prompt-submit", v.to_string().as_bytes(), &[])
+    };
+
+    // What a function calls, the call through a table included, and no second card about it.
+    assert_eq!(
+        ask("a", "What does dev_write() call?").context("UserPromptSubmit"),
+        "codefast: what dev_write calls (`codefast callees dev_write` prints the same):\nsrc/io.c:11 int dev_write(struct dev *d, const char *buf, int count)  (all 2 distinct callees)\n  13 log_msg src/io.h:9\n  14 ->write() [dev_ops.write]"
+    );
+    // Who calls it is another question: the card for the symbol, as before.
+    let callers = ask("b", "Which functions call dev_write()?").context("UserPromptSubmit");
+    assert!(callers.starts_with("codefast: dev_write is defined at src/io.c:11-15\n") && callers.contains("called from 1 site"), "{callers}");
+
+    // How one function reaches another: the hops, each with its place.
+    assert_eq!(
+        ask("c", "How does main() get to dev_read()?").context("UserPromptSubmit"),
+        "codefast: a call path from main to dev_read (`codefast path main dev_read` prints the same):\nmain \u{2192} copy_all \u{2192} dev_read (2 hops)\n  src/main.c:15 main calls copy_all\n  src/main.c:7 copy_all calls dev_read"
+    );
+    // Two functions in one sentence, and no question of a path: their cards.
+    let both = ask("d", "`copy_all` and `dev_read` both need a timeout.").context("UserPromptSubmit");
+    assert!(!both.contains("call path") && both.matches(" is defined at ").count() == 2, "{both}");
+
+    // Where a member is written: the two that write it, and not the one that reads it.
+    assert_eq!(
+        ask("e", "Which functions write the hits field of struct counter?").context("UserPromptSubmit"),
+        "codefast: counter.hits is defined at src/count.c:1. Where it is written (`codefast refs counter.hits --only write` prints the same):\nwrites (2):\nsrc/count.c\n  5 bump: c->hits++;\n  10 reset: c->hits = 0;"
+    );
+
+    // One of several definitions, picked by a word of the prompt that is a directory of
+    // exactly one of them. The card says so. Without such a word there is no card.
+    let picked = ask("f", "Where is ext4's init_once defined?").context("UserPromptSubmit");
+    assert!(picked.starts_with("codefast: init_once is defined at fs/ext4/super.c:3-6\n  (of 2 definitions of init_once, the one whose path has `ext4`, a word of the prompt)\n"), "{picked}");
+    ask("g", "Where is init_once defined?").assert_quiet("a name two functions have, and no word that says which");
+    // A word that asks is not a word that says where: "function" is not a directory here,
+    // and it would not count if it were.
+    ask("h", "Which function is init_once?").assert_quiet("a generic word beside the name");
+
+    // A type said with its kind word, though the word alone would be prose.
+    let kind = ask("i", "What members does struct dev have?").context("UserPromptSubmit");
+    assert!(kind.starts_with("codefast: dev is defined at src/io.h:6 "), "{kind}");
+
+    // A slot with a binding per file system, and the file system the prompt names.
+    let bound = ask("j", "Which function implements dev_ops.read for ext4?").context("UserPromptSubmit");
+    assert!(bound.contains("\n  of its 2 bindings, under `ext4`, a word of the prompt: ext4_read (fs/ext4/super.c:8), bound at fs/ext4/super.c:14"), "{bound}");
+    let unbound = ask("k", "Which functions implement dev_ops.read?").context("UserPromptSubmit");
+    assert!(!unbound.contains("of its 2 bindings"), "{unbound}");
+}
+
 #[test]
 fn a_card_carries_what_is_small_and_points_at_what_is_large() {
     let repo = Repo::new("prompt-sizes");

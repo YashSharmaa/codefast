@@ -81,6 +81,8 @@ const USAGE_MAX_FILES: usize = 1000;
 const BUILD_WAIT: Duration = Duration::from_millis(400);
 /// Names with more definitions than this are too ambiguous to answer unasked.
 const MAX_DEFS: usize = 48;
+/// How many definitions of a name are looked through for the one its owner has.
+const OWNED_SCAN: usize = 20_000;
 const MAX_ENTITIES: usize = 8;
 /// Symbols of a prompt that get a card. Context nobody asked for pays only while it is
 /// short and right: two cards, and none for a name the index cannot pin down.
@@ -94,6 +96,15 @@ const CARD_CODE_LINES: u32 = 50;
 /// The most places of use a card lists one by one, and the room their list may take. Beyond
 /// either, the card gives their number and the command that lists them.
 const CARD_SITES: usize = 12;
+/// The room of a card that answers the question a prompt asks: what a function calls, how
+/// one function reaches another, where a member is written.
+const ASK_TOKENS: usize = 450;
+/// A function may call thirty others, and a list cut short sends the session to ask for the
+/// rest, which costs it more than the rest would have.
+const ASK_CALLEES_TOKENS: usize = 800;
+/// How long the search for a call path may work before a prompt goes on without it. The
+/// other cards of the prompt wait behind it.
+const ASK_PATH_SECONDS: f64 = 0.5;
 const SITES_BYTES: usize = 700;
 /// Messages of a prompt that are traced to the line that writes them, and the files that may
 /// be read to find them. A prompt shorter than this quotes no message.
@@ -864,11 +875,53 @@ fn context_cost(place: &Place, payload: &Payload, cli: &str) -> Option<String> {
 
 // ----- user-prompt-submit -----
 
+/// A mention resolved to one entity, and how the choice among several was made.
+struct Pinned {
+    target: Target,
+    /// The word of the prompt that picked this one of `among` definitions of the name, where
+    /// it took a word to do so (`x86` for `copy_thread`).
+    by: Option<(String, usize)>,
+}
+
+/// The one definition among several that a word of the prompt points at: the word is one of
+/// the directories of its path and of no other's (`x86` in `arch/x86/kernel/process.c`), or,
+/// where no word is anyone's directory, the name of its file and of no other's. A directory
+/// says which part of a project is meant. A file name says less, so it is asked second.
+fn narrow(ix: &Index, pool: &[DefId], beside: &[String]) -> Option<(DefId, String)> {
+    let dir = |path: &str, word: &str| path.rsplit_once('/').is_some_and(|(dirs, _)| dirs.split('/').any(|d| d.eq_ignore_ascii_case(word)));
+    let file = |path: &str, word: &str| {
+        let name = path.rsplit('/').next().unwrap_or(path);
+        name.split('.').next().unwrap_or(name).eq_ignore_ascii_case(word)
+    };
+    for by in [&dir as &dyn Fn(&str, &str) -> bool, &file] {
+        let mut hit: Option<(DefId, &String)> = None;
+        let mut any = false;
+        for &d in pool {
+            let path = ix.def(d).path();
+            if let Some(w) = beside.iter().find(|w| by(path, w)) {
+                if any {
+                    // Two definitions answer to a word of the prompt: no word decides.
+                    return None;
+                }
+                any = true;
+                hit = Some((d, w));
+            }
+        }
+        if let Some((d, w)) = hit {
+            return Some((d, w.clone()));
+        }
+    }
+    None
+}
+
 /// The one entity a mention names, or nothing when the index leaves any doubt.
-fn resolve_mention<'a>(ix: &'a Index, rs: &Resolver<'a>, m: &Mention, paths: &[String]) -> Option<Target> {
+fn resolve_mention<'a>(ix: &'a Index, rs: &Resolver<'a>, m: &Mention, paths: &[String], beside: &[String]) -> Option<Pinned> {
     let nid = ix.name_id(m.name.as_bytes())?;
-    let mut defs: Vec<DefId> = ix.defs_named_id(nid).take(4 * MAX_DEFS + 1).collect();
-    if defs.is_empty() || defs.len() > 4 * MAX_DEFS {
+    // A name said with its owner may be one that thousands of things have (`sp`, `len`): the
+    // owner is what makes it one, so the owner is asked before the count is.
+    let scan = if m.owner.is_some() { OWNED_SCAN } else { 4 * MAX_DEFS };
+    let mut defs: Vec<DefId> = ix.defs_named_id(nid).take(scan + 1).collect();
+    if defs.is_empty() || defs.len() > scan {
         return None;
     }
     if let Some(owner) = &m.owner {
@@ -883,6 +936,10 @@ fn resolve_mention<'a>(ix: &'a Index, rs: &Resolver<'a>, m: &Mention, paths: &[S
             held
         };
     }
+    if m.is_type {
+        // `struct kiocb`: the prompt said what kind of thing it is.
+        defs.retain(|&d| ix.def(d).kind().is_type());
+    }
     let in_named_file: Vec<DefId> = defs.iter().copied().filter(|&d| paths.iter().any(|p| ix.def(d).path().ends_with(p.as_str()))).collect();
     let pinned = !in_named_file.is_empty();
     if pinned {
@@ -893,18 +950,31 @@ fn resolve_mention<'a>(ix: &'a Index, rs: &Resolver<'a>, m: &Mention, paths: &[S
     }
     let ents = rs.entities(&defs);
     let strong: Vec<&Target> = ents.iter().filter(|t| matches!(t.class, Class::Callable | Class::Type | Class::Value)).collect();
+    let explicit = m.explicit || m.is_type;
+    // The name has several definitions that could be meant: one per architecture, one per
+    // driver, one per type that has a field of that name. A word of the same sentence that
+    // is a directory of exactly one of them says which. `copy_thread on x86`, `ext4's
+    // init_once`, `thread.sp (struct thread_struct, x86)`.
+    let among: Vec<&Target> = if strong.is_empty() { ents.iter().collect() } else { strong.clone() };
+    let pool: Vec<DefId> = among.iter().flat_map(|t| t.defs.iter().copied()).filter(|&d| !ix.def(d).is_decl()).collect();
+    if pool.len() > 1 && (explicit || !strong.is_empty()) {
+        if let Some((d, w)) = narrow(ix, &pool, beside) {
+            let target = rs.entities(&[d]).into_iter().next()?;
+            return Some(Pinned { target, by: Some((w, pool.len())) });
+        }
+    }
     let main = match (&ents[..], &strong[..]) {
         ([one], _) => one,
         // Several things share the name: only a name written as code, or pinned to a file, may
         // pick the one function or type among fields and locals of the same name.
-        (_, [one]) if m.explicit || pinned => *one,
+        (_, [one]) if explicit || pinned => *one,
         _ => return None,
     };
     // A plain word of the prompt that happens to be a field name is not a mention of it.
-    if !m.explicit && !pinned && !matches!(main.class, Class::Callable | Class::Type) {
+    if !explicit && !pinned && !matches!(main.class, Class::Callable | Class::Type) {
         return None;
     }
-    Some(main.clone())
+    Some(Pinned { target: main.clone(), by: None })
 }
 
 /// `called from 19 sites in 13 files and 9 sites in 6 test files`, or nothing.
@@ -1136,6 +1206,172 @@ fn origin_cards(ix: &Index, rs: &Resolver, session: &Session, text: &str, cli: &
     }
 }
 
+/// The functions bound to a slot in the part of the project the prompt names. A slot such as
+/// `file_operations.read_iter` has a hundred bindings, and "for ext4" says which one is asked
+/// about: the bindings in files whose path has the most words of the sentence. Nothing when
+/// no word of the sentence is a directory or a file of any binding, or when what is left is
+/// still more than three functions.
+fn bound_where(ix: &Index, rs: &Resolver, t: &Target, beside: &[String]) -> Option<String> {
+    use crate::resolve::Conf;
+    let owner = rs.target_owner(t)?;
+    let binds: Vec<crate::store::RefV> = rs.slot_bindings(&owner, &t.name).into_iter().filter(|(_, c)| *c == Conf::Exact).map(|(r, _)| r).collect();
+    if binds.len() < 2 {
+        return None;
+    }
+    let words_of = |path: &str| -> Vec<&String> {
+        beside
+            .iter()
+            .filter(|w| {
+                path.split('/').any(|part| part.eq_ignore_ascii_case(w) || part.split('.').next().is_some_and(|stem| stem.eq_ignore_ascii_case(w)))
+            })
+            .collect()
+    };
+    let best = binds.iter().map(|r| words_of(r.path()).len()).max()?;
+    if best == 0 {
+        return None;
+    }
+    let here: Vec<&crate::store::RefV> = binds.iter().filter(|r| words_of(r.path()).len() == best).collect();
+    let by: Vec<String> = words_of(here[0].path()).into_iter().map(|w| format!("`{w}`")).collect();
+    // One entry per bound function, with the places that bind it.
+    let mut funcs: Vec<(String, String, Vec<String>)> = Vec::new();
+    for r in &here {
+        let name = String::from_utf8_lossy(r.name()).into_owned();
+        let def = rs.bound_targets(r).first().map(|&d| format!("{}:{}", ix.def(d).path(), ix.def(d).rec.line)).unwrap_or_default();
+        let site = format!("{}:{}", r.path(), r.line());
+        match funcs.iter_mut().find(|f| f.0 == name) {
+            Some(f) => f.2.push(site),
+            None => funcs.push((name, def, vec![site])),
+        }
+    }
+    if funcs.len() > 3 {
+        return None;
+    }
+    let list: Vec<String> = funcs
+        .iter()
+        .map(|(name, def, sites)| if def.is_empty() { format!("{name}, bound at {}", sites.join(" and ")) } else { format!("{name} ({def}), bound at {}", sites.join(" and ")) })
+        .collect();
+    Some(format!("of its {} bindings, under {}, {} of the prompt: {}", count(binds.len()), by.join(" and "), if by.len() == 1 { "a word" } else { "words" }, list.join("; ")))
+}
+
+/// A name as a prompt wrote it (`name`, `Owner.name`), as a mention.
+fn mention_of(key: &str) -> Mention {
+    match key.rsplit_once('.') {
+        Some((owner, name)) if !owner.is_empty() => Mention { owner: Some(owner.rsplit('.').next().unwrap_or(owner).to_string()), name: name.to_string(), explicit: true, is_type: false },
+        _ => Mention { owner: None, name: key.trim_start_matches('.').to_string(), explicit: true, is_type: false },
+    }
+}
+
+/// The answer to a question the prompt asks in a shape the index answers whole: the functions
+/// a function calls, a call path between two functions, the places a member is written. The
+/// card is what the command for it prints, about the one definition the prompt can mean. It
+/// is the answer and not a pointer to it, because a call for it would cost the session a
+/// request, and in a short session a request is a third of the bill.
+fn answer_cards(ix: &Index, rs: &Resolver, place: &Place, session: &Session, found: &prompt::Mentions, cli: &str, taken: &mut Vec<DefId>, tx: &mpsc::Sender<String>) -> usize {
+    let common = crate::query::Common { paths: Vec::new(), kinds: None, tests: false, budget: ASK_TOKENS };
+    let pin = |key: &str| -> Option<Pinned> {
+        let m = mention_of(key);
+        let beside = found.beside.iter().find(|(n, _)| *n == m.name).map(|(_, w)| w.as_slice()).unwrap_or(&[]);
+        let p = resolve_mention(ix, rs, &m, &found.paths, beside)?;
+        // Exact or silent: a file edited since it was indexed may have moved its lines.
+        if !current(ix, p.target.primary(ix).file()) {
+            request_refresh(place);
+            return None;
+        }
+        Some(p)
+    };
+    // The definition as the commands take it: by its place, which says which of several is
+    // meant, or by its name where the place holds more than one definition (a struct written
+    // on one line, with its fields).
+    let at = |t: &Target| {
+        let d = t.primary(ix);
+        if ix.def_at(d.file(), d.rec.line).is_some_and(|x| x.id == d.id) { format!("{}:{}", d.path(), d.rec.line) } else { d.qualified() }
+    };
+    let mut sent = 0;
+    for ask in &found.asks {
+        let mut out = crate::output::Out::new(if matches!(ask, prompt::Ask::Callees(_)) { ASK_CALLEES_TOKENS } else { ASK_TOKENS });
+        let (card, defs, keys): (String, Vec<DefId>, Vec<String>) = match ask {
+            prompt::Ask::Callees(key) => {
+                let Some(p) = pin(key).filter(|p| p.target.class == Class::Callable) else { continue };
+                let name = p.target.primary(ix).qualified();
+                crate::query::refs::callees(ix, rs, &[at(&p.target)], &common, false, &mut out);
+                let text = out.finish().replace("(raise --budget)", &format!("(`{cli} callees {name}` prints the rest)"));
+                if !text.contains("distinct callees") {
+                    continue;
+                }
+                let which = p.by.as_ref().map(|(w, n)| format!(", the one of {n} definitions whose path has `{w}`, a word of the prompt")).unwrap_or_default();
+                (format!("what {name} calls{which} (`{cli} callees {name}` prints the same):\n{}", text.trim_end()), vec![p.target.primary(ix).id], vec![name])
+            }
+            prompt::Ask::Path(from, to) => {
+                // One end has to be a function the prompt can only mean one way. The other may
+                // be a name several functions have: of those, the search takes the one nearest
+                // the first, and a path that is found says which one it was, hop by hop.
+                let (a, b) = (pin(from).filter(|p| p.target.class == Class::Callable), pin(to).filter(|p| p.target.class == Class::Callable));
+                if a.is_none() && b.is_none() {
+                    continue;
+                }
+                let spec = |p: &Option<Pinned>, key: &str| p.as_ref().map(|p| at(&p.target)).unwrap_or_else(|| key.to_string());
+                let name = |p: &Option<Pinned>, key: &str| p.as_ref().map(|p| p.target.primary(ix).qualified()).unwrap_or_else(|| key.to_string());
+                let (na, nb) = (name(&a, from), name(&b, to));
+                crate::query::refs::path(ix, rs, &spec(&a, from), &spec(&b, to), &common, 12, ASK_PATH_SECONDS, &mut out);
+                let text = out.finish();
+                // No path found is not said: the search does not follow every kind of call.
+                if !text.lines().next().is_some_and(|l| l.contains(" \u{2192} ")) {
+                    continue;
+                }
+                (
+                    format!("a call path from {na} to {nb} (`{cli} path {na} {nb}` prints the same):\n{}", text.trim_end()),
+                    a.iter().chain(b.iter()).map(|p| p.target.primary(ix).id).collect(),
+                    vec![na, nb],
+                )
+            }
+            prompt::Ask::Writers(key) => {
+                let Some(p) = pin(key).filter(|p| p.target.class == Class::Member) else { continue };
+                let def = p.target.primary(ix);
+                let name = def.qualified();
+                let opts = crate::query::refs::RefsOpts { text: None, only: vec!["write".to_string()], loose: false };
+                // A member that several types of one name have (one `thread_struct` per
+                // architecture): the writes are told apart by where they are, as the
+                // definition was.
+                let mut here = crate::query::Common { paths: Vec::new(), kinds: None, tests: false, budget: ASK_TOKENS };
+                let mut flag = String::new();
+                let mut which = String::new();
+                if let Some((w, n)) = &p.by {
+                    here.paths = vec![format!("/{w}/")];
+                    flag = format!(" --path /{w}/");
+                    which = format!(", the one of {n} whose path has `{w}`, a word of the prompt, and its writes under that directory");
+                }
+                crate::query::refs::refs(ix, rs, &[name.clone()], &here, &opts, &mut out);
+                let text = out.finish();
+                // Without the line about the definition, which may be another of the several.
+                let Some(i) = text.find("writes (") else { continue };
+                (
+                    format!(
+                        "{name} is defined at {}:{}{which}. Where it is written (`{cli} refs {name} --only write{flag}` prints the same):\n{}",
+                        def.path(),
+                        def.rec.line,
+                        text[i..].trim_end()
+                    ),
+                    vec![def.id],
+                    vec![name],
+                )
+            }
+        };
+        if !session.claim(&format!("q:{}", keys.join(">"))) {
+            continue;
+        }
+        // The answer names each of them with its place: no second card for the same symbol.
+        for k in &keys {
+            session.claim(&format!("p:{k}"));
+        }
+        taken.extend(defs);
+        if tx.send(card).is_err() {
+            return sent;
+        }
+        sent += 1;
+    }
+    sent
+}
+
 fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id: Option<String>, cli: String, tx: mpsc::Sender<String>) {
     let Some(ix) = open_index(&place) else { return };
     let Some(session) = Session::open(&place, session_id.as_deref()) else { return };
@@ -1153,11 +1389,14 @@ fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id:
 
     let mut code_left = CARD_CODE_LINES;
     let mut seen: Vec<DefId> = Vec::new();
+    // First, the question itself where it has a shape the index answers whole.
+    sent += answer_cards(&ix, &rs, &place, &session, &found, &cli, &mut seen, &tx);
     for m in order {
         if sent >= MAX_CARDS && tests_sent > 0 {
             break;
         }
-        let Some(target) = resolve_mention(&ix, &rs, m, &found.paths) else { continue };
+        let beside = found.beside.iter().find(|(n, _)| *n == m.name).map(|(_, w)| w.as_slice()).unwrap_or(&[]);
+        let Some(Pinned { target, by }) = resolve_mention(&ix, &rs, m, &found.paths, beside) else { continue };
         let def = target.primary(&ix);
         if seen.contains(&def.id) {
             continue;
@@ -1207,22 +1446,30 @@ fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id:
             return;
         }
         let doc = docs.line(&def, 100);
+        // Which of several definitions this is, said in the open: the choice was made by a
+        // word of the prompt, and the reader can see whether it was the right one.
+        let picked = by.as_ref().map(|(w, n)| format!("\n  (of {n} definitions of {}, the one whose path has `{w}`, a word of the prompt)", String::from_utf8_lossy(&target.name))).unwrap_or_default();
         let mut card = match &body {
             // The definition itself: its lines say where it is, what it takes and what it does.
             Some((text, _)) => {
                 let said = doc.as_deref().filter(|d| !text.contains(&d[..d.len().min(24)])).map(|d| format!("\n  {d}")).unwrap_or_default();
-                format!("{name} is defined at {}:{}-{}{said}\n{text}", def.path(), def.rec.line, def.rec.end_line)
+                format!("{name} is defined at {}:{}-{}{picked}{said}\n{text}", def.path(), def.rec.line, def.rec.end_line)
             }
             None => {
                 let mut head = format!("{name} is defined at {}:{} {}", def.path(), def.rec.line, clip_bytes(&crate::query::sig_of(&def), 130));
                 if let Some(doc) = &doc {
                     head.push_str(&format!("\n  {doc}"));
                 }
-                clip_bytes(&head, CARD_BYTES)
+                format!("{}{picked}", clip_bytes(&head, CARD_BYTES))
             }
         };
         if let Some(usage) = card_usage(&ix, &rs, &target, &name, &cli) {
             card.push_str(&format!("\n  {usage}"));
+        }
+        if target.class == Class::Member {
+            if let Some(bound) = bound_where(&ix, &rs, &target, beside) {
+                card.push_str(&format!("\n  {bound}"));
+            }
         }
         // The same symbol is not explained again when the agent greps for it.
         if !session.claim(&format!("p:{name}")) {

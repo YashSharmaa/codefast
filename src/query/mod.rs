@@ -250,7 +250,19 @@ pub fn targets_for(ix: &Index, rs: &Resolver, spec: &Spec, common: &Common, pf: 
                 let all = ix.defs_named(d.name());
                 let ents = rs.entities(&all);
                 let (mine, rest): (Vec<Target>, Vec<Target>) = ents.into_iter().partition(|t| t.defs.contains(&d.id));
-                mine.into_iter().chain(rest).take(1).collect()
+                // One function may have a definition per architecture, all of them one entity.
+                // A place names one of them: it goes first, so that among definitions of equal
+                // standing it is the one the answer is about.
+                mine.into_iter()
+                    .chain(rest)
+                    .take(1)
+                    .map(|mut t| {
+                        if let Some(i) = t.defs.iter().position(|&x| x == d.id) {
+                            t.defs.swap(0, i);
+                        }
+                        t
+                    })
+                    .collect()
             }
             None => Vec::new(),
         },

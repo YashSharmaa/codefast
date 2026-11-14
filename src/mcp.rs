@@ -290,7 +290,7 @@ pub fn call_tool(root: &Path, name: &str, args: &Value) -> Result<String> {
         Call::Refs(targets) => query::refs::refs(&ix, &rs, &targets, &common, &query::refs::RefsOpts::default(), &mut out),
         Call::Callers(targets, depth) => query::refs::callers(&ix, &rs, &targets, &common, depth, &mut out),
         Call::Callees(targets) => query::refs::callees(&ix, &rs, &targets, &common, false, &mut out),
-        Call::Path(from, to) => query::refs::path(&ix, &rs, &from, &to, &common, 12, &mut out),
+        Call::Path(from, to) => query::refs::path(&ix, &rs, &from, &to, &common, 12, 8.0, &mut out),
         Call::Grep(pattern, opts) => {
             query::grep::grep(&ix, &pattern, &common, &opts, &mut out);
             // The one failure a query reports as text: a pattern that does not compile is a
