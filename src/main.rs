@@ -121,7 +121,7 @@ struct RenameArgs {
 
 #[derive(Args)]
 struct SearchArgs {
-    /// A symbol, `Owner.name`, a path, `path:line`, or any text; several queries are answered in turn
+    /// A symbol, `Owner.name`, a path, `path:line`, or any text; each query is answered, and free-text ones together as one question
     #[arg(required = true)]
     queries: Vec<String>,
 }
@@ -490,19 +490,12 @@ fn run(cli: Cli) -> Result<()> {
     let mut out = Out::new(budget);
     match &cli.cmd {
         Cmd::Search(a) => {
-            for (i, q) in a.queries.iter().enumerate() {
-                if i > 0 {
-                    out.push("");
-                }
-                // Free text with no budget named: the answer carries code and gets the room for it.
-                if cli.budget == 1500 && query::search::is_free_text(&ix, &rs, q, &common) {
-                    let mut roomy = Out::new(query::locate::CODE_BUDGET);
-                    query::search::search(&ix, &rs, q, &common, &query::search::SearchOpts::default(), &mut roomy);
-                    out.push(roomy.finish().trim_end());
-                    continue;
-                }
-                query::search::search(&ix, &rs, q, &common, &query::search::SearchOpts::default(), &mut out);
-            }
+            // As over MCP: every query answered, the open questions among them together, and
+            // an answer that carries code in the room for it where no budget was named.
+            let named = cli.budget != 1500;
+            let (text, _) = query::search::search_all(&ix, &rs, &a.queries, &common, &query::search::SearchOpts::default(), budget, named, &mut || query::locate::CODE_BUDGET);
+            out = Out::new(0);
+            out.push(text.trim_end());
         }
         Cmd::Find(a) => {
             let opts = query::find::FindOpts { limit: a.limit, regex: a.regex };
@@ -543,7 +536,7 @@ fn run(cli: Cli) -> Result<()> {
             // As `search` does for free text: the source of the candidates comes with them,
             // unless the caller wants the list alone or names a budget too small for code.
             let code = !a.ranking && !a.plain && (cli.budget == 1500 || cli.budget == 0 || cli.budget >= query::locate::CODE_MIN_BUDGET);
-            let opts = query::locate::LocateOpts { top_files: a.limit, syms_per_file: a.symbols, plain: a.plain, code };
+            let opts = query::locate::LocateOpts { top_files: a.limit, syms_per_file: a.symbols, plain: a.plain, code, questions: 1 };
             if code && cli.budget == 1500 {
                 // An answer with code in it has a default budget of its own.
                 let mut roomy = Out::new(query::locate::CODE_BUDGET);

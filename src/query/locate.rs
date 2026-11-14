@@ -955,23 +955,28 @@ pub struct LocateOpts {
     /// Print the source of the functions that make a file a candidate, with the file: an answer
     /// to read, where the ranking alone is a list to follow up call by call.
     pub code: bool,
+    /// How many questions the text is: the open questions of one call are ranked as one text,
+    /// and the answer says so.
+    pub questions: usize,
 }
 
 impl Default for LocateOpts {
     fn default() -> Self {
-        LocateOpts { top_files: 10, syms_per_file: 3, plain: false, code: false }
+        LocateOpts { top_files: 10, syms_per_file: 3, plain: false, code: false, questions: 1 }
     }
 }
 
 /// The budget of an answer that carries code, where the caller named none. What an agent
 /// spends on an open question is the number of requests it takes, each of which sends the
-/// whole conversation again. An answer with the code of the candidates in it is read once
-/// and saves the requests that would have fetched that code one function at a time. The
-/// published comparison that front-loads the source this way (arXiv 2611.07286) settled at
-/// 20,000 characters and found that more did not help.
-pub const CODE_BUDGET: usize = 6000;
+/// whole conversation again. Sessions that localise kernel bugs were measured with answers of
+/// three sizes, and the number of calls a session made fell as the answers grew: 24 calls with
+/// answers of about 1,500 tokens, 17 with about 3,000, and the published comparison that
+/// front-loads source this way (arXiv 2611.07286) reports 10 with its 20,000 characters. A
+/// session reads until it has seen the code it needs. Given in one answer, that code is sent
+/// again with fewer later requests than given in ten.
+pub const CODE_BUDGET: usize = 8000;
 /// Below this an answer has no room for code and stays a ranking.
-pub const CODE_MIN_BUDGET: usize = 2500;
+pub const CODE_MIN_BUDGET: usize = 1200;
 
 /// The default budget of the `nth` answer with code that one session is given (0 for the
 /// first). The first open question of a session is where it finds its bearings, and gets the
@@ -980,72 +985,125 @@ pub const CODE_MIN_BUDGET: usize = 2500;
 pub fn code_budget(nth: usize) -> usize {
     match nth {
         0 => CODE_BUDGET,
-        1 => 3500,
-        _ => CODE_MIN_BUDGET,
+        1 => 6000,
+        _ => 4000,
     }
 }
-/// Lines of one function that are printed, for the files that lead and for the others.
-const CODE_LINES: (u32, u32) = (60, 40);
+/// A file whose evidence is under this part of the best file's is named and not printed.
+const CODE_NEAR: f32 = 0.4;
 
-/// The ranking with the source of what makes each file a candidate. A file gets at most a
-/// sixth of the answer, so that the first one cannot use it up, and the files that no room is
-/// left for are still named, each with its best function.
+/// How the room of an answer is shared by the candidates that are given with their source,
+/// first to last, with the number of functions and the lines of one function each may show.
+/// Source goes where the evidence points: deep into the first files, where a session would
+/// otherwise come back for one function after another, and not at all to the later ones,
+/// which are named with the function to look at. (Measured on the first questions of sessions
+/// that localise kernel bugs: the file of the fix is the first candidate for half of them and
+/// among the first three for six in ten.)
+fn code_plan(budget: usize) -> &'static [(usize, usize, u32)] {
+    if budget == 0 || budget >= 5000 {
+        &[(40, 8, 120), (25, 5, 80), (15, 4, 80), (10, 3, 60), (10, 3, 60)]
+    } else if budget >= 3000 {
+        &[(40, 6, 100), (27, 4, 80), (20, 3, 60), (13, 3, 60)]
+    } else {
+        &[(50, 4, 80), (30, 3, 60), (20, 2, 60)]
+    }
+}
+
+/// The ranking, with the source of what makes the leading files candidates and, for the
+/// others, the function to look at and the line that makes it one.
 fn with_code(ix: &Index, q: &Query, ranked: &Ranked, opts: &LocateOpts, out: &mut Out) {
-    let files: Vec<FileId> = ranked.files.iter().take(opts.top_files).map(|x| x.0).collect();
-    out.push(&format!(
-        "{} candidate files. The {} that match best, with the source of the functions that make each a candidate (as on disk: no need to read these again):",
-        count(ranked.candidates),
-        files.len()
-    ));
-    // In a short answer three files with enough of their code say more than six with a few
-    // lines each.
-    let per_file = if out.budget() == 0 { usize::MAX } else { (out.budget() / 6).max(700) };
-    let brief = |i: usize, f: FileId| match file_symbols(ix, f, ranked, q, 1).first().map(|&d| ix.def(d)) {
-        Some(v) => format!("{}. {}  {} {}-{}", i + 1, ix.path(f), v.qualified(), v.rec.line, v.rec.end_line),
-        None => format!("{}. {}", i + 1, ix.path(f)),
+    let files: Vec<(FileId, f32)> = ranked.files.iter().take(opts.top_files).cloned().collect();
+    let top = files.first().map(|x| x.1).unwrap_or(1.0).max(1e-6);
+    let plan = code_plan(out.budget());
+    // Which files get their source: the leading ones that have functions to show.
+    let mut coded: Vec<usize> = Vec::new();
+    for (i, (f, s)) in files.iter().enumerate() {
+        if coded.len() == plan.len() || (*s < CODE_NEAR * top && !coded.is_empty()) {
+            break;
+        }
+        if !file_symbols(ix, *f, ranked, q, 1).is_empty() && ix.file(*f).hash != 0 {
+            coded.push(i);
+        }
+    }
+    let asked = if opts.questions > 1 { format!("{} questions, answered together. ", opts.questions) } else { String::new() };
+    let lead = match coded.len() {
+        0 => String::new(),
+        1 => " The source of the functions that make the first one a candidate (as on disk: no need to read these again), and the others with the function to look at:".to_string(),
+        n => format!(" The source of the functions that make the first {n} candidates (as on disk: no need to read these again), and the others with the function to look at:"),
     };
-    let mut without: Vec<String> = Vec::new();
-    for (i, &f) in files.iter().enumerate() {
-        // Keep room to name the files that follow.
-        let reserve = 30 * (files.len() - i - 1);
-        let room = out.remaining().saturating_sub(reserve).min(per_file);
-        let syms = file_symbols(ix, f, ranked, q, if i < 3 { 3 } else if i < 8 { 2 } else { 1 });
-        let src = if room >= 120 && !syms.is_empty() { ix.source(f) } else { None };
-        let Some(src) = src else {
-            without.push(brief(i, f));
+    out.push(&format!("{asked}{} candidate files.{lead}", count(ranked.candidates)));
+    // Room for the lines that name the other files is kept back from the source.
+    let named = files.len() - coded.len();
+    let reserve = 70 * named + 40;
+    let total = out.remaining().saturating_sub(reserve);
+    let weight: usize = plan[..coded.len().max(1)].iter().map(|p| p.0).sum();
+    let mut carry = 0usize;
+    let mut slot = 0usize;
+    for (i, &(f, _)) in files.iter().enumerate() {
+        let path = ix.path(f);
+        if !coded.contains(&i) {
+            // Named: its best functions with their lines, and what in the first makes it one.
+            let syms = file_symbols(ix, f, ranked, q, 2);
+            let names: Vec<String> = syms.iter().map(|&d| ix.def(d)).map(|v| format!("{} {}-{}", v.qualified(), v.rec.line, v.rec.end_line)).collect();
+            if !out.line(&format!("{}. {}{}{}", i + 1, path, if names.is_empty() { "" } else { "  " }, names.join(", "))) {
+                break;
+            }
+            if i < 6 {
+                if let (Some(&d), Some(src)) = (syms.first(), ix.source(f)) {
+                    let v = ix.def(d);
+                    if v.kind().is_callable() {
+                        let starts = super::show::line_starts(&src);
+                        for (l, t) in evidence_lines(&src, &starts, &v, q, 1) {
+                            out.line(&format!("      {l}: {t}"));
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+        let (part_of, want, cap) = plan[slot];
+        let share = if out.budget() == 0 { usize::MAX } else { total * part_of / weight + carry };
+        let room = out.remaining().saturating_sub(70 * (files.len() - i - 1)).min(share);
+        slot += 1;
+        let syms = file_symbols(ix, f, ranked, q, want + 8);
+        let Some(src) = ix.source(f) else {
+            out.line(&format!("{}. {}", i + 1, path));
             continue;
         };
         let starts = super::show::line_starts(&src);
-        let mut part = Out::new(room);
-        part.push(&format!("{}. {}", i + 1, ix.path(f)));
-        let cap = if i < 3 { CODE_LINES.0 } else { CODE_LINES.1 };
-        for d in syms {
+        let mut part = Out::new(room.max(120));
+        part.push(&format!("{}. {}", i + 1, path));
+        let mut shown = 0usize;
+        for &d in syms.iter().take(want) {
             let v = ix.def(d);
             let (from, to) = (v.rec.line, v.rec.end_line.max(v.rec.line));
-            if !part.fits(40) {
+            if !part.fits(60) {
                 break;
             }
             part.push(&format!("{}-{} {}", from, to, v.qualified()));
+            shown += 1;
             let end = to.min(from + cap - 1);
             let unfit = super::show::print_lines(&mut part, &src, &starts, from, end);
             let last = end - unfit;
             if last < to {
-                part.push(&format!("… {} more lines ({}:{}-{})", to - last, ix.path(f), last + 1, to));
+                part.push(&format!("… {} more lines ({}:{}-{})", to - last, path, last + 1, to));
             }
             if unfit > 0 {
                 break;
             }
         }
-        out.push(part.finish().trim_end());
-    }
-    if !without.is_empty() {
-        out.push("ranked as well, without their source:");
-        for line in without {
-            out.push(&line);
+        // The other functions of the file that match, by name: one call can fetch them.
+        let also: Vec<String> = syms.iter().skip(shown).take(8).map(|&d| ix.def(d)).map(|v| format!("{} {}-{}", v.qualified(), v.rec.line, v.rec.end_line)).collect();
+        if !also.is_empty() {
+            part.push(&format!("also here: {}", also.join(", ")));
         }
+        let text = part.finish();
+        let used = crate::output::est_tokens(&text);
+        carry = if share == usize::MAX { 0 } else { share.saturating_sub(used) };
+        out.push(text.trim_end());
     }
-    if ranked.candidates > opts.top_files {
-        out.push(&format!("… {} more candidates (narrow with a path, or add identifiers from the report)", count(ranked.candidates - opts.top_files.min(ranked.candidates))));
+    if ranked.candidates > files.len() {
+        out.push(&format!("… {} more candidates (narrow with a path, or add identifiers from the report)", count(ranked.candidates - files.len())));
     }
 }
 
@@ -1130,5 +1188,8 @@ mod tests {
         assert!(code_budget(1) < code_budget(0) && code_budget(2) < code_budget(1));
         assert_eq!(code_budget(2), code_budget(40));
         assert!(code_budget(40) >= CODE_MIN_BUDGET);
+        // A shorter answer gives the source of fewer files, and always of more than none.
+        assert!(code_plan(code_budget(0)).len() > code_plan(CODE_MIN_BUDGET).len());
+        assert!(!code_plan(CODE_MIN_BUDGET).is_empty());
     }
 }

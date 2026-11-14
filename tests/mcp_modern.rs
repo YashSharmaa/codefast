@@ -495,7 +495,7 @@ fn free_text_is_answered_with_the_code_of_the_candidates() {
 
     let r = s.call("search", json!({"queries": [question]}));
     let t = text(&r);
-    assert!(t.contains("with the source of the functions that make each a candidate"), "{t}");
+    assert!(t.contains("The source of the functions that make the first"), "{t}");
     assert!(t.contains("src/io.c") && t.contains("log_msg(\"dev_write: %d bytes\", count);"), "the body is part of the answer: {t}");
 
     let r = s.call("search", json!({"queries": [question], "budget": 600}));
@@ -504,6 +504,31 @@ fn free_text_is_answered_with_the_code_of_the_candidates() {
 
     let r = s.call("search", json!({"queries": ["dev_write"]}));
     assert!(text(&r).contains("src/io.c:11") && !text(&r).contains("candidate files"), "{}", text(&r));
+}
+
+/// A call with several queries is answered query by query: a name asked for after an open
+/// question still gets its answer, and the open questions of the call are one question asked
+/// in several ways, ranked and answered once.
+#[test]
+fn every_query_of_a_call_is_answered_and_its_open_questions_together() {
+    let repo = Repo::new("several-queries");
+    let mut s = Session::in_repo(&repo);
+
+    let r = s.call("search", json!({"queries": ["the copy stops after a short write", "bytes written to the device", "dev_read", "dev_write"]}));
+    let t = text(&r);
+    assert!(t.contains("2 questions, answered together"), "{t}");
+    assert_eq!(t.matches("candidate files").count(), 1, "one ranking for both questions: {t}");
+    assert!(t.contains("src/io.c:4") && t.contains("src/io.c:11"), "each name has its answer after it: {t}");
+
+    // A budget the caller names is the room of the whole call, and each query has a part of it.
+    let r = s.call("search", json!({"queries": ["dev_read", "dev_write"], "budget": 300}));
+    let t = text(&r);
+    assert!(t.contains("src/io.c:4") && t.contains("src/io.c:11"), "{t}");
+
+    // One open question in a call is answered as it is alone.
+    let r = s.call("search", json!({"queries": ["dev_read", "the copy stops after a short write"]}));
+    let t = text(&r);
+    assert!(t.contains("src/io.c:4") && t.contains("candidate files") && !t.contains("answered together"), "{t}");
 }
 
 /// What models put into one query besides a question: several names at once, and a piece of

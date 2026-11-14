@@ -81,7 +81,7 @@ fn tools() -> Value {
             "name": "search",
             "description": "Entry point for code questions. Give a symbol name (`vfs_read`, `Owner.method`), a file path or `path:line`, or free text (a bug report, an error message, a stack trace). Returns the definition with its body and every place that calls or uses it, or for free text the files it most likely means with the source of the functions that make them candidates, in one answer.",
             "inputSchema": {"type": "object", "properties": {
-                "queries": {"type": "array", "items": {"type": "string"}, "description": "One or more queries, answered in turn."},
+                "queries": {"type": "array", "items": {"type": "string"}, "description": "One or more queries. Each is answered, and free-text ones together as one question."},
                 "path": path, "budget": budget, "root": root
             }, "required": ["queries"]},
             "annotations": hints("Search code"),
@@ -217,22 +217,19 @@ fn bounded(mut text: String, budget: usize) -> String {
 /// When this process gave its recent answers with code. One server is one session, and what
 /// a session asks within a few minutes is one piece of work.
 static CODE_ANSWERS: std::sync::Mutex<Vec<std::time::Instant>> = std::sync::Mutex::new(Vec::new());
-/// The answers with code of one piece of work: the first in full, two shorter ones, and after
-/// that the ranking alone until the session has been quiet for a while. A session that asks its
-/// tenth open question in two minutes is not helped by a tenth helping of source.
-const CODE_ANSWERS_IN_A_ROW: usize = 3;
+/// After this long without an open question, the next one starts a new piece of work.
 const CODE_ANSWERS_WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
 
-/// The room for the next answer with code, or none when this piece of work has had its share.
-fn code_room() -> Option<usize> {
-    let mut given = CODE_ANSWERS.lock().ok()?;
+/// The room for the next answer with code: the first of a piece of work in full, the ones
+/// after it shorter. A session that asks its tenth open question in two minutes has read the
+/// code the first answers gave it, and is helped by the next place to look, not by a tenth
+/// helping of source.
+fn code_room() -> usize {
+    let Ok(mut given) = CODE_ANSWERS.lock() else { return query::locate::code_budget(0) };
     let now = std::time::Instant::now();
     given.retain(|t| now.duration_since(*t) < CODE_ANSWERS_WINDOW);
-    if given.len() >= CODE_ANSWERS_IN_A_ROW {
-        return None;
-    }
     given.push(now);
-    Some(query::locate::code_budget(given.len() - 1))
+    query::locate::code_budget(given.len() - 1)
 }
 
 /// Run one tool against the repository at `root` and return its text.
@@ -290,37 +287,12 @@ pub fn call_tool(root: &Path, name: &str, args: &Value) -> Result<String> {
     let ix = fresh::open(root, &OpenOptions { quiet: true, ..Default::default() })?;
     let rs = Resolver::new(&ix);
     let mut out = Out::new(budget);
-    // The bound on the whole answer, which grows with an answer that carries code.
-    let mut limit = budget;
     match call {
         Call::Search(queries) => {
-            // Two wordings of one question get one answer: the second is not printed again.
-            let mut answers: Vec<String> = Vec::new();
-            // Free text is answered with the code of the candidates, once in a call: a second
-            // free-text query of the same call gets the ranking alone.
-            let mut roomy_left = !budget_named;
-            for q in &queries {
-                let open = roomy_left && query::search::is_free_text(&ix, &rs, q, &common);
-                let room = if open { code_room() } else { None };
-                let mut one = if let Some(room) = room {
-                    roomy_left = false;
-                    limit = limit.max(room + budget);
-                    Out::new(room)
-                } else {
-                    // Never 0, which would mean no bound at all.
-                    Out::new(out.remaining().min(budget).max(200))
-                };
-                query::search::search(&ix, &rs, q, &common, &query::search::SearchOpts::default(), &mut one);
-                let text = one.finish();
-                if answers.contains(&text) {
-                    continue;
-                }
-                if !answers.is_empty() {
-                    out.push("");
-                }
-                out.push(text.trim_end());
-                answers.push(text);
-            }
+            // Every query of the call is answered, and its open questions together. A caller
+            // that named no budget gets the larger room for the answer that carries code.
+            let (text, bound) = query::search::search_all(&ix, &rs, &queries, &common, &query::search::SearchOpts::default(), budget, budget_named, &mut code_room);
+            return Ok(bounded(text, bound.max(budget)));
         }
         Call::Show(targets, opts) => query::show::show(&ix, &rs, &targets, &common, &opts, &mut out),
         Call::Context(targets) => query::context::context(&ix, &rs, &targets, &common, &mut out),
@@ -339,7 +311,7 @@ pub fn call_tool(root: &Path, name: &str, args: &Value) -> Result<String> {
             return Ok(bounded(text, budget));
         }
     }
-    Ok(bounded(out.finish(), limit))
+    Ok(bounded(out.finish(), budget))
 }
 
 // ----- workspace root -----

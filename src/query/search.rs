@@ -222,6 +222,13 @@ fn symbol_in_words(ix: &Index, rs: &Resolver, q: &str, common: &Common) -> Optio
         if w.is_empty() || matches!(w, "in" | "of" | "method" | "function" | "func" | "fn" | "def" | "class" | "struct" | "type" | "the") {
             continue;
         }
+        // `who calls X in FILE`, `X callers`: the answer for a symbol has its callers, so the
+        // words that ask for them are not part of its name. Only where no symbol has that name.
+        if matches!(w, "who" | "calls" | "call" | "callers" | "caller" | "called" | "by" | "uses" | "usages" | "used" | "references" | "definition" | "defined" | "where" | "is")
+            && ix.defs_named(w.as_bytes()).is_empty()
+        {
+            continue;
+        }
         let w = w.replace(").", ".").replace("::", ".").replace("->", ".").replace('#', ".");
         let w = w.trim_start_matches(['*', '&', '(']).to_string();
         let is_path = w.contains('/') || (ix.name_id(w.as_bytes()).is_none() && w.contains('.') && super::resolve_file(ix, &w).is_some());
@@ -265,7 +272,58 @@ pub fn is_free_text(ix: &Index, rs: &Resolver, query: &str, common: &Common) -> 
         && symbol_in_words(ix, rs, q, common).is_none()
         && several_symbols(ix, q).is_none()
         && code_fragment(ix, q).is_none()
+        && written_at(ix, q).is_none()
 }
+
+/// A message of the program, quoted in a short query: the one place in the code where that
+/// text is written out, and the definition around it. Whoever asks with a message wants the
+/// function that prints it and who calls that function, not ten files that share its words.
+fn written_at(ix: &Index, q: &str) -> Option<(FileId, u32, DefId)> {
+    if q.len() > MESSAGE_BYTES {
+        return None;
+    }
+    let (file, line) = match super::locate::origins(ix, q, 600, None).into_iter().next() {
+        Some(o) => (o.file, o.line),
+        None => whole_text(ix, q)?,
+    };
+    let def = ix.def_at(file, line)?;
+    Some((file, line, def.id))
+}
+
+/// The one place where the whole query stands in a string literal of the code: a message
+/// too short, or too full of small words, for the phrases of it to count as evidence alone.
+fn whole_text(ix: &Index, q: &str) -> Option<(FileId, u32)> {
+    let q = q.trim().trim_matches(|c| matches!(c, '"' | '\'' | '`'));
+    let words: Vec<&str> = q.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|w| w.len() >= 3).collect();
+    if q.len() < 12 || words.len() < 3 {
+        return None;
+    }
+    // The files that have its rarest word are the only ones that can have all of it.
+    let rarest = words.iter().filter_map(|w| ix.name_id(w.as_bytes()).map(|n| (ix.popularity(n), n))).min_by_key(|x| x.0)?;
+    let finder = memchr::memmem::Finder::new(q.as_bytes());
+    let mut found: Option<(FileId, u32)> = None;
+    for (f, _) in ix.postings(rarest.1).take(400) {
+        let rec = ix.file(f);
+        if !ix.is_live(f) || rec.flags & (crate::facts::fflag::TEST | crate::facts::fflag::DOC | crate::facts::fflag::GENERATED | crate::facts::fflag::VENDOR) != 0 {
+            continue;
+        }
+        let Some(src) = ix.source(f) else { continue };
+        let Some(pos) = finder.find(&src) else { continue };
+        let start = memchr::memrchr(b'\n', &src[..pos]).map(|i| i + 1).unwrap_or(0);
+        // Inside a literal: a quote opens before it on its line.
+        if !src[start..pos].iter().any(|c| matches!(c, b'"' | b'\'' | b'`')) {
+            continue;
+        }
+        if found.is_some() {
+            return None; // written in two files: no one place
+        }
+        found = Some((f, 1 + memchr::memchr_iter(b'\n', &src[..pos]).count() as u32));
+    }
+    found
+}
+
+/// A query longer than this is a report that quotes a message, and its files are ranked.
+const MESSAGE_BYTES: usize = 200;
 
 /// `nv_adma_port_suspend nv_adma_port_resume`: two to four words, each the exact name of
 /// something defined here and each shaped like an identifier. Models put the names they want
@@ -332,6 +390,110 @@ fn code_fragment(ix: &Index, q: &str) -> Option<(String, Vec<String>)> {
     Some((pattern, paths))
 }
 
+/// What each of several answers may take of a room that all of them share: the short ones
+/// take what they need, and the long ones split what that leaves evenly.
+fn fair_cap(sizes: &[usize], pool: usize) -> usize {
+    let mut sorted = sizes.to_vec();
+    sorted.sort_unstable();
+    let mut left = pool;
+    for (i, &size) in sorted.iter().enumerate() {
+        let share = left / (sorted.len() - i);
+        if size > share {
+            return share;
+        }
+        left -= size;
+    }
+    usize::MAX
+}
+
+/// The answers to the queries of one call, and the bound on all of it in tokens.
+///
+/// Each query gets its answer. A call that asks three things and is told one of them is a call
+/// that will be made again. Measured on sessions that localise kernel bugs: with one room for
+/// the whole call, half the queries of a call of several were answered in a few lines, and
+/// nearly half of those were asked about again later.
+///
+/// The open questions of a call (free text, not a name or a place) are one question asked
+/// several ways. Their words are ranked as one text and answered once, where the first of them
+/// stands: the file a session is after is first in that ranking more often than in the
+/// ranking of any one wording.
+///
+/// `budget` is the room of one query's answer. `named` says the caller chose it, and then it
+/// is the room of the whole call. `open_room` gives the room of the answer to the open
+/// questions where the caller named none.
+pub fn search_all(
+    ix: &Index,
+    rs: &Resolver,
+    queries: &[String],
+    common: &Common,
+    opts: &SearchOpts,
+    budget: usize,
+    named: bool,
+    open_room: &mut dyn FnMut() -> usize,
+) -> (String, usize) {
+    let open: Vec<&str> = queries.iter().map(|q| q.trim()).filter(|q| is_free_text(ix, rs, q, common)).collect();
+    // The parts of the answer in the order they were asked for: `None` is the open questions.
+    let mut parts: Vec<Option<&str>> = Vec::new();
+    for q in queries {
+        let q = q.trim();
+        if !open.contains(&q) {
+            parts.push(Some(q));
+        } else if !parts.contains(&None) {
+            parts.push(None);
+        }
+    }
+    let render = |part: &Option<&str>, room: usize| -> String {
+        let mut one = Out::new(room);
+        match (part, &open[..]) {
+            (Some(q), _) => search(ix, rs, q, common, opts, &mut one),
+            (None, [q]) => search(ix, rs, q, common, opts, &mut one),
+            (None, _) => {
+                let code = room == 0 || room >= super::locate::CODE_MIN_BUDGET;
+                locate(ix, &open.join("\n"), common, &LocateOpts { code, questions: open.len(), ..Default::default() }, &mut one);
+            }
+        }
+        one.finish()
+    };
+    let unlimited = budget == 0;
+    // Each part in the room of one answer first: most are far shorter than that.
+    let mut bound = 0usize;
+    let mut texts: Vec<String> = Vec::with_capacity(parts.len());
+    let mut shared: Vec<usize> = Vec::new(); // the parts that share the room of the call
+    for (i, part) in parts.iter().enumerate() {
+        if part.is_none() && !named && !unlimited {
+            // The answer to the open questions has a room of its own.
+            let room = open_room();
+            bound += room;
+            texts.push(render(part, room));
+        } else {
+            texts.push(render(part, budget));
+            shared.push(i);
+        }
+    }
+    if !unlimited && !shared.is_empty() {
+        // A call's answers to names and places take three such rooms at most, or the one
+        // the caller named.
+        let pool = if named { budget } else { budget * shared.len().min(3) };
+        bound += pool;
+        let sizes: Vec<usize> = shared.iter().map(|&i| crate::output::est_tokens(&texts[i])).collect();
+        let cap = fair_cap(&sizes, pool);
+        for (&i, &size) in shared.iter().zip(&sizes) {
+            if size > cap {
+                texts[i] = render(&parts[i], cap.max(150));
+            }
+        }
+    }
+    // Two wordings of one question get one answer: the second is not printed again.
+    let mut said: Vec<&str> = Vec::new();
+    for t in &texts {
+        let t = t.trim_end();
+        if !t.is_empty() && !said.contains(&t) {
+            said.push(t);
+        }
+    }
+    (said.join("\n\n") + "\n", bound)
+}
+
 pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &SearchOpts, out: &mut Out) {
     let q = query.trim();
     if q.is_empty() {
@@ -357,6 +519,16 @@ pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &Se
                 }
                 out.push(one.finish().trim_end());
             }
+            return;
+        }
+        // A quoted message: the function that writes it, with its body and its callers.
+        if let Some((file, line, def)) = written_at(ix, q) {
+            let d = ix.def(def);
+            out.push(&format!("this text is written at {}:{}, in {}:", ix.path(file), line, d.qualified()));
+            let mut narrowed = common.clone();
+            narrowed.paths.push(ix.path(file).to_string());
+            let name = d.qualified();
+            search(ix, rs, &name, &narrowed, opts, out);
             return;
         }
         // A piece of code is looked for where it is written. Where it is written nowhere,
@@ -517,4 +689,23 @@ pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &Se
     }
     let gopts = super::grep::GrepOpts { fixed: true, ..Default::default() };
     super::grep::grep(ix, q, common, &gopts, out);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fair_cap;
+
+    /// Short answers take what they need, and the long ones share what is left evenly.
+    #[test]
+    fn a_shared_room_is_split_among_the_answers_that_need_it() {
+        // Everything fits: no cap.
+        assert_eq!(fair_cap(&[200, 300, 400], 1500), usize::MAX);
+        // One long answer next to two short ones gets all that they leave.
+        assert_eq!(fair_cap(&[200, 300, 4000], 1500), 1000);
+        // Two long answers split what the short one leaves.
+        assert_eq!(fair_cap(&[100, 4000, 4000], 1500), 700);
+        // All of them long: an even split.
+        assert_eq!(fair_cap(&[4000, 4000, 4000], 1500), 500);
+        assert_eq!(fair_cap(&[], 1500), usize::MAX);
+    }
 }
