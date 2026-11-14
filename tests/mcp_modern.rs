@@ -486,7 +486,8 @@ fn the_instructions_say_what_the_tools_leave_out() {
 
 /// Free text is an open question: the answer carries the source of the functions that make a
 /// file a candidate, so that it can be read instead of followed up one function at a time. A
-/// caller that names a small budget gets the ranking alone, and a symbol is answered as ever.
+/// caller that names a budget, small or large, gets the ranking alone in that size, and a
+/// symbol is answered as ever.
 #[test]
 fn free_text_is_answered_with_the_code_of_the_candidates() {
     let repo = Repo::new("free-text");
@@ -498,9 +499,11 @@ fn free_text_is_answered_with_the_code_of_the_candidates() {
     assert!(t.contains("The source of the functions that make the first"), "{t}");
     assert!(t.contains("src/io.c") && t.contains("log_msg(\"dev_write: %d bytes\", count);"), "the body is part of the answer: {t}");
 
-    let r = s.call("search", json!({"queries": [question], "budget": 600}));
-    let t = text(&r);
-    assert!(t.contains("candidate files; top") && !t.contains("log_msg("), "a short answer is the ranking: {t}");
+    for budget in [600, 6000] {
+        let r = s.call("search", json!({"queries": [question], "budget": budget}));
+        let t = text(&r);
+        assert!(t.contains("candidate files; top") && !t.contains("log_msg("), "an answer whose size was named is the ranking: {t}");
+    }
 
     let r = s.call("search", json!({"queries": ["dev_write"]}));
     assert!(text(&r).contains("src/io.c:11") && !text(&r).contains("candidate files"), "{}", text(&r));
@@ -529,6 +532,32 @@ fn every_query_of_a_call_is_answered_and_its_open_questions_together() {
     let r = s.call("search", json!({"queries": ["dev_read", "the copy stops after a short write"]}));
     let t = text(&r);
     assert!(t.contains("src/io.c:4") && t.contains("candidate files") && !t.contains("answered together"), "{t}");
+}
+
+/// A text that stands in the code exactly as it was typed, in more than one place, is looked
+/// for where it stands: the places, each with its function. It is not an open question.
+#[test]
+fn a_text_that_stands_in_the_code_is_answered_with_its_places() {
+    let repo = Repo::new("as-typed");
+    // The same message in a second file: no one function writes it.
+    write(&repo.path("src/note.c"), "#include \"io.h\"\n\nvoid note(int count)\n{\n    log_msg(\"dev_write: %d bytes\", count);\n}\n");
+    let mut s = Session::in_repo(&repo);
+
+    let r = s.call("search", json!({"queries": ["dev_write: %d bytes"]}));
+    let t = text(&r);
+    assert!(t.contains("src/io.c") && t.contains("src/note.c") && !t.contains("candidate files"), "both places: {t}");
+
+    // A declaration, typed as it is written.
+    let r = s.call("search", json!({"queries": ["struct dev *d, char *buf, int count"]}));
+    let t = text(&r);
+    assert!(t.contains("src/io.h") && t.contains("src/io.c") && !t.contains("candidate files"), "{t}");
+
+    // Words that stand nowhere as typed are still an open question, and so are two plain
+    // words that a comment happens to hold ("the device").
+    for q in ["bytes written by the copy loop", "the device"] {
+        let r = s.call("search", json!({"queries": [q]}));
+        assert!(text(&r).contains("candidate files"), "{}", text(&r));
+    }
 }
 
 /// What models put into one query besides a question: several names at once, and a piece of

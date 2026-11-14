@@ -15,11 +15,14 @@ use rustc_hash::FxHashSet;
 pub struct SearchOpts {
     /// Longest body shown inline when exactly one symbol matches.
     pub body_lines: usize,
+    /// Answer an open question with the source of its candidates where there is room for it.
+    /// Off, it gets the ranking alone.
+    pub source: bool,
 }
 
 impl Default for SearchOpts {
     fn default() -> Self {
-        SearchOpts { body_lines: 60 }
+        SearchOpts { body_lines: 60, source: true }
     }
 }
 
@@ -273,6 +276,7 @@ pub fn is_free_text(ix: &Index, rs: &Resolver, query: &str, common: &Common) -> 
         && several_symbols(ix, q).is_none()
         && code_fragment(ix, q).is_none()
         && written_at(ix, q).is_none()
+        && !stands_as_typed(ix, q, common)
 }
 
 /// A message of the program, quoted in a short query: the one place in the code where that
@@ -320,6 +324,45 @@ fn whole_text(ix: &Index, q: &str) -> Option<(FileId, u32)> {
         found = Some((f, 1 + memchr::memchr_iter(b'\n', &src[..pos]).count() as u32));
     }
     found
+}
+
+/// A text that stands in the code exactly as it was typed, in whatever number of places: a
+/// message that several functions print, a declaration, a line of a table. Whoever types it
+/// is looking for those places, and gets them. Ranking files by its words, and printing
+/// their functions, answers another question at twenty times the length.
+fn stands_as_typed(ix: &Index, q: &str, common: &Common) -> bool {
+    let q = q.trim().trim_matches(|c| matches!(c, '"' | '\'' | '`'));
+    let words: Vec<&str> = q.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|w| w.len() >= 3).collect();
+    let spaced = q.split_whitespace().count();
+    // Two plain words that some comment happens to hold in that order ("control method") are
+    // a question, not a quotation: it takes a third word, or a character that prose has not.
+    let quoted = spaced >= 3 || q.chars().any(|c| !(c.is_alphabetic() || c == ' '));
+    if q.len() < 8 || q.len() > MESSAGE_BYTES || spaced < 2 || !quoted || words.is_empty() {
+        return false;
+    }
+    // Every word of it has to be known, and the files that have its rarest word are the
+    // only ones that can have all of it.
+    let mut rarest: Option<(u32, crate::store::NameId)> = None;
+    for w in &words {
+        let Some(n) = ix.name_id(w.as_bytes()) else { return false };
+        let p = ix.popularity(n);
+        if rarest.is_none_or(|r| p < r.0) {
+            rarest = Some((p, n));
+        }
+    }
+    let Some((_, name)) = rarest else { return false };
+    let finder = memchr::memmem::Finder::new(q.as_bytes());
+    for (f, _) in ix.postings(name).take(400) {
+        let rec = ix.file(f);
+        let skip = crate::facts::fflag::DOC | crate::facts::fflag::GENERATED | crate::facts::fflag::VENDOR | if common.tests { 0 } else { crate::facts::fflag::TEST };
+        if !ix.is_live(f) || rec.flags & skip != 0 {
+            continue;
+        }
+        if ix.source(f).is_some_and(|src| finder.find(&src).is_some()) {
+            return true;
+        }
+    }
+    false
 }
 
 /// A query longer than this is a report that quotes a message, and its files are ranked.
@@ -442,13 +485,19 @@ pub fn search_all(
             parts.push(None);
         }
     }
+    // A caller that names the size of the answer gets what it got before there was source in
+    // an answer: the ranking, in that size. The source is what an open question gets where
+    // nothing was said about size. Measured: sessions that localise kernel bugs name no budget
+    // in any of 703 calls, and sessions that ask one question about the code name one in half
+    // of theirs and then want the place, not eight functions.
+    let opts = &SearchOpts { source: opts.source && (!named || budget == 0), ..*opts };
     let render = |part: &Option<&str>, room: usize| -> String {
         let mut one = Out::new(room);
         match (part, &open[..]) {
             (Some(q), _) => search(ix, rs, q, common, opts, &mut one),
             (None, [q]) => search(ix, rs, q, common, opts, &mut one),
             (None, _) => {
-                let code = room == 0 || room >= super::locate::CODE_MIN_BUDGET;
+                let code = opts.source && (room == 0 || room >= super::locate::CODE_MIN_BUDGET);
                 locate(ix, &open.join("\n"), common, &LocateOpts { code, questions: open.len(), ..Default::default() }, &mut one);
             }
         }
@@ -544,9 +593,20 @@ pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &Se
                 return;
             }
         }
+        // A text that stands in the code as typed: the places, each with its function.
+        if stands_as_typed(ix, q, common) {
+            let literal = q.trim_matches(|c| matches!(c, '"' | '\'' | '`'));
+            let mut found = Out::new(out.remaining());
+            super::grep::grep(ix, literal, common, &super::grep::GrepOpts { fixed: true, ..Default::default() }, &mut found);
+            let text = found.finish();
+            if !text.starts_with("no matches") {
+                out.push(text.trim_end());
+                return;
+            }
+        }
         // An open question is answered with the code of the candidates where there is room
-        // for it, and with the ranking alone where the caller asked for a short answer.
-        let code = out.budget() == 0 || out.remaining() >= super::locate::CODE_MIN_BUDGET;
+        // for it, and with the ranking alone where the caller named the size of the answer.
+        let code = opts.source && (out.budget() == 0 || out.remaining() >= super::locate::CODE_MIN_BUDGET);
         locate(ix, q, common, &LocateOpts { code, ..Default::default() }, out);
         return;
     }
