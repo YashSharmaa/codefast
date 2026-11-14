@@ -969,11 +969,12 @@ impl Default for LocateOpts {
 /// The budget of an answer that carries code, where the caller named none. What an agent
 /// spends on an open question is the number of requests it takes, each of which sends the
 /// whole conversation again. Sessions that localise kernel bugs were measured with answers of
-/// three sizes, and the number of calls a session made fell as the answers grew: 24 calls with
-/// answers of about 1,500 tokens, 17 with about 3,000, and the published comparison that
-/// front-loads source this way (arXiv 2611.07286) reports 10 with its 20,000 characters. A
-/// session reads until it has seen the code it needs. Given in one answer, that code is sent
-/// again with fewer later requests than given in ten.
+/// three sizes, and the calls a session made fell as the answers grew: 24 calls where a search
+/// answer averaged 1,300 tokens, 17 where it averaged 2,700, and 13 where it averaged 3,700
+/// (bench/tier2/LIVE.md). A session reads until it has seen the code it needs. Given in one
+/// answer, that code is sent again with fewer later requests than given in ten. (The idea of
+/// putting the source into the answer is that of arXiv 2611.07286, which gives 20,000
+/// characters to twelve files every time.)
 pub const CODE_BUDGET: usize = 8000;
 /// Below this an answer has no room for code and stays a ranking.
 pub const CODE_MIN_BUDGET: usize = 1200;

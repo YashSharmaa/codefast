@@ -26,13 +26,15 @@ Reach for it before `grep` + reading files whenever the question is about a symb
 | Before changing a function: its body, its types, the signatures of what it calls, its call sites and its tests, in one answer | `codefast context vfs_read` |
 | How execution gets from A to B | `codefast path sys_read ext4_file_read_iter` |
 | Which function prints a message | `codefast grep -F "Busy inodes after unmount"` |
-| Where to look for a bug report or stack trace | `codefast locate "<paste the report>"` (or `codefast locate - < report.txt`) |
+| Where to look for a bug report or stack trace: the files, with the source of the functions that point to them | `codefast locate "<paste the report>"` (or `codefast locate - < report.txt`, `--ranking` for the list alone) |
 | The API of an installed dependency | `codefast dep` lists them, `codefast dep requests Session` looks inside one |
 | After an edit: what still uses something the edit removed, renamed or gave another signature | `codefast check` |
 | What the uncommitted changes added, removed and altered, by definition | `codefast changed` |
 | Rename a function, method, type or field at its definition and at every reference the index is sure of | `codefast rename Set.Add Insert` (`--dry-run` shows the plan) |
 
-Several targets can go in one call: `codefast show foo bar baz`.
+Several targets can go in one call: `codefast show foo bar baz`. So can several questions:
+`codefast search "why does the copy stop early" dev_write dev_read` answers each name, and the
+free-text ones together as one question.
 
 Before editing a function, start with `codefast context NAME`. It stands in for the usual
 opening moves (grep for the name, read the file, look for callers, look for tests) and often
