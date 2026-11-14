@@ -952,11 +952,14 @@ pub struct LocateOpts {
     /// Machine-readable ranking: `F<TAB>path` rows for files, then `S<TAB>path<TAB>name<TAB>line`
     /// rows for symbols, best first.
     pub plain: bool,
+    /// One line per file, with the name and the lines of its best symbol: every file of the
+    /// ranking fits a small budget, where the full form spends it on the first three.
+    pub brief: bool,
 }
 
 impl Default for LocateOpts {
     fn default() -> Self {
-        LocateOpts { top_files: 10, syms_per_file: 3, plain: false }
+        LocateOpts { top_files: 10, syms_per_file: 3, plain: false, brief: false }
     }
 }
 
@@ -978,6 +981,7 @@ pub fn locate(ix: &Index, text: &str, common: &Common, opts: &LocateOpts, out: &
     }
     // Where the query's own words occur verbatim (a log line, an error message).
     let mut exact: Vec<&PhraseHit> = ranked.phrases.iter().filter(|h| h.spread <= 3).collect();
+
     exact.sort_by(|a, b| b.quoted.cmp(&a.quoted).then_with(|| a.spread.cmp(&b.spread)).then_with(|| b.text.len().cmp(&a.text.len())));
     let mut shown: FxHashSet<(FileId, u32)> = FxHashSet::default();
     let mut n_exact = 0;
@@ -994,6 +998,17 @@ pub fn locate(ix: &Index, text: &str, common: &Common, opts: &LocateOpts, out: &
     }
     out.push(&format!("{} candidate files; top {}:", count(ranked.candidates), ranked.files.len().min(opts.top_files)));
     for (i, (f, _)) in ranked.files.iter().take(opts.top_files).enumerate() {
+        if opts.brief {
+            let best = file_symbols(ix, *f, &ranked, &q, 1).first().map(|&d| ix.def(d));
+            let line = match best {
+                Some(v) => format!("{}. {}  {} {}-{}", i + 1, ix.path(*f), v.qualified(), v.rec.line, v.rec.end_line),
+                None => format!("{}. {}", i + 1, ix.path(*f)),
+            };
+            if !out.line(&line) {
+                break;
+            }
+            continue;
+        }
         if !out.line(&format!("{}. {}", i + 1, ix.path(*f))) {
             break;
         }

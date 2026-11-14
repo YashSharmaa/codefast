@@ -163,6 +163,34 @@ fn a_question_the_index_answers_whole_is_answered_in_the_card() {
     assert!(!unbound.contains("of its 2 bindings"), "{unbound}");
 }
 
+/// A report of a problem with a request to say where the problem is gets the ranking of the
+/// files its words match, and is told that a ranking is what it is. The same report with a
+/// request to fix it gets no ranking: that was measured, and it cost more than it gave.
+#[test]
+fn a_report_that_asks_where_the_problem_is_gets_the_ranking() {
+    let (repo, home) = indexed("prompt-where");
+    let report = "After the update the copy tool stops with a short write. The log says \"dev_write: 512 bytes\" and then nothing. \
+                  It happens when the device returns fewer bytes than the count that was asked for, and the loop in the copy does not notice. \
+                  Reading works. It is only the write side of the device that is wrong, as far as I can tell from the log.";
+    let ask = |session: &str, request: &str| {
+        let mut v: serde_json::Value = serde_json::from_str(&payload("claude-user-prompt", &repo.dir, &home)).unwrap();
+        v["prompt"] = format!("{report}\n\n{request}").into();
+        v["session_id"] = session.into();
+        hook(&home, &repo.dir, "user-prompt-submit", v.to_string().as_bytes(), &[])
+    };
+    let card = ask("a", "Find the source files that would have to be changed to fix it. Do not fix it.").context("UserPromptSubmit");
+    assert!(card.starts_with("codefast: the files whose text the words of this report match best, the most likely first (a ranking and not an answer: `codefast locate` makes it):\n"), "{card}");
+    // The file that writes the line of the log leads the ranking. One line per file, with the
+    // function of that file the report's words point at and where it stands.
+    assert!(card.contains("\n1. src/io.c  dev_write 11-15\n"), "{card}");
+    // Once in a session, like every card.
+    let again = ask("a", "Which files are responsible for this bug?");
+    assert!(again.stdout.is_empty() || !again.context("UserPromptSubmit").contains("a ranking and not an answer"), "{}", again.stdout);
+    // Asked to fix it, the session is not handed a ranking.
+    let fix = ask("b", "Fix it in the source code and say what you changed.");
+    assert!(fix.stdout.is_empty() || !fix.context("UserPromptSubmit").contains("a ranking and not an answer"), "{}", fix.stdout);
+}
+
 #[test]
 fn a_card_carries_what_is_small_and_points_at_what_is_large() {
     let repo = Repo::new("prompt-sizes");

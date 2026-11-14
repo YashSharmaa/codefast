@@ -102,6 +102,9 @@ const ASK_TOKENS: usize = 450;
 /// A function may call thirty others, and a list cut short sends the session to ask for the
 /// rest, which costs it more than the rest would have.
 const ASK_CALLEES_TOKENS: usize = 800;
+/// The room of the ranking a prompt gets when it asks where a reported problem is: ten files,
+/// each with the function of it that matches the report best.
+const ASK_LOCATE_TOKENS: usize = 700;
 /// How long the search for a call path may work before a prompt goes on without it. The
 /// other cards of the prompt wait behind it.
 const ASK_PATH_SECONDS: f64 = 0.5;
@@ -1206,6 +1209,36 @@ fn origin_cards(ix: &Index, rs: &Resolver, session: &Session, text: &str, cli: &
     }
 }
 
+/// The report a prompt is about, where the prompt marks it off: the largest stretch between
+/// two fence lines (``` or a line of dashes, with or without a label in it) that is long
+/// enough to be a report. The words around it are the request ("find the files", "end with a
+/// JSON object"), and a ranking by words should not rank by those. A prompt with no such
+/// stretch is taken whole.
+fn report_text(prompt: &str) -> &str {
+    let fence = |l: &str| {
+        let t = l.trim();
+        t.starts_with("```") || (t.len() >= 3 && t.starts_with("---") && t.ends_with("---")) || (t.len() >= 3 && t.chars().all(|c| c == '-' || c == '=' || c == '*' || c == '_'))
+    };
+    let mut best = prompt;
+    let mut size = 0;
+    let mut open: Option<usize> = None;
+    let mut at = 0;
+    for line in prompt.split_inclusive('\n') {
+        if fence(line) {
+            match open {
+                Some(from) if at - from >= 200 && at - from > size => {
+                    best = &prompt[from..at];
+                    size = at - from;
+                    open = Some(at + line.len());
+                }
+                _ => open = Some(at + line.len()),
+            }
+        }
+        at += line.len();
+    }
+    best
+}
+
 /// The functions bound to a slot in the part of the project the prompt names. A slot such as
 /// `file_operations.read_iter` has a hundred bindings, and "for ext4" says which one is asked
 /// about: the bindings in files whose path has the most words of the sentence. Nothing when
@@ -1267,7 +1300,7 @@ fn mention_of(key: &str) -> Mention {
 /// card is what the command for it prints, about the one definition the prompt can mean. It
 /// is the answer and not a pointer to it, because a call for it would cost the session a
 /// request, and in a short session a request is a third of the bill.
-fn answer_cards(ix: &Index, rs: &Resolver, place: &Place, session: &Session, found: &prompt::Mentions, cli: &str, taken: &mut Vec<DefId>, tx: &mpsc::Sender<String>) -> usize {
+fn answer_cards(ix: &Index, rs: &Resolver, place: &Place, session: &Session, found: &prompt::Mentions, text: &str, cli: &str, taken: &mut Vec<DefId>, tx: &mpsc::Sender<String>) -> usize {
     let common = crate::query::Common { paths: Vec::new(), kinds: None, tests: false, budget: ASK_TOKENS };
     let pin = |key: &str| -> Option<Pinned> {
         let m = mention_of(key);
@@ -1289,8 +1322,34 @@ fn answer_cards(ix: &Index, rs: &Resolver, place: &Place, session: &Session, fou
     };
     let mut sent = 0;
     for ask in &found.asks {
-        let mut out = crate::output::Out::new(if matches!(ask, prompt::Ask::Callees(_)) { ASK_CALLEES_TOKENS } else { ASK_TOKENS });
+        let mut out = crate::output::Out::new(match ask {
+            prompt::Ask::Callees(_) => ASK_CALLEES_TOKENS,
+            prompt::Ask::Locate => ASK_LOCATE_TOKENS,
+            _ => ASK_TOKENS,
+        });
         let (card, defs, keys): (String, Vec<DefId>, Vec<String>) = match ask {
+            prompt::Ask::Locate => {
+                // Where a reported problem is, asked in so many words. The index cannot know
+                // it. What it can do is rank the files by the words of the report, which is
+                // what `locate` does, and say that this is a ranking: the session is asked
+                // for candidates, and these are candidates it would otherwise grep for.
+                // Ten files and no more: with twenty the card named the file of the fix for 70% of
+                // the kernel reports it was tried on instead of 59%, and the sessions that got
+                // it did not find one file more (bench/tier2/LIVE.md).
+                let opts = crate::query::locate::LocateOpts { top_files: 10, syms_per_file: 1, plain: false, brief: true };
+                let whole = crate::query::Common { paths: Vec::new(), kinds: None, tests: false, budget: ASK_LOCATE_TOKENS };
+                crate::query::locate::locate(ix, report_text(text), &whole, &opts, &mut out);
+                let ranking = out.finish();
+                if !ranking.contains("candidate files") {
+                    continue;
+                }
+                let ranking = ranking.lines().filter(|l| !l.starts_with('\u{2026}')).collect::<Vec<_>>().join("\n");
+                (
+                    format!("the files whose text the words of this report match best, the most likely first (a ranking and not an answer: `{cli} locate` makes it):\n{}", ranking.trim_end()),
+                    Vec::new(),
+                    vec!["locate".to_string()],
+                )
+            }
             prompt::Ask::Callees(key) => {
                 let Some(p) = pin(key).filter(|p| p.target.class == Class::Callable) else { continue };
                 let name = p.target.primary(ix).qualified();
@@ -1361,7 +1420,7 @@ fn answer_cards(ix: &Index, rs: &Resolver, place: &Place, session: &Session, fou
             continue;
         }
         // The answer names each of them with its place: no second card for the same symbol.
-        for k in &keys {
+        for k in keys.iter().filter(|_| !matches!(ask, prompt::Ask::Locate)) {
             session.claim(&format!("p:{k}"));
         }
         taken.extend(defs);
@@ -1391,7 +1450,7 @@ fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id:
     let mut code_left = CARD_CODE_LINES;
     let mut seen: Vec<DefId> = Vec::new();
     // First, the question itself where it has a shape the index answers whole.
-    sent += answer_cards(&ix, &rs, &place, &session, &found, &cli, &mut seen, &tx);
+    sent += answer_cards(&ix, &rs, &place, &session, &found, &text, &cli, &mut seen, &tx);
     for m in order {
         if sent >= MAX_CARDS && tests_sent > 0 {
             break;

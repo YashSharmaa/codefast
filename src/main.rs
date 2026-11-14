@@ -530,7 +530,7 @@ fn run(cli: Cli) -> Result<()> {
             } else {
                 a.text.join(" ")
             };
-            let opts = query::locate::LocateOpts { top_files: a.limit, syms_per_file: a.symbols, plain: a.plain };
+            let opts = query::locate::LocateOpts { top_files: a.limit, syms_per_file: a.symbols, plain: a.plain, brief: false };
             query::locate::locate(&ix, &text, &common, &opts, &mut out);
         }
         Cmd::Trace(a) => {

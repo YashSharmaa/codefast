@@ -28,6 +28,9 @@ pub enum Ask {
     Path(String, String),
     /// "Which functions set the f field of struct S?"
     Writers(String),
+    /// "Find the files that have to be changed to fix this", over a report of a problem: the
+    /// files whose text the report's words match best.
+    Locate,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -417,6 +420,53 @@ fn sentence(out: &mut Mentions, text: &str, ask: bool) {
     }
 }
 
+/// Whether a sentence asks where in the code a problem is: which files or functions would
+/// have to change, where the bug is. The answer to that is a ranking of files, and it is
+/// only given when it is asked for: a report that comes with a request to fix it asks for
+/// the fix, and a ranking beside it was measured to cost more than it gave.
+fn asks_where(text: &str) -> bool {
+    // Plain words only, and the word that opens the sentence. A name of the code (`*Change`,
+    // `BUG:` in a quoted log line) is not the word it resembles.
+    let low: Vec<String> = text
+        .split_whitespace()
+        .enumerate()
+        .map(|(i, w)| {
+            let b = bare(w);
+            let plain = b.chars().all(|c| c.is_ascii_lowercase()) || (i == 0 && b.chars().skip(1).all(|c| c.is_ascii_lowercase()) && !w.contains('*'));
+            if plain { b.to_lowercase() } else { String::new() }
+        })
+        .collect();
+    let is = |i: usize, set: &[&str]| low.get(i).is_some_and(|w| set.contains(&w.as_str()));
+    let any = |set: &[&str]| low.iter().any(|w| set.contains(&w.as_str()));
+    const PLACE: [&str; 9] = ["file", "files", "function", "functions", "place", "places", "location", "locations", "code"];
+    // Not `fault`, `change`, `patch` or `root`: a page fault, a change and a root are things
+    // code is about, and "which functions make the call on a page fault" asks for callers.
+    const FAULT: [&str; 18] = [
+        "fix", "fixed", "fixing", "changed", "modify", "modified", "patched", "bug", "faulty", "defect", "responsible", "cause", "causes", "caused", "causing", "culprit",
+        "regression", "broken",
+    ];
+    const PROBLEM: [&str; 9] = ["bug", "fault", "problem", "issue", "defect", "regression", "error", "crash", "failure"];
+    for i in 0..low.len() {
+        // "find the source files that would have to be changed to fix it"
+        if is(i, &["find", "identify", "locate", "determine", "name", "list"]) && (i + 1..(i + 7).min(low.len())).any(|j| is(j, &PLACE)) && any(&FAULT) {
+            return true;
+        }
+        // "which files does this bug come from", "which functions are responsible"
+        if is(i, &["which", "what"]) && (i + 1..(i + 4).min(low.len())).any(|j| is(j, &["file", "files", "function", "functions"])) && any(&FAULT) {
+            return true;
+        }
+        // "where is the bug", "where does the problem come from"
+        if is(i, &["where"]) && (i + 1..(i + 5).min(low.len())).any(|j| is(j, &PROBLEM)) {
+            return true;
+        }
+        // "localise the fault", "locate the root cause"
+        if is(i, &["localize", "localise", "locate"]) && (i + 1..(i + 4).min(low.len())).any(|j| is(j, &PROBLEM) || is(j, &["root"])) {
+            return true;
+        }
+    }
+    false
+}
+
 /// The symbols and paths a prompt names, in the order they appear.
 pub fn mentions(prompt: &str) -> Mentions {
     let mut end = prompt.len().min(MAX_PROMPT);
@@ -449,8 +499,14 @@ pub fn mentions(prompt: &str) -> Mentions {
         word(&mut out, w, false);
     }
     let ask = text.len() <= ASK_MAX_PROMPT && !out.rename;
+    let mut where_asked = false;
     for s in sentences(text) {
         sentence(&mut out, s, ask);
+        where_asked |= asks_where(s);
+    }
+    // Asked of a prompt of any length: the report it is asked about is the prompt.
+    if where_asked && !out.rename && out.asks.is_empty() {
+        out.asks.push(Ask::Locate);
     }
     // A type that is named only as the owner of a member the prompt is about (`the function
     // parse in class Parser`, `the mnt_ns field of struct mount`) is not a second subject.
@@ -545,6 +601,34 @@ mod tests {
         // A member that is read, or a set that is a noun, is not that question.
         assert_eq!(asks("Which functions read the mnt_ns field of struct mount?"), []);
         assert_eq!(asks("What is the set of flags in struct mount?"), []);
+    }
+
+    #[test]
+    fn a_question_about_where_a_problem_is() {
+        let report = "The backlight keys do nothing on this laptop since the last update. ".repeat(40);
+        for yes in [
+            "Find the source files that would have to be changed to fix it. Do not fix it.",
+            "Which files are most likely responsible for this bug?",
+            "Where is the bug?",
+            "Localise the fault and list the files.",
+            "Can you identify the functions that cause this regression?",
+        ] {
+            assert_eq!(asks(&format!("{report}\n{yes}")), [Ask::Locate], "{yes}");
+        }
+        // A request to fix the thing is not a request to be told where it is, and neither is
+        // a request to find something else.
+        for no in [
+            "Fix it in the source code. The tests that the project added for this change are not in the tree.",
+            "Change the source code so that they pass.",
+            "Find the tests for the parser and run them.",
+            "Which functions call the method Action of *Change (defined in utils/merkletrie/change.go)?",
+            "shmem_fault() is only installed in vm_ops tables. Which functions make the indirect call that reaches it on a page fault?",
+            "An oops starts with \"BUG: unable to handle page fault\". Which function prints that line?",
+            "Which version of the kernel is this?",
+            "Write the body again, so that it does what the rest of the project expects of it.",
+        ] {
+            assert_eq!(asks(&format!("{report}\n{no}")), [], "{no}");
+        }
     }
 
     #[test]
