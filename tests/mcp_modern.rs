@@ -505,3 +505,27 @@ fn free_text_is_answered_with_the_code_of_the_candidates() {
     let r = s.call("search", json!({"queries": ["dev_write"]}));
     assert!(text(&r).contains("src/io.c:11") && !text(&r).contains("candidate files"), "{}", text(&r));
 }
+
+/// What models put into one query besides a question: several names at once, and a piece of
+/// code. Neither is a text to rank files by.
+#[test]
+fn several_names_and_a_piece_of_code_are_not_ranked_as_words() {
+    let repo = Repo::new("query-shapes");
+    let mut s = Session::in_repo(&repo);
+
+    let r = s.call("search", json!({"queries": ["dev_read dev_write"]}));
+    let t = text(&r);
+    assert!(t.contains("src/io.c:4") && t.contains("src/io.c:11") && !t.contains("candidate files"), "each name is answered: {t}");
+
+    let r = s.call("search", json!({"queries": ["d->ops->write(d, buf, count)"]}));
+    let t = text(&r);
+    assert!(t.contains("src/io.c:14") && t.contains("dev_write") && !t.contains("candidate files"), "the code is found where it is written: {t}");
+
+    // With other spacing than the source has, and a file named with it.
+    let r = s.call("search", json!({"queries": ["io.c d->ops->read( d,buf,count )"]}));
+    assert!(text(&r).contains("src/io.c:8"), "{}", text(&r));
+
+    // Code that is written nowhere falls back to a ranking of its words.
+    let r = s.call("search", json!({"queries": ["d->ops->flush(d) after the write"], "budget": 600}));
+    assert!(text(&r).contains("candidate files"), "{}", text(&r));
+}

@@ -58,7 +58,7 @@ enum Cmd {
     Path(PathArgs),
     /// Regex search over all text, with the enclosing symbol of every match
     Grep(GrepArgs),
-    /// Rank files and symbols for free text: a bug report, a question, a stack trace
+    /// The files a bug report, a question or a stack trace points to, with the source of the functions that make them candidates
     Locate(LocateArgs),
     /// Resolve a pasted stack trace to code: one frame per line with location and signature
     Trace(TraceArgs),
@@ -253,10 +253,9 @@ struct LocateArgs {
     /// Machine-readable ranking (for scripts and benchmarks)
     #[arg(long)]
     plain: bool,
-    /// With each file, the source of the functions that make it a candidate (what `search`
-    /// prints for free text)
+    /// The ranking alone: the files and the names of their best functions, without the source
     #[arg(long)]
-    code: bool,
+    ranking: bool,
 }
 
 #[derive(Args)]
@@ -541,8 +540,11 @@ fn run(cli: Cli) -> Result<()> {
             } else {
                 a.text.join(" ")
             };
-            let opts = query::locate::LocateOpts { top_files: a.limit, syms_per_file: a.symbols, plain: a.plain, code: a.code };
-            if a.code && cli.budget == 1500 {
+            // As `search` does for free text: the source of the candidates comes with them,
+            // unless the caller wants the list alone or names a budget too small for code.
+            let code = !a.ranking && !a.plain && (cli.budget == 1500 || cli.budget == 0 || cli.budget >= query::locate::CODE_MIN_BUDGET);
+            let opts = query::locate::LocateOpts { top_files: a.limit, syms_per_file: a.symbols, plain: a.plain, code };
+            if code && cli.budget == 1500 {
                 // An answer with code in it has a default budget of its own.
                 let mut roomy = Out::new(query::locate::CODE_BUDGET);
                 query::locate::locate(&ix, &text, &common, &opts, &mut roomy);

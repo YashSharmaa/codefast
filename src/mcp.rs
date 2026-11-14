@@ -214,8 +214,26 @@ fn bounded(mut text: String, budget: usize) -> String {
     text
 }
 
-/// How many answers with code this process has given (see [`query::locate::code_budget`]).
-static CODE_ANSWERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// When this process gave its recent answers with code. One server is one session, and what
+/// a session asks within a few minutes is one piece of work.
+static CODE_ANSWERS: std::sync::Mutex<Vec<std::time::Instant>> = std::sync::Mutex::new(Vec::new());
+/// The answers with code of one piece of work: the first in full, two shorter ones, and after
+/// that the ranking alone until the session has been quiet for a while. A session that asks its
+/// tenth open question in two minutes is not helped by a tenth helping of source.
+const CODE_ANSWERS_IN_A_ROW: usize = 3;
+const CODE_ANSWERS_WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// The room for the next answer with code, or none when this piece of work has had its share.
+fn code_room() -> Option<usize> {
+    let mut given = CODE_ANSWERS.lock().ok()?;
+    let now = std::time::Instant::now();
+    given.retain(|t| now.duration_since(*t) < CODE_ANSWERS_WINDOW);
+    if given.len() >= CODE_ANSWERS_IN_A_ROW {
+        return None;
+    }
+    given.push(now);
+    Some(query::locate::code_budget(given.len() - 1))
+}
 
 /// Run one tool against the repository at `root` and return its text.
 pub fn call_tool(root: &Path, name: &str, args: &Value) -> Result<String> {
@@ -282,11 +300,10 @@ pub fn call_tool(root: &Path, name: &str, args: &Value) -> Result<String> {
             // free-text query of the same call gets the ranking alone.
             let mut roomy_left = !budget_named;
             for q in &queries {
-                let roomy = roomy_left && query::search::is_free_text(&ix, &rs, q, &common);
-                let mut one = if roomy {
+                let open = roomy_left && query::search::is_free_text(&ix, &rs, q, &common);
+                let room = if open { code_room() } else { None };
+                let mut one = if let Some(room) = room {
                     roomy_left = false;
-                    // One server is one session: its later open questions get shorter answers.
-                    let room = query::locate::code_budget(CODE_ANSWERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
                     limit = limit.max(room + budget);
                     Out::new(room)
                 } else {

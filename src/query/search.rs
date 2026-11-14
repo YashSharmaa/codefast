@@ -260,7 +260,76 @@ fn owner_has(ix: &Index, spec: &str) -> bool {
 /// larger one, [`super::locate::CODE_BUDGET`].
 pub fn is_free_text(ix: &Index, rs: &Resolver, query: &str, common: &Common) -> bool {
     let q = query.trim();
-    q.split_whitespace().count() > 1 && super::split_kind_prefix(q).0.is_none() && symbol_in_words(ix, rs, q, common).is_none()
+    q.split_whitespace().count() > 1
+        && super::split_kind_prefix(q).0.is_none()
+        && symbol_in_words(ix, rs, q, common).is_none()
+        && several_symbols(ix, q).is_none()
+        && code_fragment(ix, q).is_none()
+}
+
+/// `nv_adma_port_suspend nv_adma_port_resume`: two to four words, each the exact name of
+/// something defined here and each shaped like an identifier. Models put the names they want
+/// into one query. Ranking files for those words would answer a question that was not asked.
+fn several_symbols<'a>(ix: &Index, q: &'a str) -> Option<Vec<&'a str>> {
+    let words: Vec<&str> = q.split_whitespace().collect();
+    if !(2..=4).contains(&words.len()) {
+        return None;
+    }
+    let named = |w: &&str| w.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') && super::locate::is_code_like(w) && !ix.defs_named(w.as_bytes()).is_empty();
+    words.iter().all(named).then_some(words)
+}
+
+/// `pp->flags |= NV_ADMA_ATAPI_SETUP_COMPLETE`, `host->n_ports`: a piece of code, which is
+/// looked for as it is written (with any spacing) and not ranked as words. Returns the pattern,
+/// and the files a word of the query names, to look in.
+fn code_fragment(ix: &Index, q: &str) -> Option<(String, Vec<String>)> {
+    // What only code has, and what prose has too: the second kind counts when a word of the
+    // query is shaped like an identifier.
+    const SURE: [&str; 13] = ["->", "|=", "&=", "+=", "-=", "==", "!=", "<=", ">=", "<<", ">>", "&&", "||"];
+    const MAYBE: [&str; 3] = ["=", "(", "["];
+    let mut paths: Vec<String> = Vec::new();
+    let mut pieces: Vec<&str> = Vec::new();
+    for w in q.split_whitespace() {
+        // A file named along with the code says where to look.
+        if w.contains('.') && !w.contains("->") && !w.contains('(') && ix.name_id(w.as_bytes()).is_none() && super::resolve_file(ix, w).is_some() {
+            paths.push(w.to_string());
+        } else {
+            pieces.push(w);
+        }
+    }
+    let code = pieces.join(" ");
+    let has_name = pieces.iter().any(|w| w.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|t| t.len() >= 3 && super::locate::is_code_like(t)));
+    let sure = SURE.iter().any(|op| code.contains(op));
+    if !sure && !(has_name && MAYBE.iter().any(|op| code.contains(op))) {
+        return None;
+    }
+    // Tokens in a row with any spacing between them, each taken literally.
+    let mut pattern = String::new();
+    let mut cur = String::new();
+    let flush = |cur: &mut String, pattern: &mut String| {
+        if !cur.is_empty() {
+            if !pattern.is_empty() {
+                pattern.push_str(r"\s*");
+            }
+            pattern.push_str(&regex::escape(cur));
+            cur.clear();
+        }
+    };
+    let mut prev_word = false;
+    for ch in code.chars() {
+        let word = ch.is_alphanumeric() || ch == '_';
+        if ch.is_whitespace() {
+            flush(&mut cur, &mut pattern);
+        } else {
+            if !cur.is_empty() && word != prev_word {
+                flush(&mut cur, &mut pattern);
+            }
+            cur.push(ch);
+        }
+        prev_word = word;
+    }
+    flush(&mut cur, &mut pattern);
+    Some((pattern, paths))
 }
 
 pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &SearchOpts, out: &mut Out) {
@@ -277,6 +346,31 @@ pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &Se
             narrowed.paths.extend(paths);
             search(ix, rs, &name, &narrowed, opts, out);
             return;
+        }
+        // Several names in one query: each is answered, in the room the answer has.
+        if let Some(names) = several_symbols(ix, q) {
+            for (i, name) in names.iter().enumerate() {
+                let mut one = Out::new(if out.budget() == 0 { 0 } else { (out.remaining() / (names.len() - i)).max(150) });
+                search(ix, rs, name, common, opts, &mut one);
+                if i > 0 {
+                    out.push("");
+                }
+                out.push(one.finish().trim_end());
+            }
+            return;
+        }
+        // A piece of code is looked for where it is written. Where it is written nowhere,
+        // its words are ranked like any other text.
+        if let Some((pattern, paths)) = code_fragment(ix, q) {
+            let mut narrowed = common.clone();
+            narrowed.paths.extend(paths);
+            let mut found = Out::new(out.remaining());
+            super::grep::grep(ix, &pattern, &narrowed, &super::grep::GrepOpts::default(), &mut found);
+            let text = found.finish();
+            if !text.starts_with("no matches") && !text.starts_with("invalid pattern") {
+                out.push(text.trim_end());
+                return;
+            }
         }
         // An open question is answered with the code of the candidates where there is room
         // for it, and with the ranking alone where the caller asked for a short answer.

@@ -98,6 +98,10 @@ def tasks_of(which, n):
         order = [x.split("-", 1)[1] for x in used["kernel_bug_reports_development"] if x.startswith("FD-")]
         by = {str(r["id"]): r for r in rows}
         rows = [by[i] for i in order if i in by]
+    elif used["held_out"].get("PF"):
+        # The reports this was run on, as recorded when it was.
+        by = {str(r["id"]): r for r in rows}
+        rows = [by[i] for i in used["held_out"]["PF"] if i in by]
     else:
         rows = [r for r in rows if not is_dev(str(r["id"])) and str(r["id"]) not in in_sessions]
         rows.sort(key=lambda r: hashlib.sha256(("pf:" + str(r["id"])).encode()).hexdigest())
@@ -165,33 +169,29 @@ def norm(path, tree):
     return "/".join(parts)
 
 
+def finished(raw):
+    """Whether a session's event stream is there and ends with its result."""
+    if not raw.exists():
+        return False
+    for line in raw.read_text().splitlines():
+        try:
+            if json.loads(line).get("type") == "result":
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def one(a, t, arm, rep, binary, run_dir):
     run_dir.mkdir(parents=True, exist_ok=True)
     tree = t["tree"]
-    if not (Path(tree) / ".git").exists():
-        # An exported tree inside this repository would be taken for a part of it.
-        subprocess.run(["git", "init", "-q", "."], cwd=tree, check=True)
-    sysfile = run_dir / "system_prompt.md"
-    sysfile.write_text(system_prompt(arm, a.primary))
-    cmd = [a.claude, "-p", t["prompt"], "--output-format", "stream-json", "--verbose", "--strict-mcp-config"]
-    if arm != "baseline":
-        index = ROOT / "target/bench-index" / ("lfl-" + Path(tree).name)
-        cfg = run_dir / "mcp.json"
-        cfg.write_text(json.dumps({"mcpServers": {"codefast": {"type": "stdio", "command": str(binary), "args": ["mcp", "--root", tree],
-                                                                 "env": {"CODEFAST_INDEX_DIR": str(index), "CODEFAST_ROOT": tree, "CODEFAST_THREADS": "2"}}}}))
-        cmd += ["--mcp-config", str(cfg)]
-    cmd += ["--model", MODEL, "--effort", "low", "--tools", "Read,Edit,Write,Bash,Grep,Glob", "--permission-mode", "bypassPermissions",
-            "--max-turns", "30", "--max-budget-usd", "1", "--disallowedTools", "WebFetch,WebSearch", "--append-system-prompt-file", str(sysfile),
-            "--no-session-persistence", "--setting-sources", "project", "--no-chrome"]
-    env = {k: v for k, v in os.environ.items() if not k.startswith(SCRUB)}
-    env.update(CLAUDE_CONFIG_DIR=a.config_dir, ENABLE_CLAUDEAI_MCP_SERVERS="false")
-    t0 = time.time()
-    try:
-        out = subprocess.run(cmd, cwd=tree, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=900).stdout
-    except subprocess.TimeoutExpired:
-        out = ""
-    (run_dir / "run.jsonl").write_text(out)
-    row: dict = dict(id=t["id"], arm=arm, rep=rep, tag=a.tag, version=t["version"], seconds=round(time.time() - t0), answer="", subtype="", tokens=0, cost=0.0, turns=0, mcp=0, native=0, tools={})
+    raw, meta = run_dir / "run.jsonl", run_dir / "meta.json"
+    # A session that already ran to its end is read again and not run again.
+    if not finished(raw):
+        execute(a, t, arm, binary, run_dir)
+    seconds = json.load(open(meta)).get("seconds", 0) if meta.exists() else 0
+    out = raw.read_text() if raw.exists() else ""
+    row: dict = dict(id=t["id"], arm=arm, rep=rep, tag=a.tag, version=t["version"], seconds=seconds, answer="", subtype="", tokens=0, cost=0.0, turns=0, mcp=0, native=0, tools={})
     for line in out.splitlines():
         try:
             ev = json.loads(line)
@@ -216,6 +216,31 @@ def one(a, t, arm, rep, binary, run_dir):
     return row
 
 
+def execute(a, t, arm, binary, run_dir):
+    tree = t["tree"]
+    sysfile = run_dir / "system_prompt.md"
+    sysfile.write_text(system_prompt(arm, a.primary))
+    cmd = [a.claude, "-p", t["prompt"], "--output-format", "stream-json", "--verbose", "--strict-mcp-config"]
+    if arm != "baseline":
+        index = ROOT / "target/bench-index" / ("lfl-" + Path(tree).name)
+        cfg = run_dir / "mcp.json"
+        cfg.write_text(json.dumps({"mcpServers": {"codefast": {"type": "stdio", "command": str(binary), "args": ["mcp", "--root", tree],
+                                                                 "env": {"CODEFAST_INDEX_DIR": str(index), "CODEFAST_ROOT": tree, "CODEFAST_THREADS": "2"}}}}))
+        cmd += ["--mcp-config", str(cfg)]
+    cmd += ["--model", MODEL, "--effort", "low", "--tools", "Read,Edit,Write,Bash,Grep,Glob", "--permission-mode", "bypassPermissions",
+            "--max-turns", "30", "--max-budget-usd", "1", "--disallowedTools", "WebFetch,WebSearch", "--append-system-prompt-file", str(sysfile),
+            "--no-session-persistence", "--setting-sources", "project", "--no-chrome"]
+    env = {k: v for k, v in os.environ.items() if not k.startswith(SCRUB)}
+    env.update(CLAUDE_CONFIG_DIR=a.config_dir, ENABLE_CLAUDEAI_MCP_SERVERS="false")
+    t0 = time.time()
+    try:
+        out = subprocess.run(cmd, cwd=tree, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=900).stdout
+    except subprocess.TimeoutExpired:
+        out = ""
+    (run_dir / "run.jsonl").write_text(out)
+    (run_dir / "meta.json").write_text(json.dumps({"seconds": round(time.time() - t0)}))
+
+
 def run(a):
     tasks = tasks_of(a.set, a.n)
     if a.ids:
@@ -226,6 +251,11 @@ def run(a):
         for tree in sorted({t["tree"] for t in tasks}):
             env = dict(os.environ, CODEFAST_INDEX_DIR=str(ROOT / "target/bench-index" / ("lfl-" + Path(tree).name)), CODEFAST_ROOT=tree)
             subprocess.run([str(binary), "--root", tree, "status"], capture_output=True, text=True, env=env)
+    # An exported tree inside this repository would be taken for a part of it: each is made a
+    # work tree of its own, one after the other, before two sessions can try at once.
+    for tree in sorted({t["tree"] for t in tasks}):
+        if not (Path(tree) / ".git").exists():
+            subprocess.run(["git", "init", "-q", "."], cwd=tree, check=True)
     done = set()
     if a.out and Path(a.out).exists():
         done = {(r["id"], r["arm"], r["rep"]) for r in map(json.loads, open(a.out)) if r["tag"] == a.tag}
@@ -234,7 +264,11 @@ def run(a):
     with ThreadPoolExecutor(a.jobs) as pool:
         futs = [pool.submit(one, a, t, arm, rep, binary, ROOT / "target/live" / a.tag / t["id"] / (arm + (f".{rep}" if rep else ""))) for t, arm, rep in todo]
         for f in as_completed(futs):
-            r = f.result()
+            try:
+                r = f.result()
+            except Exception as e:  # one session that could not be run does not end the batch
+                print(f"  a session failed: {type(e).__name__}: {e}", flush=True)
+                continue
             print(f"  {r['id']:8s} {r['arm']:9s} rank={str(r['rank']):4s} files={len(r['files']):2d} turns={r['turns']:2d} mcp={r['mcp']:2d} native={r['native']:2d} tokens={r['tokens']:9,d} ${r['cost']:.3f} {r['seconds']:3d}s {r['subtype']}", flush=True)
             if a.out:
                 with open(a.out, "a") as fh:
@@ -246,7 +280,8 @@ def score(a):
     for path in a.rows:
         for r in map(json.loads, open(path)):
             by[r["arm"] if not a.by_tag else f"{r['arm']} ({r['tag']})"][r["id"]].append(r)
-    arms = list(by)
+    # The baseline is what the others are set against, whichever session finished first.
+    arms = sorted(by, key=lambda x: not x.startswith("baseline"))
     ids = sorted(set.intersection(*(set(by[x]) for x in arms)))
     mean = lambda xs: sum(xs) / len(xs) if xs else 0.0
     hit = lambda r, k: 1.0 if r.get("rank") and r["rank"] <= k else 0.0

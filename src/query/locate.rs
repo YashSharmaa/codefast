@@ -160,7 +160,7 @@ const SRC_EXT: &[&str] = &[
     "lua", "sh", "S", "s", "asm", "dts", "dtsi", "yaml", "yml", "json", "toml", "md", "rst", "txt", "cfg", "ini", "html", "css", "sql", "proto", "cmake", "mk",
 ];
 
-fn is_code_like(tok: &str) -> bool {
+pub(crate) fn is_code_like(tok: &str) -> bool {
     let b = tok.as_bytes();
     if b.len() < 3 {
         return false;
