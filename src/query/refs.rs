@@ -1556,9 +1556,13 @@ pub fn path(ix: &Index, rs: &Resolver, from: &str, to: &str, common: &Common, ma
         (Some(a), Some(b)) => b - a,
         _ => started.elapsed().as_secs_f64(),
     };
+    // A short search has someone waiting for it (a hook with a prompt behind it): on a busy
+    // machine it gives up after twice its time on the clock, where a search from the command
+    // line may take five times as long as its work.
+    let wait = max_seconds * if max_seconds < 2.0 { 2.0 } else { 5.0 };
     let mut depth = 0u32;
     let budget_nodes = 60_000usize;
-    while meet.is_none() && !ff.is_empty() && !bf.is_empty() && depth < max_depth && expanded < budget_nodes && worked() < max_seconds && started.elapsed().as_secs_f64() < max_seconds * 5.0 {
+    while meet.is_none() && !ff.is_empty() && !bf.is_empty() && depth < max_depth && expanded < budget_nodes && worked() < max_seconds && started.elapsed().as_secs_f64() < wait {
         depth += 1;
         // Backward steps over a widely used function are expensive: weigh by how many files
         // mention the names on that frontier.

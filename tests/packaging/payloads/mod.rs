@@ -8,7 +8,10 @@
 //!   Claude Code 2.1.322): common input fields plus the per-event examples.
 //! * `codex-*`: Codex hooks page (learn.chatgpt.com/docs/hooks, read 2026-11-13) and the
 //!   generated input schemas in openai/codex `codex-rs/hooks/schema/generated`: every required
-//!   field is present.
+//!   field is present. Compared on 2026-11-14 with what codex-cli 0.164.0 itself hands its
+//!   hooks (`bench/codex/wiring.py`): the same fields, the shell as `Bash` with the command as
+//!   one string, and after a patch the tool's text with its exit code in front, as it now is
+//!   in `codex-post-apply-patch`.
 //! * `cursor-*`, `gemini-*`: built from the Cursor and Gemini CLI hook references; neither
 //!   harness was available to record from.
 //! * `hostile-*`: inputs no harness should send.

@@ -8,7 +8,7 @@
     "command": "*** Begin Patch\n*** Update File: src/main.c\n@@\n-static int copy_all(struct dev *in, struct dev *out)\n+static int copy_everything(struct dev *in, struct dev *out)\n*** End Patch"
   },
   "tool_name": "apply_patch",
-  "tool_response": "Success. Updated the following files:\nM src/main.c",
+  "tool_response": "Exit code: 0\nWall time: 0 seconds\nOutput:\nSuccess. Updated the following files:\nM src/main.c\n",
   "tool_use_id": "call_9f8e7d6c5b4a",
   "transcript_path": null,
   "turn_id": "019a7c1e-3a10-7b22-8d44-1c2e3f4a5b6c"
