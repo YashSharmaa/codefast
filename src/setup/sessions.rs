@@ -357,7 +357,7 @@ fn usage(u: &Value) -> Usage {
 }
 
 /// The last request of the main thread that a transcript records.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Last {
     /// What the next request will send before anything new: the last request's context and
     /// its reply.
@@ -366,6 +366,8 @@ pub struct Last {
     pub at: i64,
     /// Whether the conversation is written to the one-hour cache, where the transcript says.
     pub one_hour: Option<bool>,
+    /// The model of that request, as the transcript writes it: [`weights`] gives its prices.
+    pub model: String,
 }
 
 /// The last main-thread request of the transcript at `path`, found from the end of the file:
@@ -397,10 +399,13 @@ pub fn last_request(path: &Path) -> Option<Last> {
             match &mut found {
                 // The newest request gives the size and the time. Which cache it writes to is
                 // taken from the newest request that wrote anything.
-                None => found = Some(Last { context: context + u.output.unwrap_or(0), at, one_hour: which }),
+                None => {
+                    let model = v["message"]["model"].as_str().unwrap_or("").to_string();
+                    found = Some(Last { context: context + u.output.unwrap_or(0), at, one_hour: which, model })
+                }
                 Some(last) => last.one_hour = last.one_hour.or(which),
             }
-            if found.is_some_and(|l| l.one_hour.is_some()) {
+            if found.as_ref().is_some_and(|l| l.one_hour.is_some()) {
                 break;
             }
         }
