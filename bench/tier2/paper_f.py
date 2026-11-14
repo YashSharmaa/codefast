@@ -31,6 +31,7 @@ usage: python3 -I bench/tier2/paper_f.py fetch
 import argparse
 import collections
 import hashlib
+import importlib.util
 import json
 import os
 import random
@@ -78,6 +79,49 @@ PRIMARY = {
 }
 
 
+# The paper's own best arm, run on the same reports: its server and its index builder from the
+# clone of its repository, in an environment of their own (bench/tools/hsasc/venv, made with
+# the versions its pyproject.toml pins), started through the sandbox wrapper of bench/scripts.
+THEIR_PY = ROOT / "bench/tools/hsasc/venv/bin/python"
+THEIR_WORK = ROOT / "bench/tools/_work/hsasc"
+SBX = ROOT / "bench/scripts/competitors/sbx.sh"
+
+
+def their_playbook(rep):
+    """What the paper's final condition tells a session about the tools of `rep`: the text its
+    own code renders (`cg_steer` in conditions/prompts/rep_tools.py)."""
+    spec = importlib.util.spec_from_file_location("their_rep_tools", THEIRS / "conditions/prompts/rep_tools.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.cg_steer(rep)
+
+
+def their_map(tree):
+    """The paper's map of one kernel tree (`python -m perrep.build --rep hybrid`), kept outside
+    the tree. Returns the directory that holds it."""
+    work = THEIR_WORK / Path(tree).name
+    if (work / "built").exists():
+        return work
+    work.mkdir(parents=True, exist_ok=True)
+    # One builder per tree: a second one waits for the first to finish.
+    try:
+        (work / "building").mkdir()
+    except FileExistsError:
+        while not (work / "built").exists():
+            time.sleep(10)
+        return work
+    env = dict(os.environ, SBX_EXTRA_ENV=f"PYTHONPATH={THEIRS} PYTHONDONTWRITEBYTECODE=1")
+    cmd = ["nice", "-n", "15", "/bin/bash", str(SBX), str(THEIR_PY), "-m", "perrep.build", "--repo", tree, "--rep", "hybrid", "--out-dir", str(work / "perrep"), "--repr-index", str(work / "repr_index")]
+    t0 = time.time()
+    p = subprocess.run(cmd, cwd=THEIRS, env=env, capture_output=True, text=True)
+    (work / "build.log").write_text(p.stdout + p.stderr)
+    if p.returncode or not (work / "perrep/hybrid.db").exists():
+        raise SystemExit(f"the paper's map of {tree} could not be built: see {work / 'build.log'}")
+    (work / "built").write_text(f"{round(time.time() - t0)} seconds\n")
+    return work
+
+
 def is_dev(task_id):
     return int(hashlib.sha256(task_id.encode()).hexdigest(), 16) % 2 == 0
 
@@ -98,8 +142,13 @@ def tasks_of(which, n):
         order = [x.split("-", 1)[1] for x in used["kernel_bug_reports_development"] if x.startswith("FD-")]
         by = {str(r["id"]): r for r in rows}
         rows = [by[i] for i in order if i in by]
+    elif which == "final":
+        # Reports no session of any build had been run on when the build was final.
+        by = {str(r["id"]): r for r in rows}
+        rows = [by[i] for i in used["held_out"]["PF2"] if i in by]
     elif used["held_out"].get("PF"):
-        # The reports this was run on, as recorded when it was.
+        # The reports the first version was run on, as recorded when it was. The first 25 of
+        # them were then used to develop the next one (`paper_protocol_development_2`).
         by = {str(r["id"]): r for r in rows}
         rows = [by[i] for i in used["held_out"]["PF"] if i in by]
     else:
@@ -125,8 +174,13 @@ def system_prompt(arm, primary):
     neutral = (THEIRS / "conditions/prompts/neutral.md").read_text().rstrip("\n")
     if arm == "baseline":
         return neutral + "\n"
-    parts = [neutral, PLAYBOOK.replace("{primary}", PRIMARY[primary])]
-    if arm == "codefast":
+    if arm == "hybrid":
+        # The paper's condition as its runner renders it: its playbook for its own tools, and
+        # its sentence that they must be used.
+        parts = [neutral, their_playbook("hybrid")]
+    else:
+        parts = [neutral, PLAYBOOK.replace("{primary}", PRIMARY[primary])]
+    if arm in ("codefast", "hybrid"):
         parts.append((THEIRS / "conditions/prompts/steer-strict.md").read_text().rstrip("\n"))
     return "\n\n".join(parts) + "\n"
 
@@ -221,7 +275,18 @@ def execute(a, t, arm, binary, run_dir):
     sysfile = run_dir / "system_prompt.md"
     sysfile.write_text(system_prompt(arm, a.primary))
     cmd = [a.claude, "-p", t["prompt"], "--output-format", "stream-json", "--verbose", "--strict-mcp-config"]
-    if arm != "baseline":
+    if arm == "hybrid":
+        work = THEIR_WORK / Path(tree).name
+        (run_dir / "their-run").mkdir(exist_ok=True)
+        # As its runner starts it (render_mcp_config, the per-representation condition), with
+        # the map kept outside the tree.
+        their_env = dict(REPO_ROOT=tree, REPO_INDEX_DIR=work / "repr_index", RUN_DIR=run_dir / "their-run", PYTHONPATH=THEIRS, REPR_PERREP_REP="hybrid",
+                         REPR_PERREP_DB=work / "perrep/hybrid.db", PYTHONDONTWRITEBYTECODE=1)
+        cfg = run_dir / "mcp.json"
+        cfg.write_text(json.dumps({"mcpServers": {"hybrid_perrep": {"type": "stdio", "command": "/bin/bash", "args": [str(SBX), str(THEIR_PY), "-m", "servers.perrep"],
+                                                                      "env": {"SBX_EXTRA_ENV": " ".join(f"{k}={v}" for k, v in their_env.items())}}}}))
+        cmd += ["--mcp-config", str(cfg)]
+    elif arm != "baseline":
         index = ROOT / "target/bench-index" / ("lfl-" + Path(tree).name)
         cfg = run_dir / "mcp.json"
         cfg.write_text(json.dumps({"mcpServers": {"codefast": {"type": "stdio", "command": str(binary), "args": ["mcp", "--root", tree],
@@ -247,7 +312,10 @@ def run(a):
         tasks = [t for t in tasks_of(a.set, 10**6) if t["id"] in a.ids.split(",")]
     arms = a.arms.split(",")
     binary = Path(a.codefast).resolve()
-    if any(x != "baseline" for x in arms):
+    if "hybrid" in arms:
+        for tree in sorted({t["tree"] for t in tasks}):
+            their_map(tree)
+    if any(x not in ("baseline", "hybrid") for x in arms):
         for tree in sorted({t["tree"] for t in tasks}):
             env = dict(os.environ, CODEFAST_INDEX_DIR=str(ROOT / "target/bench-index" / ("lfl-" + Path(tree).name)), CODEFAST_ROOT=tree)
             subprocess.run([str(binary), "--root", tree, "status"], capture_output=True, text=True, env=env)
@@ -280,37 +348,49 @@ def score(a):
     for path in a.rows:
         for r in map(json.loads, open(path)):
             by[r["arm"] if not a.by_tag else f"{r['arm']} ({r['tag']})"][r["id"]].append(r)
-    # The baseline is what the others are set against, whichever session finished first.
+    # The baseline is what the others are set against, each on the reports both were run on.
     arms = sorted(by, key=lambda x: not x.startswith("baseline"))
-    ids = sorted(set.intersection(*(set(by[x]) for x in arms)))
     mean = lambda xs: sum(xs) / len(xs) if xs else 0.0
     hit = lambda r, k: 1.0 if r.get("rank") and r["rank"] <= k else 0.0
-    print(f"{len(ids)} reports that every arm ran")
-    print(f"{'arm':36s} {'file first':>10s} {'in the ten':>10s} {'tokens':>10s} {'calls':>6s} {'of them MCP':>11s} {'files':>6s} {'no answer':>9s} {'cost':>6s}")
-    for label, r1, r10, tok, calls in PUBLISHED:
-        print(f"{label:36s} {r1:10.3f} {r10:10.3f} {tok:10,d} {calls:6.1f}")
-    base = None
-    for arm in arms:
+
+    def line(arm, ids):
         f = lambda fn: mean([mean([fn(r) for r in by[arm][t]]) for t in ids])
-        line = (f(lambda r: hit(r, 1)), f(lambda r: hit(r, 10)), f(lambda r: r["tokens"]), f(lambda r: r["mcp"] + r["native"]), f(lambda r: r["mcp"]), f(lambda r: len(r["files"])),
+        return (f(lambda r: hit(r, 1)), f(lambda r: hit(r, 10)), f(lambda r: r["tokens"]), f(lambda r: r["mcp"] + r["native"]), f(lambda r: r["mcp"]), f(lambda r: len(r["files"])),
                 sum(mean([0.0 if r["parsed"] else 1.0 for r in by[arm][t]]) for t in ids), f(lambda r: r["cost"]))
-        print(f"{arm:36s} {line[0]:10.3f} {line[1]:10.3f} {line[2]:10,.0f} {line[3]:6.1f} {line[4]:11.1f} {line[5]:6.1f} {line[6]:9.1f} {line[7]:6.3f}")
-        if base is None:
-            base = (arm, line)
+
+    def show(label, ids, x):
+        print(f"{label:44s} {len(ids):7d} {x[0]:10.3f} {x[1]:10.3f} {x[2]:10,.0f} {x[3]:6.1f} {x[4]:11.1f} {x[5]:6.1f} {x[6]:9.1f} {x[7]:6.3f}")
+
+    print(f"{'arm':44s} {'reports':>7s} {'file first':>10s} {'in the ten':>10s} {'tokens':>10s} {'calls':>6s} {'of them MCP':>11s} {'files':>6s} {'no answer':>9s} {'cost':>6s}")
+    for label, r1, r10, tok, calls in PUBLISHED:
+        print(f"{label:44s} {152:7d} {r1:10.3f} {r10:10.3f} {tok:10,d} {calls:6.1f}")
+    base = arms[0] if arms and arms[0].startswith("baseline") else None
+    for arm in arms:
+        ids = sorted(by[arm])
+        show(arm, ids, line(arm, ids))
+        if base is None or arm == base:
             continue
-        b = base[1]
-        win = sum(1 for t in ids if mean([hit(r, 10) for r in by[arm][t]]) > mean([hit(r, 10) for r in by[base[0]][t]]))
-        loss = sum(1 for t in ids if mean([hit(r, 10) for r in by[arm][t]]) < mean([hit(r, 10) for r in by[base[0]][t]]))
+        ids = sorted(set(by[arm]) & set(by[base]))
+        if not ids:
+            continue
+        x, b = line(arm, ids), line(base, ids)
+        if len(ids) != len(by[arm]) or len(ids) != len(by[base]):
+            show(f"  {base} on the same reports", ids, b)
+        win = sum(1 for t in ids if mean([hit(r, 10) for r in by[arm][t]]) > mean([hit(r, 10) for r in by[base][t]]))
+        loss = sum(1 for t in ids if mean([hit(r, 10) for r in by[arm][t]]) < mean([hit(r, 10) for r in by[base][t]]))
         random.seed(3)
-        d10, dtok = [], []
+        d10, dtok, dcost = [], [], []
         for _ in range(10000):
             s = [random.choice(ids) for _ in ids]
-            g = lambda x, fn: mean([mean([fn(r) for r in by[x][t]]) for t in s])
-            d10.append(g(arm, lambda r: hit(r, 10)) - g(base[0], lambda r: hit(r, 10)))
-            dtok.append(g(arm, lambda r: r["tokens"]) / g(base[0], lambda r: r["tokens"]) - 1)
+            g = lambda arm_, fn: mean([mean([fn(r) for r in by[arm_][t]]) for t in s])
+            d10.append(g(arm, lambda r: hit(r, 10)) - g(base, lambda r: hit(r, 10)))
+            dtok.append(g(arm, lambda r: r["tokens"]) / g(base, lambda r: r["tokens"]) - 1)
+            dcost.append(g(arm, lambda r: r["cost"]) / g(base, lambda r: r["cost"]) - 1)
         d10.sort()
         dtok.sort()
-        print(f"{'  against ' + base[0]:36s} {line[0] - b[0]:+10.3f} {line[1] - b[1]:+10.3f} {line[2] / b[2] - 1:+10.0%}   into the ten for {win}, out of it for {loss}; in the ten {d10[250]:+.3f} to {d10[9750]:+.3f}, tokens {dtok[250]:+.0%} to {dtok[9750]:+.0%}")
+        dcost.sort()
+        print(f"  against {base}: file first {x[0] - b[0]:+.3f}, in the ten {x[1] - b[1]:+.3f} ({d10[250]:+.3f} to {d10[9750]:+.3f}; into the ten for {win}, out of it for {loss}), "
+              f"tokens {x[2] / b[2] - 1:+.0%} ({dtok[250]:+.0%} to {dtok[9750]:+.0%}), cost {x[7] / b[7] - 1:+.0%} ({dcost[250]:+.0%} to {dcost[9750]:+.0%})")
 
 
 def main():
@@ -319,7 +399,7 @@ def main():
     sub.add_parser("fetch").set_defaults(fn=fetch)
     p = sub.add_parser("run")
     p.add_argument("--tag", required=True)
-    p.add_argument("--set", default="dev", choices=["dev", "held"])
+    p.add_argument("--set", default="dev", choices=["dev", "held", "final"])
     p.add_argument("--n", type=int, default=20)
     p.add_argument("--ids", default="")
     p.add_argument("--arms", default="baseline,codefast")
