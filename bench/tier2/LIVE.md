@@ -58,9 +58,12 @@ little. So the tasks are split.
 * **Held-out tasks** (`held_out` in `tasks.json`): tasks no session had been run on. N, L, R
   and half of E are on go-git, a repository nothing in codefast had been run on. The others are
   18 more kernel questions, the 15 bug-fix tasks not used before (as D and as I), E on syft,
-  and the 8 code-writing tasks (W), which no build was looked at on at all. They are run when a
-  build is final, with `live.py run --held K,N,E,R,D,I,L,W`. Once a held-out session has been
-  read, its task is a development task for every later build.
+  and the 8 code-writing tasks (W), which no build was looked at on at all. Later sets were
+  added the same way: 12 more code-writing tasks on go-git (W2), the 18 kernel questions that
+  were left (K2) and 12 callee questions on go-git (C). They are run when a build is final,
+  with `live.py run --held K,N,E,R,D,I,L,W` and the names of the later sets. Once a held-out
+  session has been read, its task is a development task for every later build. Every set here
+  has now been run, so the next change to what the hooks say needs new tasks to be judged on.
 
 Two things were looked at on held-out tasks before the batch of version 0.2.2 ran, and neither
 changed the build: whether the hook printed anything at all for a prompt (a count per family),
@@ -743,6 +746,11 @@ The prompt card of version 0.2.2 was settled by three small experiments on devel
   bug-fix families show what the plugin costs or saves there, and the answer is that it costs
   nothing and saves little. Their medians are level with the control and the totals, 0.93 and
   0.92, come from a few long sessions. Six attempts to make that figure move are above.
+* The card answers three shapes of question, and it reads them from an English sentence. The
+  callee family that measures it is twelve questions of one repository in one language, and
+  their prompts were used without a model while the card was made. The kernel questions are
+  the only place where the path and the member questions were measured in sessions, two and
+  two of them.
 * The code-writing family is two repositories, one language and twenty functions of 12 to 55
   lines whose body was taken out of a project that already has their callers and their tests.
   Writing a new function into a project that has neither is a different task, and nothing here
