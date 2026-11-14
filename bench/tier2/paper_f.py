@@ -146,6 +146,11 @@ def tasks_of(which, n):
         # Reports no session of any build had been run on when the build was final.
         by = {str(r["id"]): r for r in rows}
         rows = [by[i] for i in used["held_out"]["PF2"] if i in by]
+    elif which == "second":
+        # The held-out reports of family F: run with the plugin and another prompt (live.py),
+        # never under this protocol, and nothing was developed on them.
+        by = {str(r["id"]): r for r in rows}
+        rows = [by[x.split("-", 1)[1]] for x in used["held_out"]["F"] if x.split("-", 1)[1] in by]
     elif used["held_out"].get("PF"):
         # The reports the first version was run on, as recorded when it was. The first 25 of
         # them were then used to develop the next one (`paper_protocol_development_2`).
@@ -403,7 +408,7 @@ def main():
     sub.add_parser("fetch").set_defaults(fn=fetch)
     p = sub.add_parser("run")
     p.add_argument("--tag", required=True)
-    p.add_argument("--set", default="dev", choices=["dev", "held", "final"])
+    p.add_argument("--set", default="dev", choices=["dev", "held", "final", "second"])
     p.add_argument("--n", type=int, default=20)
     p.add_argument("--ids", default="")
     p.add_argument("--arms", default="baseline,codefast")

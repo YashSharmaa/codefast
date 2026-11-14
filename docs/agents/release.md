@@ -5,7 +5,7 @@
    `bin/codefast`, `server.json` and the packages under `npm/`). Build once so that
    `Cargo.lock` follows.
 2. Run `cargo test --release` and the packaging checks in `packaging.md`.
-3. Update the numbers in `README.md` from `bench/results/` if a benchmark changed.
+3. Update the numbers in `README.md` and `BENCHMARKS.md` from `bench/results/` if a benchmark changed.
 4. Commit, push the commits to a branch and open a pull request: the `ci` workflow then runs
    the suite on Linux. When it is green, push the same commits to `main`, where the same
    workflow runs it on Linux and macOS. A change that only touches documentation, results or

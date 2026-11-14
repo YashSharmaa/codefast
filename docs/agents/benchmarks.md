@@ -61,8 +61,9 @@ Rules for numbers:
 - A change to how receivers are typed is also counted on the matches by name
   (`codefast export-edges --loose --tests`, then `bench/scripts/oracles/by_name.py`): fewer
   candidates, and none of the confirmed ones lost.
-- A number in the README comes from a file in `bench/results/`. Change the file first, then
-  the README.
+- A number in the README or in `BENCHMARKS.md` comes from a file in `bench/results/`. Change the
+  file first, then regenerate both pages. The README is the short page: every benchmark in one
+  row with its result, its caveat and its day. `BENCHMARKS.md` has the full tables.
 - Other tools are timed in the same session, with the same thread limit, on the same tree.
 - Agent experiments keep two sets apart. Development tasks may be read and tuned on. Held-out
   tasks are run once a build is final and are what the README reports. Once a held-out session

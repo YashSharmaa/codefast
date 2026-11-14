@@ -54,7 +54,7 @@ little. So the tasks are split.
 
 * **Development tasks**: N, L and R on syft, 18 kernel questions and 12 bug-fix tasks. Every
   session of these may be read, and what the hooks say may be changed because of what was
-  seen. The table "The tasks the hooks were developed on" in the README is from these. A few
+  seen. The table "The tasks the hooks were developed on" in `BENCHMARKS.md` is from these. A few
   more (`DEV_IDS` in `live.py`) were used before any table existed and are never reported.
 * **Held-out tasks** (`held_out` in `tasks.json`): tasks no session had been run on. N, L, R
   and half of E are on go-git, a repository nothing in codefast had been run on. The others are
@@ -767,6 +767,50 @@ codefast from the paper's map in either direction. Against no map the second run
 fewer tokens (24% fewer to 3% more), and against the paper's map 17% fewer tokens (33% fewer
 to 4% more) and 20% fewer dollars (12 to 28%).
 
+**A second set of reports.** One set of 56 reports leaves the two tools two or three reports
+apart, which is less than two runs of one tool differ by. So the same three arms were run on
+the 48 reports that were left: the held-out reports of family F above. Sessions had been run on
+them once, with that family's prompt and the plugin as installed, and nothing was developed on
+them. `paper_f.py run --set second` runs them, with the released build of codefast
+(`bench/results/paper-protocol-second.jsonl`, measured on 14 November 2026).
+
+| Arm | File first | File in the ten | Tokens | Tool calls | Dollars | Sessions without an answer |
+|---|---:|---:|---:|---:|---:|---:|
+| no map (the paper's baseline) | 0.375 | 0.583 | 757,034 | 26.9 | 0.189 | 15 of 48 |
+| codefast 0.3.1 | 0.542 | 0.812 | 622,338 | 12.6 | 0.183 | 1 of 48 |
+| the paper's Hybrid map, run here | 0.479 | 0.667 | 759,238 | 13.9 | 0.250 | 2 of 48 |
+
+Against no map codefast has the file in the ten for 13 reports more and 2 fewer (+0.229,
+between 0.083 and 0.375), on 18% fewer tokens (3 to 30%). Against the paper's map it has it for
+8 more and 1 fewer (+0.146, between 0.042 and 0.271), on 18% fewer tokens (1 to 31%) and 27%
+fewer dollars (21 to 32%). The paper's map against no map: +0.083 (0.062 fewer to 0.229 more),
+on the same tokens and 32% more dollars.
+
+Both sets together are 104 reports, with the released build of codefast on both (for the first
+set, its second run above):
+
+| Arm | File first | File in the ten | Tokens | Tool calls | Dollars | Sessions without an answer |
+|---|---:|---:|---:|---:|---:|---:|
+| no map (the paper's baseline) | 0.423 | 0.577 | 758,783 | 27.2 | 0.190 | 32 of 104 |
+| codefast 0.3.1 | 0.529 | 0.817 | 649,306 | 13.1 | 0.194 | 3 of 104 |
+| the paper's Hybrid map, run here | 0.538 | 0.740 | 786,119 | 14.3 | 0.252 | 8 of 104 |
+
+- **codefast against no map:** the file in the ten for 29 reports more and 4 fewer (+0.240,
+  between 0.144 and 0.337), on 14% fewer tokens (4 to 24%). Dollars are level (2% more, 5%
+  fewer to 9% more).
+- **codefast against the paper's map:** 13 files found by codefast alone and 5 by the map alone
+  (+0.077, between 0.000 and 0.154), on 17% fewer tokens (4 to 28%) and 23% fewer dollars (18
+  to 28%). The lead in finding the file is the second set's. On the first the two were level,
+  and the map has the file first as often.
+- **The paper's map against no map:** +0.163 (0.067 to 0.269), on 4% more tokens (11% fewer to
+  19% more) and 32% more dollars (24 to 42%).
+
+With 104 reports the saving of tokens against no map is clear, and it is made the way the
+first set showed. A session that answers takes 620 thousand tokens with codefast and 632
+thousand with no map. A session that reaches its thirtieth turn has answered nothing and has
+taken a million or more: 32 of 104 sessions and 42% of the arm's tokens with no map, 3
+sessions and 7% with codefast, 8 sessions and 21% with the paper's map.
+
 One mistake on the way: the first attempt ran the two builds at once on the same index
 directories. An index belongs to the version that wrote it, so each build kept rebuilding the
 kernel's index for the other, inside a session. Those sessions were thrown away, and `live.py`
@@ -777,14 +821,15 @@ takes `BENCH_INDEX_SUFFIX` so that two builds each get directories of their own.
 The paper reports for its best map, against no map: the file in the ten for 0.11 more of the
 reports, on 39% fewer tokens.
 
-Under its own protocol, on reports no session had been run on and next to its own map on the
-same reports, codefast 0.3.1 has the file in the ten for 0.25 more of the reports than no map
-(the map: 0.23), on 6% fewer tokens than no map (the map: 6% more), and for a fifth less money
+Under its own protocol, on 104 reports nothing was developed on and next to its own map on the
+same reports, codefast 0.3.1 has the file in the ten for 0.24 more of the reports than no map
+(the map: 0.16), on 14% fewer tokens than no map (the map: 4% more), and for 23% less money
 than the map. So on the question the paper asks, which tool lets this model find the file,
-codefast is level with the paper's best map and costs less to run. The paper's other finding
-does not repeat here for either tool: no arm takes a clear share of the tokens off the
-baseline. In this harness a session that answers costs the same with a tool as without, and
-what a tool changes is how many sessions answer.
+codefast finds it at least as often as the paper's best map (ahead on the second set of
+reports, level on the first) and costs less to run. The paper's saving of 39% of the tokens
+does not repeat here for its own map. What codefast saves, it saves by making sessions answer:
+a session that answers costs the same with a tool as without, and a session that runs out of
+turns costs the most and answers nothing.
 
 With a current model and the plugin as it is installed (the sections above: Haiku 5.5, the
 hooks on, a prompt that asks for the files to change) the picture is another one. There the
@@ -1121,7 +1166,9 @@ Codex: the same prompts and the same checks, by `codex exec` in its read-only sa
 has a home with nothing of codefast in it. The other has what
 `codefast setup codex --hooks --apply` writes there: the MCP server, the four hooks, the skill,
 and the command on `PATH`. Two runs per task and arm, 216 sessions, measured on 14 November
-2026 with the build that became 0.3.1 (`bench/results/codex-live.jsonl`).
+2026 with the first build of 0.3.1 (`bench/results/codex-live.jsonl`). The release differs
+from that build only in how `search` answers some queries, and no Codex session called
+`search`.
 
 | Task | Tasks | Right, without and with | Tool calls | Tokens of a session | Dollars of a session | With the plugin it costs |
 |---|---:|---|---|---|---|---:|
