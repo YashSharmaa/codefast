@@ -889,6 +889,9 @@ fn session_start(passed: &Path, payload: &Payload) -> String {
         }
     }
     let state = match counts {
+        // A project that has no code yet has nothing to be asked about: the line would be
+        // read on every request of the session that writes its first files, for nothing.
+        Some((_, 0)) => return payload.reply_with(Event::SessionStart, "", None),
         Some((files, defs)) => format!("codefast has an index of this repository ({} files, {} symbols)", count(files), count(defs)),
         None => "codefast is indexing this repository in the background (first run; its commands wait until it is ready)".to_string(),
     };

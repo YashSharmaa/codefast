@@ -158,6 +158,19 @@ fn session_start_reports_the_index() {
     settle(&repo);
 }
 
+/// A project with no code in it yet: there is nothing to ask the index, and the session that
+/// writes the first files is not told about it on every request.
+#[test]
+fn session_start_says_nothing_in_a_project_without_code() {
+    let repo = scratch("empty-project");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    write(&repo.join("SPEC.md"), "# What to build\n\nA library and a command line.\n");
+    let home = scratch("home");
+    let (code, out, err) = run(&home, &repo, &["index"], &[], None);
+    assert_eq!(code, 0, "codefast index: {out}{err}");
+    hook(&home, &repo, "session-start", payload("claude-session-start", &repo, &home).as_bytes(), &[]).assert_quiet("an index without a symbol");
+}
+
 #[test]
 fn session_start_builds_a_missing_index_without_waiting_for_it() {
     let repo = Repo::new("first-run");
