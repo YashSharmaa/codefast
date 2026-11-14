@@ -411,3 +411,38 @@ fn a_large_conversation_carried_for_long() {
     let (sb, root) = both("sessions-carry-small");
     assert!(!report(&sb, &root, &[])["findings"].as_array().unwrap().iter().any(|f| f["finding"] == "carried_context"));
 }
+
+#[test]
+fn the_harness_reason_for_a_cache_miss() {
+    let sb = Sandbox::new("sessions-miss");
+    let root = project(&sb, "miss");
+    let opus = "claude-opus-5";
+    let with = |mut v: Value, reason: &str| {
+        v["message"]["diagnostics"] = json!({"cache_miss_reason": {"type": reason, "cache_missed_input_tokens": 1000}});
+        v
+    };
+    let lines = [
+        assistant("q0", opus, 0, usage(10, 0, 40_000, 10, 0), json!([]), &root),
+        // Seventy minutes away, and the harness says the messages changed.
+        with(assistant("q1", opus, 70, usage(10, 0, 40_100, 10, 0), json!([]), &root), "messages_changed"),
+        // A warm request with a reason: never printed.
+        with(assistant("q2", opus, 71, usage(10, 40_100, 100, 10, 0), json!([]), &root), "tools_changed"),
+        // A switch of model, and the harness agrees.
+        with(assistant("q3", "claude-sonnet-5", 72, usage(10, 0, 40_300, 10, 0), json!([]), &root), "model_changed"),
+    ];
+    jsonl(&transcripts(&sb, &root).join(format!("{FIRST}.jsonl")), &lines);
+    let text = run(&sb, &root, &["--session", "5f0c"]);
+    assert!(text.contains("idle for more than an hour (harness: messages_changed) after 1.2 hours"), "{text}");
+    assert!(text.contains("model switch (harness: model_changed) after 1 min"), "{text}");
+    assert!(!text.contains("tools_changed"), "{text}");
+    // One of two names another cause: more than a quarter.
+    let text = run(&sb, &root, &[]);
+    assert!(text.contains("1 model switch (46k), 1 idle for more than an hour (46k), and the harness names another cause for 1 of them.\n"), "{text}");
+    let r = report(&sb, &root, &["--session", "5f0c"]);
+    assert_eq!(r["cold_restarts"]["harness_names_another_cause"], 1);
+    let reasons: Vec<&Value> = r["cold_restarts"]["items"].as_array().unwrap().iter().map(|c| &c["harness_reason"]).collect();
+    assert_eq!(reasons, [&json!("messages_changed"), &json!("model_changed")]);
+    // Where the two agree, nothing is added.
+    let (sb, root) = both("sessions-miss-none");
+    assert!(!run(&sb, &root, &[]).contains("the harness names"));
+}

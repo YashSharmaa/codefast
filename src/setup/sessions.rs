@@ -150,6 +150,9 @@ pub struct Request {
     /// A sub-agent's request, not one of the main thread.
     pub sidechain: bool,
     pub usage: Usage,
+    /// Why the harness says the cache missed (`message.diagnostics.cache_miss_reason.type`),
+    /// in its own words.
+    pub miss: Option<String>,
 }
 
 /// What a tool gave back, as the conversation carries it.
@@ -369,16 +372,20 @@ fn read_jsonl(path: &Path, sub: bool, t: &mut Transcript) {
                     }
                 }
                 let u = usage(&m["usage"]);
+                let miss = m["diagnostics"]["cache_miss_reason"]["type"].as_str().map(str::to_string);
                 // A line without an id is a request of its own.
                 let id = m["id"].as_str().map(str::to_string).unwrap_or_else(|| format!("line {n}"));
                 if let Some(&i) = seen.get(&id) {
                     if let Some(Event::Request(r)) = t.events.get_mut(i) {
                         r.usage.merge(&u);
+                        if r.miss.is_none() {
+                            r.miss = miss;
+                        }
                     }
                     continue;
                 }
                 seen.insert(id, t.events.len());
-                t.events.push(Event::Request(Request { model, at: v["timestamp"].as_str().and_then(parse_time), sidechain, usage: u }));
+                t.events.push(Event::Request(Request { model, at: v["timestamp"].as_str().and_then(parse_time), sidechain, usage: u, miss }));
             }
             Some("user") if !sidechain => {
                 for block in v["message"]["content"].as_array().into_iter().flatten().filter(|b| b["type"] == "tool_result") {
@@ -543,6 +550,20 @@ pub fn cold_cost(prev: &Usage, cur: &Usage) -> Option<f64> {
     Some((cur.write_weight() - CACHE_READ) * before.min(cur.cache_write.unwrap_or(0)) as f64)
 }
 
+/// Whether the harness's own reason for a cache miss names another cause than `cause`. `None`
+/// when its reason does not tell which cause it is (`previous_message_not_found`,
+/// `unavailable` and names this report does not know).
+pub fn disagrees(reason: &str, cause: Cause) -> Option<bool> {
+    let theirs = match reason {
+        "model_changed" => Cause::ModelSwitch,
+        r if r.contains("ttl") || r.contains("expir") => Cause::IdleHour,
+        "messages_changed" | "tools_changed" | "system_changed" => Cause::Other,
+        _ => return None,
+    };
+    let idle = |c: Cause| matches!(c, Cause::IdleHour | Cause::IdleFive);
+    Some(!(theirs == cause || idle(theirs) && idle(cause)))
+}
+
 #[derive(Debug, Clone)]
 pub struct Cold {
     pub session: String,
@@ -553,6 +574,8 @@ pub struct Cold {
     pub before: u64,
     pub gap_ms: Option<i64>,
     pub cost: f64,
+    /// The harness's own reason for the miss, when it recorded one.
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -709,6 +732,11 @@ impl Stats {
         self.stretches.iter().map(|s| s.cost).sum()
     }
 
+    /// The cold restarts for which the harness's own reason names another cause.
+    pub fn harness_disagrees(&self) -> usize {
+        self.cold.iter().filter(|c| c.reason.as_deref().and_then(|r| disagrees(r, c.cause)) == Some(true)).count()
+    }
+
     pub fn cold_cost(&self) -> f64 {
         self.cold.iter().map(|c| c.cost).sum()
     }
@@ -827,6 +855,7 @@ impl Stats {
                                 before: p.usage.context().unwrap_or(0),
                                 gap_ms: p.at.zip(r.at).map(|(a, b)| b - a),
                                 cost,
+                                reason: r.miss.clone(),
                             });
                         }
                     }
@@ -957,10 +986,12 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
                 parts.push(format!("{} {} ({}{note})", of.len(), c.words(), short(of.iter().map(|x| x.cost).sum())));
             }
             let n = s.cold.len();
+            let other = s.harness_disagrees();
+            let clause = if other * 4 > n { format!(", and the harness names another cause for {other} of them") } else { String::new() };
             push(
                 true,
                 &format!(
-                    "Cold restarts: {n} request{} sent the conversation again at the price of new input: {}.",
+                    "Cold restarts: {n} request{} sent the conversation again at the price of new input: {}{clause}.",
                     if n == 1 { "" } else { "s" },
                     parts.join(", ")
                 ),
@@ -978,10 +1009,11 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
             if detail {
                 for x in s.cold.iter().take(ITEMS) {
                     let fell = if x.fallback { " (a model fallback)" } else { "" };
+                    let theirs = x.reason.as_deref().map(|r| format!(" (harness: {r})")).unwrap_or_default();
                     push(
                         false,
                         &format!(
-                            "  {}  {}{fell} after {}, {} tokens sent again: {}",
+                            "  {}  {}{fell}{theirs} after {}, {} tokens sent again: {}",
                             when(x.at),
                             x.cause.words(),
                             minutes(x.gap_ms),
@@ -1238,7 +1270,7 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
             "stretches": s.stretches.len(),
             "first_context_tokens": s.stretches.iter().map(|x| x.first).collect::<Vec<_>>(),
         },
-        "cold_restarts": {"count": s.cold.len(), "weighted": round(s.cold_cost()), "share": ratio(s.cold_cost(), total), "by_cause": causes},
+        "cold_restarts": {"count": s.cold.len(), "weighted": round(s.cold_cost()), "share": ratio(s.cold_cost(), total), "by_cause": causes, "harness_names_another_cause": s.harness_disagrees()},
         "compactions": {"manual": compactions(true), "auto": compactions(false)},
         "thinking": thinking,
         "models": s.models.iter().map(|(m, (n, w))| json!({"model": m, "requests": n, "weighted": round(*w)})).collect::<Vec<_>>(),
@@ -1268,7 +1300,7 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
         out["cold_restarts"]["items"] = s
             .cold
             .iter()
-            .map(|c| json!({"session": c.session, "at": c.at.map(|m| when(Some(m))), "cause": c.cause.key(), "after_fallback": c.fallback, "gap_ms": c.gap_ms, "context_before": c.before, "weighted": round(c.cost)}))
+            .map(|c| json!({"session": c.session, "at": c.at.map(|m| when(Some(m))), "cause": c.cause.key(), "after_fallback": c.fallback, "gap_ms": c.gap_ms, "context_before": c.before, "weighted": round(c.cost), "harness_reason": c.reason}))
             .collect();
         out["compactions"]["items"] = s
             .compactions
@@ -1461,7 +1493,7 @@ mod tests {
     }
 
     fn req(model: &str, minute: i64, usage: Usage) -> Event {
-        Event::Request(Request { model: model.to_string(), at: Some(minute * 60_000), sidechain: false, usage })
+        Event::Request(Request { model: model.to_string(), at: Some(minute * 60_000), sidechain: false, usage, miss: None })
     }
 
     #[test]
@@ -1565,6 +1597,17 @@ mod tests {
         assert_eq!((low.carry.above, low.carry.cost), (0, 0.0));
         assert!(!low.findings().iter().any(|(k, _)| *k == "carried_context"));
         assert_eq!((median_post(vec![]), median_post(vec![9, 1, 5]), median_post(vec![4, 10])), (25_000, 5, 7));
+    }
+
+    #[test]
+    fn the_harness_reason_set_against_ours() {
+        assert_eq!(disagrees("model_changed", Cause::ModelSwitch), Some(false));
+        assert_eq!(disagrees("model_changed", Cause::IdleHour), Some(true));
+        assert_eq!(disagrees("messages_changed", Cause::IdleFive), Some(true));
+        assert_eq!(disagrees("tools_changed", Cause::Other), Some(false));
+        assert_eq!(disagrees("cache_ttl_expired", Cause::IdleFive), Some(false));
+        assert_eq!(disagrees("previous_message_not_found", Cause::IdleHour), None);
+        assert_eq!(disagrees("unavailable", Cause::Other), None);
     }
 
     #[test]
