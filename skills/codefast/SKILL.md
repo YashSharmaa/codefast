@@ -23,7 +23,7 @@ Reach for it before `grep` + reading files whenever the question is about a symb
 | Who calls it (also through ops tables, callbacks, registrations) | `codefast callers ext4_file_read_iter` |
 | A caller tree | `codefast callers vfs_read -d 3` |
 | What it calls, and where each callee lives | `codefast callees vfs_read` |
-| Before changing a function: its body, its type, the signatures of what it calls, its call sites and its tests, in one answer | `codefast context vfs_read` |
+| Before changing a function: its body, its types, the signatures of what it calls, its call sites and its tests, in one answer | `codefast context vfs_read` |
 | How execution gets from A to B | `codefast path sys_read ext4_file_read_iter` |
 | Which function prints a message | `codefast grep -F "Busy inodes after unmount"` |
 | Where to look for a bug report or stack trace | `codefast locate "<paste the report>"` (or `codefast locate - < report.txt`) |

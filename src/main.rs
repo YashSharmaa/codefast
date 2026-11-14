@@ -45,7 +45,7 @@ enum Cmd {
     Callers(CallersArgs),
     /// What a function calls, with where each callee is defined
     Callees(CalleesArgs),
-    /// Before changing a function: its body, its type, what it calls, who calls it, its tests
+    /// Before changing a function: its body, its types, what it calls, who calls it, its tests
     #[command(alias = "ctx")]
     Context(ContextArgs),
     /// After an edit: uses left behind of what the uncommitted changes removed, renamed or re-signatured
