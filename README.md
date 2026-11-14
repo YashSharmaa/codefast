@@ -90,6 +90,7 @@ harness and says for each what was tested.
 | What the uncommitted edits broke or left behind | `codefast check` |
 | The API of an installed dependency | `codefast dep NAME SYMBOL` |
 | What your harness configuration costs per request | `codefast doctor context` |
+| Where the tokens of your sessions went, and which habits cost the most | `codefast doctor sessions` |
 
 The agent gets the same answers through five MCP tools (`search`, `show`, `refs`, `path`, `grep`),
 and without asking through hooks: a prompt that names a symbol comes with its definition and its
@@ -106,6 +107,43 @@ uses, a search comes with what it did not print, an edit with the places it left
   </picture>
 </p>
 </details>
+
+## Where your tokens go
+
+Most of what a long session costs is not the work. It is the conversation sent again with every
+request, and a few habits nobody shows you: coming back after the prompt cache has expired,
+switching models in the middle of a job, carrying a conversation of half a million tokens,
+thinking that is billed as output. `codefast doctor sessions` reads the transcripts your harness
+keeps on your machine and puts numbers on each, with the one thing to do about it. Nothing is run,
+nothing leaves the machine, and no model is called.
+
+<details>
+<summary>What the report looks like</summary>
+
+```text
+Claude Code sessions of this project in the last 14 days: 1 session, 44 main-thread requests, 3.8M weighted tokens.
+  main thread    3.7M  cache reads 1.2M (32%), cache writes 2.3M (61%), uncached input 440 (<1%), output 187k (5%)
+  sub-agents      61k  12 requests (2%)
+
+Where it went, largest first, as a share of the 3.8M in all:
+    1.4M  37%  Cold restarts: 2 requests sent the conversation again at the price of new input:
+               1 model switch (707k), 1 idle for more than an hour (707k).
+               Come back within the cache lifetime or start fresh. Finish a job on one model.
+    678k  18%  Carried context: 30 of 44 requests (68%) carried more than 200k tokens, at most 617k.
+               Start a fresh session at a natural break, or compact earlier.
+    161k   4%  Repeated reads: 25 reads gave back a file word for word as an earlier read did.
+    128k   3%  Thinking: 26k of 41k output tokens (62%), billed as output at 5 times the input price.
+    124k   3%  The start, 21k tokens, was read again from the cache by 42 requests.
+               `codefast doctor context` shows what the start holds and what can be switched off.
+```
+
+A weighted token is one uncached input token of the request's own model: a cache read weighs 0.1,
+a cache write 1.25, an output token 5. The example is a made-up project.
+
+</details>
+
+`codefast doctor context` is the other half: what your plugins, skills, MCP servers and
+instruction files add to every request, and the setting that switches each off for this project.
 
 ## Results
 
