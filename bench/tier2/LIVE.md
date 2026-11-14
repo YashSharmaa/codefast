@@ -228,6 +228,31 @@ What the model writes is 0.36 to 0.40 of the cost of such a session and is as lo
 way, so there was never much to take out. Both sets of tasks are development tasks for every
 later build, like any held-out family that has been read.
 
+### The same split in every family
+
+The table of the README, with each plugin session put in one of two rows by whether the agent
+called codefast in it, and compared with the control runs of its own task
+(`bench/results/live-heldout-haiku.jsonl`):
+
+| Family | Sessions with hooks only | Their cost | Sessions that called codefast | Their cost |
+|---|---:|---:|---:|---:|
+| Who calls this method? (N) | 0 | | 24 | 0.41 |
+| The same in TypeScript (Z) | 0 | | 16 | 0.64 |
+| Four such questions (L) | 0 | | 6 | 0.16 |
+| Where does this error come from? (E) | 1 | 0.64 | 23 | 0.67 |
+| Rename a method (R) | 1 | 0.91 | 19 | 0.53 |
+| A kernel question (K) | 9 | 0.82 | 27 | 0.97 |
+| Write a function (W) | 55 | 0.96 | 25 | 1.12 |
+| Fix a bug, tests given (D) | 57 | 0.93 | 3 | 1.39 |
+| Fix a bug, issue alone (I) | 57 | 0.99 | 3 | 1.00 |
+
+These are means of single sessions, so they are not the pooled figures of the README, and a
+session that struggles is more likely to reach for a tool, so a row is not what a call costs.
+What the table does show is where the saving is made. Where the task is a question about
+structure, every session calls the tool and the call is the answer. Where the task is the
+model's own work, or code it knows by heart, most sessions never call it, what the hooks say
+is the whole of the gain, and a call comes on top of the reading instead of in place of it.
+
 ### A larger card for a function that is not written yet, tried and not kept
 
 Reading those sessions showed what a session goes and gets before it writes: the lines that
