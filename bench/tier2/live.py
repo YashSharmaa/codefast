@@ -53,6 +53,10 @@ ARMS = {
     "lean": dict(plugin=True, lean=True),
     "nohooks": dict(plugin=True, env={"CODEFAST_HOOKS": "off"}),
     "rules": dict(plugin=True, rules=True),
+    # The condition of the treatment arms of the published kernel comparison (arXiv 2611.07286):
+    # the tools are there and a sentence of the system prompt says that they must be used for
+    # searching, and grep must not. The sentence is the paper's, with the tools named.
+    "steer": dict(plugin=True, steer=True),
     # The ceiling of any tool that finds the place to change: the arm is told the file and the
     # function of the real fix, for nothing, by a hook of its own (see LIVE.md).
     "oracle": dict(plugin=False, oracle=True),
@@ -63,7 +67,9 @@ ARMS = {
     "uses-count": dict(plugin=True, env={"CODEFAST_CARD_USES": "count"}),
     "uses-list": dict(plugin=True, env={"CODEFAST_CARD_USES": "list"}),
 }
-BUDGET = {"haiku": 2.5, "sonnet": 8.0, "opus": 20.0}
+# The last one is the model of the published comparison on LinuxFLBench (arXiv 2611.07286), with
+# the dollar cap of its harness.
+BUDGET = {"haiku": 2.5, "sonnet": 8.0, "opus": 20.0, "claude-haiku-4-5-20251001": 1.0}
 
 
 def load(name):
@@ -104,7 +110,7 @@ def held_out(name):
 
 
 def choose(a):
-    d, r, i, e, w, c = load("d"), load("r") + load("r2"), load("i"), load("e"), load("w") + load("w2"), load("c")
+    d, r, i, e, w, c, f = load("d"), load("r") + load("r2"), load("i"), load("e"), load("w") + load("w2"), load("c"), load("f") + load("fdev")
     k = k_tasks() + k_tasks("kernel_questions_held_out") + k_tasks("kernel_questions_held_out_2")
     n, long = n_tasks()
     n2 = load("n2") + load("nz")
@@ -113,7 +119,7 @@ def choose(a):
     long2 = [dict(id=f"L-gogit-{j // 4 + 1}", family="L", repo_name="go-git/go-git", parts=held_n[j : j + 4]) for j in range(0, len(held_n) - 3, 4)]
     if a.ids or a.held:
         want = a.ids.split(",") if a.ids else [x for fam in a.held.split(",") for x in held_out(fam)]
-        by = {t["id"]: t for t in d + r + k + n + long + i + n2 + e + long2 + w + c}
+        by = {t["id"]: t for t in d + r + k + n + long + i + n2 + e + long2 + w + c + f}
         return [by[x] for x in want]
     order = lambda ts: sorted(ts, key=lambda t: hashlib.sha256(t["id"].encode()).hexdigest())
     if a.dev:
@@ -163,6 +169,19 @@ A run of the program ended with this error:
 Which function creates this error, and which functions call that function? Direct callers only. Callers in test code do not have to be listed.
 
 Rules: do not change any file and do not read anything outside {repo}. End with the complete list: first the function that creates the error, then one line per calling function, each with the file it is in."""
+    if t["family"] == "F":
+        return f"""You are in a checkout of the Linux kernel source at version {t['version']}, in the current directory ({repo}).
+
+This bug was reported against that version:
+
+--- bug report ---
+{t['report']}
+--- end of bug report ---
+
+Find the source files that would have to be changed to fix it. Do not fix it.
+
+Rules: do not change any file and do not read anything outside {repo}. End with a JSON object of this form and nothing after it:
+{{"files": ["up to 10 file paths relative to the kernel root, the most likely first"], "functions": ["up to 10 function names, the most likely first"]}}"""
     if t["family"] == "C":
         which = f"the method {t['name']} of {t['receiver']}" if t["receiver"] else f"the function {t['name']}"
         return f"""You are in a checkout of {ABOUT[t['repo_name']]}. It is in the current directory ({repo}).
@@ -268,7 +287,24 @@ def plugin_dir(tag, lean=False):
     return dst
 
 
+STEER = (
+    "This repository is indexed by codefast. Its MCP tools (search, show, refs, path, grep) answer questions about the code: `search` takes a symbol, a path or "
+    "free text such as a bug report, `show` prints one definition or the outline of a file, `refs` lists the uses of a symbol, `path` finds how one function "
+    "reaches another, `grep` searches text and says which function each hit is in. For searching and navigating code, you MUST use these MCP tools. Do NOT use "
+    "the built-in Grep or Glob tools, or shell search commands (grep, rg, ag, find -name), to search code."
+)
+_RULES = {}
+
+
 def rules_block(binary):
+    """The paragraph `codefast setup agents-md` writes, made once per binary: two sessions
+    that start together must not both rebuild the scratch project it is read from."""
+    if str(binary) not in _RULES:
+        _RULES[str(binary)] = _rules_block(binary)
+    return _RULES[str(binary)]
+
+
+def _rules_block(binary):
     scratch = LIVE / "rules-project"
     if scratch.exists():
         shutil.rmtree(scratch)
@@ -276,6 +312,44 @@ def rules_block(binary):
     subprocess.run(["git", "init", "-q", "."], cwd=scratch, check=True)
     subprocess.run([str(binary), "setup", "agents-md", "--apply"], capture_output=True, text=True, cwd=scratch)
     return (scratch / "AGENTS.md").read_text()
+
+
+def f_index(tree):
+    """Where the index of one kernel version is kept."""
+    return ROOT / "target/bench-index" / f"lfl-{Path(tree).name}"
+
+
+def ranked_files(text, tree):
+    """The files a session ended with: the `files` list of the last JSON object of its answer,
+    as paths relative to the kernel root."""
+    best = None
+    for m in re.finditer(r"\{", text):
+        depth = 0
+        for j in range(m.start(), len(text)):
+            if text[j] == "{":
+                depth += 1
+            elif text[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        obj = json.loads(text[m.start() : j + 1])
+                    except Exception:
+                        obj = None
+                    if isinstance(obj, dict) and isinstance(obj.get("files"), list):
+                        best = obj["files"]
+                    break
+    out = []
+    for f in best or []:
+        if not isinstance(f, str):
+            continue
+        f = f.strip().replace(str(tree) + "/", "")
+        for prefix in ("./", "a/", "b/", "/"):
+            if f.startswith(prefix):
+                f = f[len(prefix):]
+        f = f.split(":")[0]
+        if f and f not in out:
+            out.append(f)
+    return out[:10]
 
 
 def prepare(t, arm, rep, a, binary):
@@ -289,6 +363,21 @@ def prepare(t, arm, rep, a, binary):
         # Nothing is changed, so every run reads the one kernel checkout and its one index.
         row = dict(id=t["id"], family="K", arm=arm, rep=rep, repo=str(LINUX), run=str(run), repo_name=t["repo_name"], model=a.model, qid=t["qid"], tree_state=tree_state(LINUX))
         (run / "prompt.txt").write_text(prompt_for(t, LINUX))
+        json.dump(row, open(run / "task.json", "w"), indent=1)
+        return row
+    if t["family"] == "F":
+        tree = Path(t["repo_dir"])
+        # A kernel tree of this family is an exported directory inside this repository. To
+        # codefast, as to git, the project of a directory is the work tree around it, which
+        # would be codefast itself: its command and its server would index that, into the
+        # index directory of this tree, and answer about the wrong code. A real kernel checkout
+        # is a work tree of its own, so each of these is made one (an empty repository, nothing
+        # added to it).
+        if not (tree / ".git").exists():
+            subprocess.run(["git", "init", "-q", "."], cwd=tree, check=True)
+        row = dict(id=t["id"], family="F", arm=arm, rep=rep, repo=str(tree), run=str(run), repo_name=t["repo_name"], model=a.model, version=t["version"],
+                   gold_files=t["gold_files"], index=str(f_index(tree)), started=time.time())
+        (run / "prompt.txt").write_text(prompt_for(t, tree))
         json.dump(row, open(run / "task.json", "w"), indent=1)
         return row
     if t["family"] in ("N", "L", "E", "C"):
@@ -452,6 +541,16 @@ def verify(row):
         s = verify_n(row)
         row["kscore"] = s
         return s >= 0.9, row.get("tree_state") in (None, tree_state(row["repo"]))
+    if row["family"] == "F":
+        files = ranked_files(final_text(row["run"]), row["repo"])
+        ranks = [files.index(g) + 1 for g in row["gold_files"] if g in files]
+        row["rank"] = min(ranks) if ranks else None
+        row["answered"] = len(files)
+        row["kscore"] = 1.0 if ranks else 0.0
+        # The tree is shared by every run of that version: a file newer than this run began
+        # would be a file a session wrote.
+        newer = sh(["find", row["repo"], "-type", "f", "-newermt", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(row.get("started", 0))), "-print", "-quit"])[1].strip()
+        return bool(ranks), not newer
     if row["family"] == "K":
         s = verify_k(row)
         row["kscore"] = s
@@ -495,6 +594,14 @@ def session(row, a, binary, plug):
     env.pop("CODEFAST_INDEX_DIR", None)
     if row["family"] == "K" and spec["plugin"]:
         env["CODEFAST_INDEX_DIR"] = str(LINUX_INDEX)
+    if row["family"] == "F" and spec["plugin"]:
+        env["CODEFAST_INDEX_DIR"] = row["index"]
+        # The kernel trees of this family are plain directories inside this repository, not
+        # checkouts of their own. Left to itself codefast takes the git work tree around the
+        # working directory for the project, which here is codefast: its server would index
+        # that into the directory named above and answer about the wrong code. A real kernel
+        # checkout is its own work tree, and this says so for these.
+        env["CODEFAST_ROOT"] = row["repo"]
     if row["family"] in ("N", "L", "E", "C") and spec["plugin"]:
         env["CODEFAST_INDEX_DIR"] = row.get("index") or str(SYFT_INDEX)
     env.update(spec.get("env", {}))
@@ -503,6 +610,18 @@ def session(row, a, binary, plug):
         "--no-session-persistence", "--setting-sources", "project", "--dangerously-skip-permissions",
         "--disallowedTools", DENY, "--max-turns", str(a.max_turns), "--max-budget-usd", str(a.budget or BUDGET[a.model]), "--no-chrome",
     ]
+    if a.effort:
+        cmd += ["--effort", a.effort]
+    if a.tools:
+        # The built-in tools a published harness pins. What a plugin brings is not in this list
+        # and stays available.
+        cmd += ["--tools", a.tools]
+    if spec.get("steer"):
+        cmd += ["--append-system-prompt", STEER]
+    if spec.get("rules") and row["family"] in ("K", "F"):
+        # These families run in a shared tree, where no file can be written for one arm: the
+        # rules block that `codefast setup agents-md` writes goes in with the system prompt.
+        cmd += ["--append-system-prompt", rules_block(binary)]
     # The account's cloud connectors (mail, documents) have no place in a benchmark run. Strict
     # mode would also drop the plugin's own server, so it is used only where no plugin is loaded.
     env["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false"
@@ -664,6 +783,10 @@ def cmd_run(a):
         e = dict(os.environ, CODEFAST_INDEX_DIR=str(LINUX_INDEX))
         subprocess.run([str(binary), "--root", str(LINUX), "status"], capture_output=True, text=True, env=e)
     if any(ARMS[arm]["plugin"] for _, arm, _ in todo):
+        # One index per kernel version, written by this batch's binary before any session.
+        for tree in sorted({t["repo_dir"] for t, _, _ in todo if t["family"] == "F"}):
+            e = dict(os.environ, CODEFAST_INDEX_DIR=str(f_index(tree)))
+            subprocess.run([str(binary), "--root", tree, "status"], capture_output=True, text=True, env=e)
         for where, index in {repo_of((t.get("parts") or [t])[0]) for t, _, _ in todo if t["family"] in ("N", "L", "E", "C")}:
             e = dict(os.environ, CODEFAST_INDEX_DIR=str(index))
             subprocess.run([str(binary), "--root", str(where), "index"], capture_output=True, text=True, env=e)
@@ -731,6 +854,8 @@ def rows_of(tag):
         row["final"], row["exit"], row["seconds"] = r["final"], res["exit"], res["seconds"]
         row["passed"], row["clean"] = res["passed"], res["clean"]
         row["score"] = res["kscore"] if "kscore" in res else (1.0 if res["passed"] and res["clean"] else 0.0)
+        if res["family"] == "F":
+            row["rank"], row["answered"] = res.get("rank"), res.get("answered")
         row["violations"] = (["control arm used the tool"] if res["arm"] == "control" and (r["cf_cli"] or r["cf_mcp"]) else []) + (["ended early: " + str(r["final"])] if r["final"] != "success" else [])
         rows.append(row)
     return rows
@@ -874,7 +999,7 @@ def main():
     p.add_argument("--model", default="haiku", choices=sorted(BUDGET))
     p.add_argument("--dev", action="store_true")
     p.add_argument("--ids", default="")
-    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,K2,C,D,I,N,R,E,L,NZ,W,W2")
+    p.add_argument("--held", default="", help="held-out sets of tasks.json, by name: K,K2,C,F,D,I,N,R,E,L,NZ,W,W2")
     p.add_argument("--d", type=int, default=16)
     p.add_argument("--r", type=int, default=8)
     p.add_argument("--k", type=int, default=0, help="kernel questions")
@@ -886,6 +1011,8 @@ def main():
     p.add_argument("--resume", action="store_true", help="skip runs that already have an outcome")
     p.add_argument("--refresh-bin", action="store_true")
     p.add_argument("--max-turns", type=int, default=120)
+    p.add_argument("--effort", default="", help="effort level of the session, as the harness takes it (the published kernel comparison used low)")
+    p.add_argument("--tools", default="", help="pin the built-in tools, comma separated (the published kernel comparison used Read,Edit,Write,Bash,Grep,Glob)")
     p.add_argument("--budget", type=float, default=0.0, help="dollar cap per run at list prices (default by model)")
     p.add_argument("--timeout", type=int, default=3600)
     p.add_argument("--limit-stop", type=float, default=0.6, help="stop the batch when an account usage window is this full")

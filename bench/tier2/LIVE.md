@@ -38,10 +38,11 @@ of a project from its second session on.
 | I | The same issues without their tests: the issue text alone | the tests of the real fix, copied into the tree after the session, pass |
 | R | Rename one Go method everywhere, where other types have a method of the same name | `go build` and `go vet` pass, and no other definition was renamed |
 | C | Which functions of this repository does this function call? The mirror of N, on go-git | the call graph the Go type checker built: F1 of the callees named with their file on one line, against all real callees and against functions that have the name of a callee and are another |
+| F | Which files does this kernel bug report point to? A report of LinuxFLBench in a checkout of the kernel version it was filed against. The session ends with up to ten files, the most likely first | the one file the real fix changed: whether it is first in the list, and whether it is in it (the two figures of arXiv 2611.07286) |
 | W | Write code: one well-tested function of gitleaks has its body replaced by a panic, and the session has to write it again from what the rest of the project expects of it | the tests of that function's package pass, and no test file and no file of test data changed |
 
 `make_n_tasks.py`, `make_c_tasks.py`, `make_e_tasks.py`, `make_d_tasks.py`, `make_i_tasks.py`,
-`make_r_tasks.py` and `make_w_tasks.py` build them. None of the builders uses codefast to choose a task or to
+`make_r_tasks.py`, `make_w_tasks.py` and `make_f_tasks.py` build them. None of the builders uses codefast to choose a task or to
 judge an answer. A W task has to compile with the body gone and has to fail its package's
 tests, and the package's tests have to pass with the body there, so the failing tests are the
 whole of what the session is told.
@@ -64,6 +65,10 @@ little. So the tasks are split.
   with `live.py run --held K,N,E,R,D,I,L,W` and the names of the later sets. Once a held-out
   session has been read, its task is a development task for every later build. Every set here
   has now been run, so the next change to what the hooks say needs new tasks to be judged on.
+  Family F came after that: 40 kernel bug reports to develop on, from the half of LinuxFLBench
+  the file ranking was developed on, and 48 held-out ones from the other half. Two more of
+  that half were read while the harness was made and count as development. 81 reports of it
+  have not been run in a session.
 
 Two things were looked at on held-out tasks before the batch of version 0.2.2 ran, and neither
 changed the build: whether the hook printed anything at all for a prompt (a count per family),
@@ -421,6 +426,144 @@ in one family: a call that does not replace the reading is paid for twice. The f
 never measured before, because the questions that were measured are the ones the tool was
 built around.
 
+## Where a reported bug is, next to the one published comparison
+
+Every figure above sets a session with the plugin against the same session without it. One
+published study measures that for other tools. arXiv 2611.07286 gives Claude Code a bug report
+from LinuxFLBench and a checkout of the kernel version it was filed against, asks for the files
+the fix has to change, and compares a session without a repository map with sessions that have
+one of six. Its settings: Haiku 4.5 at low effort, the six built-in tools, 30 turns, 152
+reports. It reports how often the file the real fix changed is first in the answer, how often
+it is among the first ten, and every token the session processed.
+
+| As published | File first | File in the ten | Tokens |
+|---|---:|---:|---:|
+| no map | 0.572 | 0.717 | 1,008,163 |
+| the best map (Hybrid), with a sentence in the system prompt that its tools must be used | 0.526 | 0.829 | 610,910 |
+
+Family F is that task. `make_f_tasks.py` takes reports from the half of LinuxFLBench that the
+ranking of `codefast locate` was never tuned on, in the order of a hash of their id, and with
+`--dev` from the other half. A session is asked for up to ten files, the most likely first,
+and the file of the real fix is looked for in that list. `score_f.py` prints the three
+figures of the paper, with tokens counted as the paper counts them.
+
+### On reports nothing was developed on
+
+48 reports over 38 kernel versions, two runs per arm, Haiku 5.5
+(`bench/results/live-kernel-bugs-heldout.jsonl`).
+
+| Arm | File first | File in the ten | Tokens | Requests | Cost |
+|---|---:|---:|---:|---:|---:|
+| no plugin | 0.542 | 0.771 | 135,316 | 5.2 | 1.00 |
+| the plugin of 0.3.0 | 0.521 | 0.729 | 105,115 | 4.2 | 0.77 |
+| the plugin with a ranking card, which was not released (below) | 0.542 | 0.740 | 100,163 | 4.0 | 0.73 |
+
+The plugin takes 22% of the tokens off (between 8 and 36% when the reports are resampled),
+and 33 of the 48 reports take fewer tokens with it. It does not find the file more often. The file
+is in the ten for 0.729 of the reports against 0.771, a difference that lies between -0.104
+and +0.010: two reports came into the ten and six went out of it, most of them in one run of
+two. That cannot be told from no difference, and if it leans anywhere it leans the wrong way.
+A session with the plugin makes one request fewer, and a session that stops sooner has looked
+at fewer places.
+
+### A ranking card, tried and not kept
+
+A prompt that holds a report and asks which files are behind it asks for what `codefast
+locate` works out. So a card for such a prompt was built that is that ranking: ten files, the
+most likely first, each with the function of the file the report's words point at, and a line
+saying that it is a ranking and not an answer.
+
+On forty development reports, one run per arm (`bench/results/live-kernel-bugs-dev.jsonl`):
+
+| Arm | File first | File in the ten | Tokens | Requests | Cost |
+|---|---:|---:|---:|---:|---:|
+| no plugin | 0.575 | 0.800 | 143,681 | 5.7 | 1.00 |
+| the plugin of 0.3.0 | 0.550 | 0.825 | 110,669 | 4.2 | 0.86 |
+| the plugin with the ranking card | 0.625 | 0.825 | 89,239 | 3.6 | 0.65 |
+
+That is 19% fewer tokens than the released plugin (between 6 and 31%), with nothing lost. On
+the held-out reports it is 5% fewer (between 13% fewer and 4% more) and the same recall. The
+card does on reports it has not seen what the plugin did without it, so it was not released.
+
+What the held-out sessions show about such a card:
+
+| The card | Reports | Found without the plugin | Found with the card | Tokens without | Tokens with |
+|---|---:|---:|---:|---:|---:|
+| has the file in its first three | 22 | 21.0 | 21.0 | 119,335 | 96,307 |
+| has it fourth to tenth | 5 | 3.5 | 3.5 | 126,985 | 102,959 |
+| does not have it | 21 | 12.5 | 11.0 | 154,040 | 103,538 |
+
+Where the ranking has the file, the session is a fifth cheaper and finds what it found before.
+Where it does not, the session stops a third sooner and finds less. For one report the ranking
+was noise (the report is prose with no name in it). One of its two sessions said so in its
+answer, and both stopped after three requests where the sessions without a card went on to
+the file.
+Without a model, the card has the file for 41 of 69 development reports (0.594) and for 52 of
+90 held-out ones (0.578). Two more things were tried on the development reports and changed
+nothing:
+
+- **Twenty files instead of ten.** The card then has the file for 48 of the 69 reports
+  (0.696). The sessions found nothing more: 0.800 in the ten against 0.825, for the same
+  tokens. A session answers with three or four files, and the file a ranking has in
+  fifteenth place is not one of them.
+- **Saying nothing when the ranking is flat.** The ratio of the first score to the tenth
+  separates good rankings from bad ones only weakly (the flattest quarter has the file for 8
+  of 21 reports, the rest for 42 of 64), and on the forty reports with sessions it would have
+  kept 31 cards of which 18 have the file.
+
+The build is the branch `tried/ranking-card`, with `bench/tier2/card_f.py`, the check without
+a model.
+
+### With the settings of the published comparison
+
+Twenty of the development reports with Haiku 4.5 at low effort, the six built-in tools and 30
+turns, run with the build that has the ranking card
+(`bench/results/live-kernel-bugs-dev-published-settings.jsonl`).
+
+| Arm | File first | File in the ten | Tokens | Requests | Sessions without an answer |
+|---|---:|---:|---:|---:|---:|
+| no plugin | 0.350 | 0.550 | 740,085 | 22.7 | 6 of 20 |
+| the plugin with the ranking card | 0.300 | 0.600 | 667,008 | 20.1 | 3 of 20 |
+
+Under these settings the plugin changes little: 10% fewer tokens, which resampling puts
+anywhere between 31% fewer and 15% more. Five reports came into the ten and four went out of
+it, which is what two runs of one arm do here. This model at this effort goes through the code
+one function at a time whatever it is handed. It takes the names on the card as the place to
+start, asks for the body of each, then for what each calls, and has made twenty requests
+before it answers. A session that reaches its thirtieth turn has answered nothing, and that
+is where much of the recall of both arms goes.
+
+The paper steered its maps with a sentence in the system prompt saying that their tools must
+be used for searching and grep must not. The `steer` arm of `live.py` adds that sentence, with
+codefast's tools named. On six reports it cost 15% more tokens than no plugin at all and found
+two files where the control found three and the plugin without the sentence four. Forced to
+search through the tools, a session made more requests (24.3) and not fewer.
+
+### What the comparison comes to
+
+The paper's best map takes 39% of the tokens off its baseline and raises recall in the ten by
+0.11. codefast does not repeat that. Under the paper's own settings it changes little, and
+with a current model it takes 22% of the tokens off and does not raise recall.
+
+What has changed since those runs is the baseline. A session of Haiku 5.5 with no map at all
+has the file in its ten for 0.771 of the reports at 135,316 tokens. The paper's sessions
+needed 1,008,163 tokens for 0.717, and 610,910 with the best map for 0.829. These are other
+reports and another model, so the figures cannot be set against each other closely. But most
+of what a map bought on this task, the model now does alone, and what is left for a tool here
+is cost and not recall.
+
+### A mistake on the way: which repository a directory belongs to
+
+The kernel trees of this family are exported directories inside the codefast repository, one
+per kernel version. To codefast, as to git, the project of a directory is the work tree around
+it. So in the first batches the plugin's server and its command line took codefast itself for
+the project, rebuilt the index kept for a kernel tree as an index of codefast, and answered
+about that. Every plugin session of those batches was thrown away, and none of their figures
+is in this document. Each tree is now made a git work tree of its own before a run (`live.py`
+does it, and names the tree to the session as well), as a real kernel checkout is. A batch is
+not read before one of its transcripts has been checked for the size of the index that the
+session start reports, which for a kernel is tens of thousands of files.
+
 ## What a bug fix costs
 
 The held-out bug-fix families came out at 0.99 (with the failing tests given) and 1.11 (from
@@ -755,6 +898,11 @@ The prompt card of version 0.2.2 was settled by three small experiments on devel
   lines whose body was taken out of a project that already has their callers and their tests.
   Writing a new function into a project that has neither is a different task, and nothing here
   measures it.
+* The kernel bug reports (F) were run with the released plugin on Haiku 5.5 only. With the
+  settings of the published comparison (Haiku 4.5 at low effort, 30 turns) what was run is
+  twenty development reports with a build that was not released, and the released plugin on
+  five of them: enough to say that nothing like the paper's gain is there, and not a
+  measurement of the released plugin under those settings.
 * There is no rename family for a language without a compiler. Two attempts to build one for
   Python (sqlglot) failed for want of a reference to check against: a refactoring library
   renamed the wrong places, and a rename traced from the running tests left 12 of 16
