@@ -99,6 +99,8 @@ codefast setup claude-code codex --hooks --apply
 codefast setup --harness claude-code --scope project --apply
 codefast setup agents-md --apply            # the rules block in this repository's AGENTS.md
 codefast doctor                             # or: codefast doctor --json
+codefast doctor context                     # what the harness loads into every request
+codefast doctor sessions                    # where the tokens of this project's sessions went
 ```
 
 `codefast setup [TARGET ...] [OPTIONS]` registers codefast with coding harnesses: the MCP server
@@ -823,6 +825,35 @@ In a real session of Claude Code 2.1.323 (headless, the plugin loaded with `--pl
 the session-start hook and the hook after a search fired, and their text reached the model. In
 codex-cli 0.164.0 every hook fired and its text was in the next request (2026-11-14, with a
 stand-in for the model: `bench/codex/wiring.py`).
+
+### Where the tokens of past sessions went
+
+`codefast doctor sessions` reads the transcripts Claude Code keeps on this machine
+(`$CLAUDE_CONFIG_DIR/projects/`, `~/.claude/projects/` when the variable is unset) and reports
+where the tokens of this project's sessions went and which habits cost the most. Nothing is run
+or changed, nothing leaves the machine, and no model is called.
+
+Every figure is in weighted tokens: one uncached input token of the request's own model. A cache
+read weighs 0.1, a cache write 1.25 (2 for the one-hour cache), an output token 5. Dollars are not
+printed, since prices differ by model and change. The report gives the split of the main thread
+and the sub-agents' total, then each finding with its cost and share, largest first, and the one
+thing to do about it. A finding under 1% of the total is left out.
+
+| Finding | What it counts |
+|---|---|
+| the start | the context of the first request of each stretch between compactions, read again by every later request of the stretch (`doctor context` shows what it holds) |
+| cold restarts | a request that read under 20% of the previous context from the cache, by cause: a model switch, more than an hour idle, more than five minutes idle, other |
+| compactions | manual and automatic ones, the conversation size at each, and the manual ones under 100k tokens. The cost is an estimate |
+| thinking | thinking tokens as a share of the output, where the transcript records them |
+| carried context | the context above 200k tokens (`--carry N`) read again by each request, set against what compacting at that size would have cost (an estimate) |
+| repeated reads | a file read again within a stretch that came back word for word as before |
+
+It also lists the tools whose results weighed most (Bash by the program it ran, MCP tools by
+server) and the three heaviest single results. `--days N` sets the window (default 14 days,
+by when a transcript last changed), `--session ID` breaks one session down request by request,
+`--all` gives one line per project and the totals, and `--json` prints the same numbers as JSON.
+Counts that an older harness version did not write, such as thinking tokens, are reported as
+not recorded rather than as zero. Codex is not read yet.
 
 ## 5. Release assets
 
