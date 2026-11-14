@@ -441,7 +441,7 @@ fn a_large_conversation_carried_for_long() {
     assert!(text.contains("Carried context: 22 of 33 requests (67%) carried more than 500k tokens, at most 600k.\n"), "{text}");
     assert!(text.contains("Compacting at 500k instead: 1 more compaction for about 14"), "{text}");
     assert!(text.contains(", and about 935k less to pay for after them, so about 79"), "{text}");
-    assert!(text.contains("`/autocompact 500k` moves it there: the harness compacts about 33k tokens under the window it is given.\n"), "{text}");
+    assert!(text.contains("`/autocompact 533k` moves it there: the harness compacts about 33k tokens under the window it is given.\n"), "{text}");
     assert!(!text.contains("At 300k"), "the best length is named only where it gains a tenth more: {text}");
     assert!(
         text.contains("Start a fresh session at a natural break, or compact earlier, when the context stays far above what the next step needs.\n"),
@@ -580,7 +580,7 @@ fn sub_agents_are_conversations_of_their_own() {
     assert!(text.contains("Carried context in sub-agents: 22 of 39 requests of sub-agents (56%) carried more than 500k tokens, at most 600k.\n"), "{text}");
     assert!(
         text.contains(
-            "`CLAUDE_CODE_AUTO_COMPACT_WINDOW=500000` moves it there for the main conversation and its sub-agents alike, and `autoCompactWindow` in an agent's definition for that agent alone.\n"
+            "`CLAUDE_CODE_AUTO_COMPACT_WINDOW=533000` moves it there for the main conversation and its sub-agents alike (the harness compacts about 33k tokens under the window), and `autoCompactWindow` in an agent's definition for that agent alone.\n"
         ),
         "{text}"
     );
@@ -626,7 +626,9 @@ fn a_main_thread_on_the_five_minute_cache() {
         "{text}"
     );
     assert!(
-        text.contains("These sessions write to the five-minute cache, which is counted from when a request is sent: 1 came after a pause longer than that.\n"),
+        text.contains(
+            "Of those in sessions that write to the five-minute cache, which is counted from when a request is sent: 1 came after a pause longer than that.\n"
+        ),
         "{text}"
     );
     assert!(

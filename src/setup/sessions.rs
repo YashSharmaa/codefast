@@ -59,13 +59,24 @@ const SUMMARY_PER: u64 = 270;
 const RESENT_BASE: u64 = 21_000;
 const RESENT_PER: u64 = 27;
 /// The start of a session where it is not known: what stays in the cache across a compaction.
+/// And the most a first request is taken to hold of it.
 const START_TOKENS: u64 = 25_000;
+const START_MOST: u64 = 40_000;
 /// The hooks speak of a long conversation from where a compaction would pay for itself within
 /// this many requests ([`carry_from`]).
 const PAYBACK: f64 = 12.0;
+/// The harness compacts this many tokens under the window it is given: at 67,000 with a
+/// window of 100,000, at 92,000 with 125,000 and at 967,000 with a million.
+pub const COMPACTS_UNDER: u64 = 33_000;
+
+/// The window that makes the harness compact at `at` tokens.
+pub fn window_for(at: u64) -> u64 {
+    at + COMPACTS_UNDER
+}
+
 /// The window that keeps a conversation under a step in price at `over` tokens. The harness
-/// compacts about 33,000 tokens under the window it is given, so this one compacts 8,000 under
-/// the step. Measured with Claude Haiku 5.5 and its step at 100,000: with a window of 125,000
+/// compacts [`COMPACTS_UNDER`] tokens under the window it is given, so this one compacts 8,000
+/// under the step. Measured with Claude Haiku 5.5 and its step at 100,000: with a window of 125,000
 /// no request of eight conversations had a prompt over 91,000 tokens, and they took half as
 /// many compactions as with a window of 100,000.
 pub fn step_window(over: u64) -> u64 {
@@ -586,21 +597,22 @@ fn last_of(path: &Path, agent: bool) -> Option<Last> {
         // The window begins in the middle of a line unless it begins the file.
         let start = if from == 0 { 0 } else { memchr::memchr(b'\n', &buf).map_or(buf.len(), |i| i + 1) };
         let mut found: Option<Last> = None;
-        // The message of the newest request, until the line it answers has been found.
+        // The message of the newest request, until the line it answers has been found, and
+        // the time of the nearest line before it that a person or a tool wrote.
         let mut answering: Option<String> = None;
+        let mut asked: Option<i64> = None;
         for line in buf[start..].rsplit(|b| *b == b'\n') {
             if memchr::memmem::find(line, b"\"assistant\"").is_none() {
                 // What the newest request answers: the nearest line before its reply that a
                 // person or a tool wrote.
                 if answering.is_some()
+                    && asked.is_none()
                     && memchr::memmem::find(line, b"\"user\"").is_some()
                     && let Ok(v) = serde_json::from_slice::<Value>(line)
                     && v["type"] == "user"
                     && (agent || v["isSidechain"] != true)
-                    && let (Some(last), Some(at)) = (&mut found, v["timestamp"].as_str().and_then(parse_time))
                 {
-                    last.sent = at;
-                    answering = None;
+                    asked = v["timestamp"].as_str().and_then(parse_time);
                 }
                 continue;
             }
@@ -622,11 +634,13 @@ fn last_of(path: &Path, agent: bool) -> Option<Last> {
                 }
                 Some(last) => {
                     if answering.as_deref().is_some_and(|id| v["message"]["id"].as_str() == Some(id)) {
-                        // An earlier part of the same reply: the request was sent before it.
+                        // An earlier part of the same reply: the request was sent before it, and
+                        // a tool's result written since was written inside the reply.
                         last.sent = last.sent.min(at);
-                    } else {
-                        // The reply before: nothing a person or a tool wrote lies between.
-                        answering = None;
+                        asked = None;
+                    } else if answering.take().is_some() {
+                        // The reply before: what lies between the two is what was asked.
+                        last.sent = asked.unwrap_or(last.sent);
                     }
                     last.one_hour = last.one_hour.or(which)
                 }
@@ -636,6 +650,10 @@ fn last_of(path: &Path, agent: bool) -> Option<Last> {
             }
         }
         if found.is_some() || from == 0 {
+            // The window ended before the reply before was reached: what was asked is known.
+            if let (Some(last), Some(_), Some(at)) = (&mut found, &answering, asked) {
+                last.sent = at;
+            }
             return found;
         }
     }
@@ -1233,8 +1251,10 @@ pub fn measured(events: &[Event]) -> Measured {
         summary: median(summaries),
         resent: median(resents),
         left: median(lefts),
-        // The start of a session that was resumed is the whole conversation: not what stays.
-        start: events.iter().find_map(main).and_then(|u| u.context()).map(|c| c.min(100_000)),
+        // What stays in the cache across a compaction is the system prompt and the tools. The
+        // first request of a session is that and the first prompt, and for a session that was
+        // resumed or forked it is the whole conversation.
+        start: events.iter().find_map(main).and_then(|u| u.context()).map(|c| c.min(START_MOST)),
     }
 }
 
@@ -1345,6 +1365,8 @@ pub struct Cold {
     pub reply_ms: Option<i64>,
     /// It answered the result of a tool call, not something a person typed.
     pub after_tool: bool,
+    /// Its conversation writes to the five-minute cache and never to the one-hour one.
+    pub five: bool,
     /// What the request wrote to the cache again.
     pub rewritten: u64,
     pub cost: f64,
@@ -1352,17 +1374,41 @@ pub struct Cold {
     pub reason: Option<String>,
 }
 
+/// What outlived a five-minute cache between two requests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outlived {
+    /// The reply before took that long to write.
+    Reply,
+    /// A tool call of the reply before took that long.
+    Tools,
+    /// Neither alone: the reply and its tool calls together.
+    Together,
+    /// Nothing ran: the conversation waited for the person, or for another agent.
+    Pause,
+}
+
 impl Cold {
-    /// It followed a reply that took longer to write than its tool calls took to run.
-    pub fn after_long_reply(&self) -> bool {
-        matches!((self.gap_ms, self.reply_ms), (Some(gap), Some(reply)) if reply * 2 >= gap)
+    /// What took the five minutes, for a request that came that long after the one before.
+    pub fn outlived(&self) -> Outlived {
+        let reply = self.reply_ms.unwrap_or(0);
+        let rest = self.gap_ms.unwrap_or(0) - reply;
+        if reply >= IDLE_FIVE_MS {
+            Outlived::Reply
+        } else if !self.after_tool {
+            Outlived::Pause
+        } else if rest >= IDLE_FIVE_MS {
+            Outlived::Tools
+        } else {
+            Outlived::Together
+        }
     }
 }
 
 /// The request `cur` that found the cache cold after `prev`.
-fn cold(session: &str, prev: &Request, cur: &Request, cause: Cause, fallback: bool, cost: f64) -> Cold {
+fn cold(session: &str, prev: &Request, cur: &Request, cause: Cause, fallback: bool, five: bool, cost: f64) -> Cold {
     let before = prev.usage.context().unwrap_or(0);
     Cold {
+        five,
         session: session.to_string(),
         at: cur.at,
         cause,
@@ -1404,7 +1450,9 @@ impl HourTrade {
         if c.cause == Cause::IdleFive && c.gap_ms.is_some_and(|g| g < IDLE_HOUR_MS) {
             self.spared += 1;
             self.saved += c.cost;
-            self.extra -= w.times(cur.usage.context()) * (w.write_1h - w.write_5m) * c.rewritten as f64;
+            // Taken back only where `request` added it: on what was written to that cache.
+            let written = c.rewritten.min(cur.usage.write_5m.unwrap_or(0));
+            self.extra -= w.times(cur.usage.context()) * (w.write_1h - w.write_5m) * written as f64;
         }
     }
 
@@ -1950,7 +1998,7 @@ impl Stats {
                         if let Some(cost) = cold_cost_in(&p.usage, &r.usage, self.kind == Kind::Codex, &w).filter(|_| !compacted) {
                             let why = cause(p, r, self.kind.hour_cache());
                             let fell = why == Cause::ModelSwitch && fallbacks.contains(&(p.model.as_str(), r.model.as_str()));
-                            let found = cold(&t.id, p, r, why, fell, cost);
+                            let found = cold(&t.id, p, r, why, fell, five, cost);
                             if five {
                                 self.hour.cold(&found, r, &w);
                             }
@@ -2058,7 +2106,7 @@ impl Stats {
                     if let Some(p) = prev
                         && let Some(cost) = cold_cost_in(&p.usage, &r.usage, self.kind == Kind::Codex, &w).filter(|_| !compacted)
                     {
-                        let found = cold(session, p, r, cause(p, r, hour), false, cost);
+                        let found = cold(session, p, r, cause(p, r, hour), false, five, cost);
                         if five {
                             self.agents.hour.cold(&found, r, &w);
                         }
@@ -2167,13 +2215,13 @@ fn by_cause(cold: &[Cold]) -> String {
     parts.join(", ")
 }
 
-/// What outlived the five-minute cache, and the one thing to do about each kind: a reply that
-/// took that long to write, or a tool call that took that long to run.
-fn outlived(cold: &[Cold]) -> (String, &'static str) {
-    let idle: Vec<&Cold> = cold.iter().filter(|x| x.cause == Cause::IdleFive).collect();
-    let replies = idle.iter().filter(|x| x.after_long_reply()).count();
-    let calls = idle.iter().filter(|x| !x.after_long_reply() && x.after_tool).count();
-    let pauses = idle.len() - replies - calls;
+/// What outlived the five-minute cache in the conversations that write to it, and the one
+/// thing to do about each kind. `None` where no request of such a conversation came five
+/// minutes after the one before.
+fn outlived(cold: &[Cold]) -> Option<(String, &'static str)> {
+    let idle: Vec<Outlived> = cold.iter().filter(|x| x.five && x.cause == Cause::IdleFive).map(Cold::outlived).collect();
+    let of = |kind: Outlived| idle.iter().filter(|k| **k == kind).count();
+    let (replies, calls, together, pauses) = (of(Outlived::Reply), of(Outlived::Tools), of(Outlived::Together), of(Outlived::Pause));
     let mut parts = Vec::new();
     if replies > 0 {
         parts.push(format!("{} followed a reply that took longer than that to write", count(replies)));
@@ -2181,17 +2229,20 @@ fn outlived(cold: &[Cold]) -> (String, &'static str) {
     if calls > 0 {
         parts.push(format!("{} followed a tool call that took longer than that", count(calls)));
     }
+    if together > 0 {
+        parts.push(format!("{} followed a reply and tool calls that took longer than that together", count(together)));
+    }
     if pauses > 0 {
         parts.push(format!("{} came after a pause longer than that", count(pauses)));
     }
-    let todo = match (replies > 0, calls > 0) {
+    let todo = match (replies + together > 0, calls + together > 0) {
         (true, true) => "A large file costs less written in parts, and a long command costs less in the background with a look every few minutes.",
         (true, false) => "A large file costs less written in parts.",
         (false, true) => "A long command costs less run in the background with a look every few minutes.",
         (false, false) => "",
     };
-    let last = parts.pop().unwrap_or_default();
-    (if parts.is_empty() { last } else { format!("{} and {last}", parts.join(", ")) }, todo)
+    let last = parts.pop()?;
+    Some((if parts.is_empty() { last } else { format!("{} and {last}", parts.join(", ")) }, todo))
 }
 
 /// What the one-hour cache would have done, in a line: `setting` is the harness's name for it.
@@ -2209,7 +2260,7 @@ fn hour_line(trade: &HourTrade, setting: &str) -> String {
 fn cold_item(x: &Cold) -> String {
     let fell = if x.fallback {
         " (a model fallback)"
-    } else if x.cause == Cause::IdleFive && x.after_long_reply() {
+    } else if x.cause == Cause::IdleFive && x.outlived() == Outlived::Reply {
         " (a reply that took that long)"
     } else {
         ""
@@ -2251,13 +2302,19 @@ fn carried_finding(carry: &Carry, title: &str, of: &str, advice: &str, setting: 
             );
         }
         match setting {
-            Some(false) => push(false, &format!("`/autocompact {t}` moves it there: the harness compacts about 33k tokens under the window it is given.")),
+            Some(false) => push(
+                false,
+                &format!(
+                    "`/autocompact {}` moves it there: the harness compacts about 33k tokens under the window it is given.",
+                    short(window_for(w.threshold) as f64)
+                ),
+            ),
             // The one way to set it that the harness documents for sub-agents.
             Some(true) => push(
                 false,
                 &format!(
-                    "`CLAUDE_CODE_AUTO_COMPACT_WINDOW={}` moves it there for the main conversation and its sub-agents alike, and `autoCompactWindow` in an agent's definition for that agent alone.",
-                    w.threshold
+                    "`CLAUDE_CODE_AUTO_COMPACT_WINDOW={}` moves it there for the main conversation and its sub-agents alike (the harness compacts about 33k tokens under the window), and `autoCompactWindow` in an agent's definition for that agent alone.",
+                    window_for(w.threshold)
                 ),
             ),
             None => {}
@@ -2314,14 +2371,15 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
             if !todo.is_empty() {
                 push(false, &todo.join(" "));
             }
-            // A main thread on the five-minute cache: what outlived it, and the longer cache.
-            if s.hour.spared > 0 {
-                let (what, todo) = outlived(&s.cold);
-                push(false, &format!("These sessions write to the five-minute cache, which is counted from when a request is sent: {what}."));
+            // Main threads on the five-minute cache: what outlived it, and the longer cache.
+            if let Some((what, todo)) = outlived(&s.cold) {
+                push(false, &format!("Of those in sessions that write to the five-minute cache, which is counted from when a request is sent: {what}."));
                 if !todo.is_empty() {
                     push(false, todo);
                 }
-                push(false, &hour_line(&s.hour, "promptCacheTtl"));
+                if s.hour.spared > 0 {
+                    push(false, &hour_line(&s.hour, "promptCacheTtl"));
+                }
             }
             if detail {
                 s.cold.iter().take(ITEMS).for_each(|x| push(false, &cold_item(x)));
@@ -2338,8 +2396,7 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
                     by_cause(cold)
                 ),
             );
-            if s.agents.five_minutes > 0 && cold.iter().any(|x| x.cause == Cause::IdleFive) {
-                let (what, todo) = outlived(cold);
+            if let Some((what, todo)) = outlived(cold) {
                 push(false, &format!("A sub-agent's prompt cache lasts five minutes here, counted from when a request is sent: {what}."));
                 if !todo.is_empty() {
                     push(false, todo);
@@ -2652,7 +2709,7 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
                     "count": of.len(),
                     "weighted": round(of.iter().map(|x| x.cost).sum()),
                     "after_fallback": of.iter().filter(|x| x.fallback).count(),
-                    "after_a_long_reply": of.iter().filter(|x| *c == Cause::IdleFive && x.after_long_reply()).count(),
+                    "after_a_long_reply": of.iter().filter(|x| *c == Cause::IdleFive && x.outlived() == Outlived::Reply).count(),
                 })
             })
             .collect()
@@ -3303,7 +3360,36 @@ mod tests {
         carried_finding(&carry, "Carried context", "requests", "Advice.", Some(false), &mut |_, text| lines.push(text.to_string()));
         assert_eq!(lines[0], "Carried context: 5 of 10 requests (50%) carried more than 400k tokens, at most 900k.");
         assert_eq!(lines[2], "At 200k: 6 more compactions, about 10k less in all.");
-        assert_eq!(lines[3], "`/autocompact 400k` moves it there: the harness compacts about 33k tokens under the window it is given.");
+        // The window that makes the harness compact at 400k is 33k above it.
+        assert_eq!(lines[3], "`/autocompact 433k` moves it there: the harness compacts about 33k tokens under the window it is given.");
+        assert_eq!((window_for(400_000), step_window(100_000)), (433_000, 125_000));
+        // What outlived a five-minute cache: the reply, a tool call, both together, or a pause.
+        let waited = |gap_min: i64, reply_min: i64, after_tool: bool| Cold {
+            session: String::new(),
+            at: None,
+            cause: Cause::IdleFive,
+            fallback: false,
+            before: 0,
+            gap_ms: Some(gap_min * 60_000),
+            reply_ms: Some(reply_min * 60_000),
+            after_tool,
+            five: true,
+            rewritten: 0,
+            cost: 1_000.0,
+            reason: None,
+        };
+        assert_eq!(waited(7, 6, true).outlived(), Outlived::Reply);
+        assert_eq!(waited(7, 1, true).outlived(), Outlived::Tools);
+        assert_eq!(waited(6, 3, true).outlived(), Outlived::Together);
+        assert_eq!(waited(9, 0, false).outlived(), Outlived::Pause);
+        let (what, todo) = outlived(&[waited(7, 6, true), waited(7, 1, true), waited(6, 3, true), waited(9, 0, false)]).unwrap();
+        assert_eq!(
+            what,
+            "1 followed a reply that took longer than that to write, 1 followed a tool call that took longer than that, 1 followed a reply and tool calls that took longer than that together and 1 came after a pause longer than that"
+        );
+        assert!(todo.starts_with("A large file costs less written in parts, and a long command"), "{todo}");
+        // A request of a conversation on the one-hour cache is none of these.
+        assert!(outlived(&[Cold { five: false, ..waited(7, 6, true) }]).is_none());
         assert_eq!(lines[4], "Advice.");
         let cold = |cause: Cause| Cold {
             session: String::new(),
@@ -3314,6 +3400,7 @@ mod tests {
             gap_ms: None,
             reply_ms: None,
             after_tool: false,
+            five: false,
             rewritten: 0,
             cost: 1_000.0,
             reason: None,

@@ -462,8 +462,11 @@ fn the_owner_is_told_where_the_price_of_the_model_steps_up() {
     transcript_of(&home, "claude-haiku-5-5", 210_000, 1, true);
     let (said, _) = to_user(&ask());
     assert!(said.contains("210k tokens long"), "and again a hundred thousand tokens on: {said}");
-    // The note about carrying is for models without such a step.
+    // The note about carrying is for models without such a step, unless a length is set for it.
     assert!(!said.contains("pays for itself"), "{said}");
+    transcript_of(&home, "claude-haiku-5-5", 60_000, 1, true);
+    let set = hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "set").as_bytes(), &[("CLAUDECODE", "1"), ("CODEFAST_CARRY", "50000")]);
+    assert!(to_user(&set).0.contains("60k tokens long, and every request reads all of it again"), "{}", set.stdout);
 }
 
 /// The prompt cache of a conversation lives from when a request is sent. A tool call that takes
@@ -603,14 +606,35 @@ fn the_owner_is_told_when_the_prompt_cache_has_run_out() {
     let plain = payload("claude-user-prompt", &repo.dir, &home).replace("dev_read returns -1 for a device that is open. Find out why and fix it.", "go on");
     transcript(&home, 150_000, 70, true);
     let (said, for_model) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude));
-    assert!(said.starts_with("codefast: this conversation was idle for 1 hour 10 minutes, longer than its prompt cache lives. This request sends its 150k tokens again as new input, with claude-sonnet-5 about 20 times what a warm request pays for them."), "{said}");
+    assert!(
+        said.starts_with(
+            "codefast: 1 hour 10 minutes have passed since this conversation's last request was sent, longer than its prompt cache lives. This request sends its 150k tokens again as new input, with claude-sonnet-5 about 20 times what a warm request pays for them."
+        ),
+        "{said}"
+    );
     assert!(said.contains("`/clear`") && !for_model, "{said}");
     hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude).assert_quiet("once for this gap");
 
     // The five-minute cache runs out sooner and costs less to write.
     transcript(&home, 150_000, 6, false);
     let (said, _) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "five").as_bytes(), &claude));
-    assert!(said.contains("idle for 6 minutes") && said.contains("about 12 times"), "{said}");
+    assert!(said.starts_with("codefast: 6 minutes have passed since") && said.contains("about 12 times"), "{said}");
+    // The cache is counted from when the request was sent: a reply that took four minutes and
+    // a prompt typed four minutes after it are eight minutes for the five-minute cache.
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let line = |kind: &str, ago: i64, more: serde_json::Value| {
+        let mut v = serde_json::json!({"type": kind, "isSidechain": false, "timestamp": rfc3339(now - ago)});
+        v["message"] = more;
+        v.to_string()
+    };
+    let reply = |ago: i64| {
+        line("assistant", ago, serde_json::json!({"id": "msg_slow", "model": "claude-sonnet-5", "usage": {"input_tokens": 2, "cache_read_input_tokens": 149_000, "cache_creation_input_tokens": 998, "output_tokens": 0,
+            "cache_creation": {"ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 998}}}))
+    };
+    let text = format!("{}\n{}\n{}\n", line("user", 480, serde_json::json!({"role": "user", "content": "Write the report."})), reply(470), reply(240));
+    write(&home.join(".claude/projects/-work-project/0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11.jsonl"), &text);
+    let (said, _) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "slow-reply").as_bytes(), &claude));
+    assert!(said.starts_with("codefast: 8 minutes have passed since this conversation's last request was sent"), "{said}");
     // Half an hour is inside the one-hour cache, and a small conversation costs little either way.
     transcript(&home, 100_000, 30, true);
     hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "warm").as_bytes(), &claude).assert_quiet("the cache still holds");
@@ -633,6 +657,12 @@ fn the_owner_is_told_when_the_prompt_cache_has_run_out() {
     let (said, for_model) = to_user(&hook(&home, &repo.dir, "session-start", in_session(&resume.to_string(), "resumed").as_bytes(), &claude));
     assert!(said.starts_with("codefast: this conversation is 300k tokens and its prompt cache has run out (idle for 2 hours). The first request sends all of it again as new input"), "{said}");
     assert!(for_model, "the session's own note goes to the model as before");
+    // A conversation on the five-minute cache pays less to be written again: 1.25 against a
+    // read at 0.1, at the prices of the model the session resumes on.
+    transcript_of(&home, "claude-opus-5-5", 300_000, 120, false);
+    let (said, _) = to_user(&hook(&home, &repo.dir, "session-start", in_session(&resume.to_string(), "resumed-five").as_bytes(), &claude));
+    assert!(said.contains("as new input, with claude-opus-5 about 12 times"), "{said}");
+    transcript(&home, 150_000, 70, true);
     // The model the session resumes on prices it, and the harness's own figure is passed on.
     resume["model"] = serde_json::json!("claude-fable-5-2");
     resume["estimated_cache_write_usd"] = serde_json::json!(4.8);

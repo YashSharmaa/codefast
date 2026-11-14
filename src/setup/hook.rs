@@ -1083,7 +1083,10 @@ fn cold_note(model: &str, context: u64, idle_secs: u64, one_hour: bool, resumed:
     let lead = if resumed {
         format!("this conversation is {size} tokens and its prompt cache has run out (idle for {}). The first request sends all of it again", idle_text(idle_secs))
     } else {
-        format!("this conversation was idle for {}, longer than its prompt cache lives. This request sends its {size} tokens again", idle_text(idle_secs))
+        format!(
+            "{} have passed since this conversation's last request was sent, longer than its prompt cache lives. This request sends its {size} tokens again",
+            idle_text(idle_secs)
+        )
     };
     let theirs = usd.filter(|d| *d >= 0.01).map(|d| format!(" (the harness puts it at ${d:.2})")).unwrap_or_default();
     format!(
@@ -1136,19 +1139,20 @@ fn conversation_note(place: &Place, payload: &Payload, cli: &str) -> Option<Stri
     let last = super::sessions::last_request(Path::new(payload.transcript.as_deref()?))?;
     let session = Session::open(place, payload.session.as_deref())?;
     let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_millis() as i64;
-    let idle = Duration::from_millis((now - last.at).max(0) as u64);
+    // A prompt cache lives from when a request is sent, not from when its reply ends.
+    let since = Duration::from_millis((now - last.sent).max(0) as u64);
     // Where the transcript does not say which cache is written, the longer one is assumed:
     // a note about a cache that has not run out would be wrong, and a missing note is not.
     let one_hour = last.one_hour.unwrap_or(true);
-    if idle >= if one_hour { CACHE_HOUR } else { CACHE_FIVE } && last.context >= COLD_NOTE_FROM {
-        return session.claim(&format!("cold {}", last.at / 60_000)).then(|| cold_note(&last.model, last.context, idle.as_secs(), one_hour, false, None));
+    if since >= if one_hour { CACHE_HOUR } else { CACHE_FIVE } && last.context >= COLD_NOTE_FROM {
+        return session.claim(&format!("cold {}", last.at / 60_000)).then(|| cold_note(&last.model, last.context, since.as_secs(), one_hour, false, None));
     }
     let w = super::sessions::weights(&last.model);
-    if let Some(tier) = w.tier {
-        // Told once on the way there, once over it, and again as it grows.
-        if (last.context as f64) < STEP_NOTE_NEAR * tier.over as f64 {
-            return None;
-        }
+    // Near a step in price and over it: told once on the way there, once over it, and again
+    // as it grows. Below that, a length set with `CODEFAST_CARRY` is spoken of as for any model.
+    if let Some(tier) = w.tier
+        && last.context as f64 >= STEP_NOTE_NEAR * tier.over as f64
+    {
         let stage = if last.context <= tier.over { 0 } else { 1 + (last.context - tier.over) / CARRY_NOTE_STEP };
         return session.claim(&format!("step {stage}")).then(|| step_note(&last.model, last.context, tier));
     }
@@ -1172,7 +1176,7 @@ fn resume_note(place: &Place, payload: &Payload) -> Option<String> {
         // An older harness does not say: the transcript does.
         (_, Some(last)) => {
             let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_millis() as i64;
-            let idle = Duration::from_millis((now - last.at).max(0) as u64);
+            let idle = Duration::from_millis((now - last.sent).max(0) as u64);
             (last.context, idle >= if last.one_hour.unwrap_or(true) { CACHE_HOUR } else { CACHE_FIVE }, idle.as_secs())
         }
         _ => return None,
@@ -1182,9 +1186,10 @@ fn resume_note(place: &Place, payload: &Payload) -> Option<String> {
     }
     // The model the session resumes on, where the harness names it as its prices are listed
     // by, and else the one the conversation ran on.
+    let one_hour = last.as_ref().and_then(|l| l.one_hour).unwrap_or(true);
     let model = payload.model.clone().filter(|m| m.contains("claude-")).or(last.map(|l| l.model)).or(payload.model.clone()).unwrap_or_default();
     let session = Session::open(place, payload.session.as_deref())?;
-    session.claim(&format!("resumed {}", idle / 60)).then(|| cold_note(&model, context, idle, true, true, payload.cold_usd))
+    session.claim(&format!("resumed {}", idle / 60)).then(|| cold_note(&model, context, idle, one_hour, true, payload.cold_usd))
 }
 
 /// Where Claude Code keeps the transcript of the sub-agent `agent` of the session whose
