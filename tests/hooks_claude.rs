@@ -557,6 +557,44 @@ fn what_outlived_the_prompt_cache_is_said_at_once() {
     assert!(told.starts_with("codefast: dev_read") && told.contains("\n\ncodefast: 8 minutes have passed since this conversation's last request was sent"), "{told}");
 }
 
+/// Once a week the person is told what the sessions of the last seven days mostly cost. A week
+/// of transcripts is read by the detached worker, not by a hook that a session waits on.
+#[test]
+fn the_owner_is_told_once_a_week_what_the_sessions_mostly_cost() {
+    let (repo, home) = indexed("week");
+    // The session's own start does not send the worker off here: the test runs it by hand.
+    let claude = [("CLAUDECODE", "1"), ("CODEFAST_NO_REFRESH", "1")];
+    let start = payload("claude-session-start", &repo.dir, &home);
+    let begin = |envs: &[(&str, &str)]| to_user(&hook(&home, &repo.dir, "session-start", start.as_bytes(), envs)).0;
+    // A session of this project: two requests of a million and a half tokens, the second two
+    // hours after the first, when the prompt cache had run out.
+    let root = repo.dir.canonicalize().unwrap();
+    let slug: String = root.to_string_lossy().chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let asked = |ago: i64| serde_json::json!({"type": "user", "isSidechain": false, "timestamp": rfc3339(now - ago * 60), "message": {"role": "user", "content": "Go on."}});
+    let said = |id: &str, ago: i64| {
+        serde_json::json!({"type": "assistant", "isSidechain": false, "timestamp": rfc3339(now - ago * 60), "message": {"id": id, "model": "claude-sonnet-5", "usage": {
+            "input_tokens": 2, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 1_500_000, "output_tokens": 100,
+            "cache_creation": {"ephemeral_1h_input_tokens": 1_500_000, "ephemeral_5m_input_tokens": 0}}}})
+    };
+    let lines = [asked(200), said("m1", 200), asked(60), said("m2", 60)];
+    let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
+    write(&home.join(".claude/projects").join(&slug).join("7c1d5a2e-0000-4000-8000-000000000001.jsonl"), &text);
+
+    assert_eq!(begin(&claude), "", "nothing has read the sessions yet");
+    hook(&home, &repo.dir, "index-refresh", b"", &[("CLAUDECODE", "1")]).assert_quiet("the worker says nothing");
+    assert_eq!(
+        begin(&claude),
+        "codefast: in the last 7 days 47% of the 6.0M weighted tokens of this project's sessions went to requests that sent the whole conversation again, after the prompt cache had run out or the model was switched. `codefast doctor sessions` has the figures and what changes them."
+    );
+    assert_eq!(begin(&claude), "", "once a week");
+    // Not where the notes are switched off, and not in another harness.
+    std::fs::remove_file(repo.path(".codefast/sessions.stamp")).unwrap();
+    assert_eq!(begin(&[("CLAUDECODE", "1"), ("CODEFAST_NO_REFRESH", "1"), ("CODEFAST_COST_NOTES", "off")]), "");
+    assert_eq!(begin(&[("CODEFAST_NO_REFRESH", "1")]), "");
+    assert!(begin(&claude).starts_with("codefast: in the last 7 days 47% of"), "still there for the one it is for");
+}
+
 /// Past the life of its prompt cache, a conversation is sent again at the price of new input.
 #[test]
 fn the_owner_is_told_when_the_prompt_cache_has_run_out() {

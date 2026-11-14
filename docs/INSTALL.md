@@ -874,7 +874,7 @@ by when a transcript last changed), `--session ID` breaks one session down reque
 same numbers as JSON, one object per harness. Counts that an older harness version did not
 write, such as thinking tokens, are reported as not recorded rather than as zero.
 
-In Claude Code three notes go to you and not to the model, so they cost no tokens. Their figures
+In Claude Code these notes go to you and not to the model, so they cost no tokens. Their figures
 are those of the model the conversation runs on. Each is said once per occasion, and
 `CODEFAST_COST_NOTES=off` turns them off:
 
@@ -909,6 +909,11 @@ takes an hour, or five minutes where the transcript shows the five-minute cache.
 Claude Code writes to the five-minute cache, so for it a build of five minutes does it, and so
 does a file that takes five minutes to write. The hook reads which cache it is from the
 conversation's own transcript and says nothing where that does not show it.
+
+Once a week, at the start of a session, you are also told in one line what the sessions of the
+last seven days mostly cost, when that is a tenth of them or more: sub-agents carrying long
+conversations, cold restarts, thinking, and so on, with the share. A worker in the background
+reads the week's transcripts for it, so no session waits.
 
 `codefast doctor sessions` gives the same figures after the fact, for every session of the
 project.

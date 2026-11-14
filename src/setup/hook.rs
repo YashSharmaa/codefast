@@ -28,11 +28,12 @@
 //! five-minute cache, so for it that takes a command of five minutes, or a reply that took as
 //! long to write.
 //!
-//! Three notes are for the person at the keyboard and never reach the model (Claude Code's
-//! `systemMessage`): that a conversation has grown so long that every request pays a good deal
-//! to read it again, that a conversation's prompt cache has run out, so that the next request
-//! sends all of it again as new input, and that a conversation is at the length where the price
-//! of its model steps up. The figures in them are those of the model the conversation runs on
+//! Four notes are for the person at the keyboard and never reach the model (Claude Code's
+//! `systemMessage`). Once a week, what the sessions of the last seven days mostly cost, worked
+//! out by the detached worker. And at the moment it happens: that a conversation has grown so
+//! long that every request pays a good deal to read it again, that a conversation's prompt
+//! cache has run out, so that the next request sends all of it again as new input, and that a
+//! conversation is at the length where the price of its model steps up. The figures in them are those of the model the conversation runs on
 //! (`doctor sessions` has the table). Each is said once per occasion, and
 //! `CODEFAST_COST_NOTES=off` turns them off.
 //!
@@ -170,6 +171,14 @@ const SESSIONS_DIR: &str = "sessions";
 /// Touched when a session was told what its harness configuration costs, so that the next
 /// sessions of the week are not told again.
 const AUDIT_STAMP: &str = "audit.stamp";
+/// What the sessions of the last week mostly cost, worked out by the detached worker and told
+/// to the person at the start of a session, once a week.
+const WEEK_NOTE: &str = "sessions.note";
+const WEEK_STAMP: &str = "sessions.stamp";
+/// How long the worker's answer stands before it is worked out again, and how old it may be
+/// when it is told.
+const WEEK_NOTE_KEEP: Duration = Duration::from_secs(24 * 3600);
+const WEEK_NOTE_STALE: Duration = Duration::from_secs(3 * 24 * 3600);
 const AUDIT_EVERY: Duration = Duration::from_secs(7 * 24 * 3600);
 const SESSION_FILE_MAX: u64 = 256 << 10;
 const SESSION_KEEP: Duration = Duration::from_secs(14 * 24 * 3600);
@@ -890,6 +899,21 @@ fn refresh(root: &Path) {
     // A missing index is built either way; an existing one is only touched when allowed.
     let _ = fresh::open(&root, &OpenOptions { refresh: refresh_allowed(), quiet: true });
     let _ = std::fs::remove_file(&lock);
+    week_of_sessions(&root, &dir);
+}
+
+/// In the detached worker, once a day and for Claude Code: what the sessions of the last week
+/// mostly cost, kept for the start of a session to tell the person. Reading a week of
+/// transcripts takes longer than a hook that a session waits on may take.
+fn week_of_sessions(root: &Path, index_dir: &Path) {
+    let file = index_dir.join(WEEK_NOTE);
+    if std::env::var_os("CLAUDECODE").is_none() || cost_notes_off() || age(&file).is_some_and(|a| a < WEEK_NOTE_KEEP) {
+        return;
+    }
+    // Written first, so that a second worker does not read the same week beside this one.
+    if std::fs::write(&file, b"").is_ok() {
+        let _ = std::fs::write(&file, super::sessions::week_note(root, &cli()).unwrap_or_default());
+    }
 }
 
 /// `CODEFAST_NO_REFRESH` asks every command to trust the index as it is; the hooks do too.
@@ -968,7 +992,7 @@ fn session_start(passed: &Path, payload: &Payload) -> String {
     // One line. What the tool can do is in its skill and its tool list: said again here, on
     // every session, it would be paid for on every request and read on none.
     let note = format!("{state}: `{cli} search NAME` prints a symbol's definition, its body and every place that uses it in one call.");
-    let to_user = resume_note(&place, payload).or_else(|| context_cost(&place, payload, &cli));
+    let to_user = resume_note(&place, payload).or_else(|| context_cost(&place, payload, &cli)).or_else(|| week_note(&place, payload));
     payload.reply_with(Event::SessionStart, &note, to_user.as_deref())
 }
 
@@ -1005,6 +1029,23 @@ fn context_cost(place: &Place, payload: &Payload, cli: &str) -> Option<String> {
     let note = super::audit::session_note(&place.root, cli)?;
     std::fs::write(&stamp, b"").ok()?;
     Some(format!("codefast: {note}."))
+}
+
+/// Once a week per project, for the person and not for the model: what the sessions of the
+/// last seven days mostly cost, as the detached worker found it. Only for Claude Code, at the
+/// start of a session.
+fn week_note(place: &Place, payload: &Payload) -> Option<String> {
+    if std::env::var_os("CLAUDECODE").is_none() || payload.agent.is_some() || cost_notes_off() || !matches!(payload.source.as_deref(), None | Some("startup")) {
+        return None;
+    }
+    let stamp = place.index_dir.join(WEEK_STAMP);
+    let file = place.index_dir.join(WEEK_NOTE);
+    if age(&stamp).is_some_and(|a| a < AUDIT_EVERY) || age(&file).is_none_or(|a| a > WEEK_NOTE_STALE) {
+        return None;
+    }
+    let note = std::fs::read_to_string(&file).ok().filter(|n| !n.trim().is_empty())?;
+    std::fs::write(&stamp, b"").ok()?;
+    Some(format!("codefast: {}", note.trim()))
 }
 
 // ----- what the conversation itself costs: for the person, never for the model -----

@@ -2856,6 +2856,45 @@ fn stats(source: &dyn Transcripts, files: &[PathBuf], carry: Option<u64>) -> Sta
     s
 }
 
+/// The sessions of a week have to cost this many weighted tokens, and their largest finding
+/// this share of them, for the finding to be worth a line to the person.
+const WEEK_NOTE_FROM: f64 = 5_000_000.0;
+const WEEK_NOTE_SHARE: f64 = 0.1;
+
+/// The largest finding of this project's Claude Code sessions of the last seven days, in a
+/// line for the person, where it is worth one.
+pub fn week_note(root: &Path, cli: &str) -> Option<String> {
+    let ctx = Ctx::new(root);
+    let source = ClaudeCode { config: super::audit::claude_dir(&ctx) };
+    let files = source.sessions(&ctx.root, since(7));
+    if files.is_empty() {
+        return None;
+    }
+    let s = stats(&source, &files, None);
+    let total = s.total();
+    let (key, cost) = s.findings().into_iter().next()?;
+    if total < WEEK_NOTE_FROM || cost < WEEK_NOTE_SHARE * total {
+        return None;
+    }
+    let what = match key {
+        "start" => "to reading the start of the conversation again with every request",
+        "cold_restarts" => "to requests that sent the whole conversation again, after the prompt cache had run out or the model was switched",
+        "thinking" => "to thinking, which is billed as output",
+        "manual_compactions" | "automatic_compactions" => "to compactions",
+        "repeated_reads" => "to files that were read again word for word",
+        "carried_context" => "to carrying a conversation that an earlier compaction would have made shorter",
+        "agent_cold_restarts" => "to sub-agents that sent their whole conversation again after their prompt cache had run out",
+        "agent_carried_context" => "to sub-agents carrying conversations that an earlier compaction would have made shorter",
+        "price_step" => "to the higher price of requests longer than where the price of the model steps up",
+        _ => return None,
+    };
+    Some(format!(
+        "in the last 7 days {} of the {} weighted tokens of this project's sessions went {what}. `{cli} doctor sessions` has the figures and what changes them.",
+        share(cost, total),
+        short(total)
+    ))
+}
+
 fn findings_json(s: &Stats) -> Vec<Value> {
     s.findings().iter().map(|(k, c)| json!({"finding": k, "weighted": round(*c), "share": ratio(*c, s.total())})).collect()
 }
