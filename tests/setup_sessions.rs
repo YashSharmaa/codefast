@@ -149,11 +149,23 @@ fn run(sb: &Sandbox, root: &Path, args: &[&str]) -> String {
     sb.run_in(root, &all, &[]).ok().to_string()
 }
 
-fn report(sb: &Sandbox, root: &Path, args: &[&str]) -> Value {
+/// The whole JSON report.
+fn whole(sb: &Sandbox, root: &Path, args: &[&str]) -> Value {
     let mut all = args.to_vec();
     all.push("--json");
     let out = run(sb, root, &all);
     serde_json::from_str(&out).unwrap_or_else(|e| panic!("not JSON ({e}): {out}"))
+}
+
+/// The JSON report of one harness.
+fn of(sb: &Sandbox, root: &Path, args: &[&str], harness: &str) -> Value {
+    let r = whole(sb, root, args);
+    r["harnesses"].as_array().and_then(|h| h.iter().find(|x| x["harness"] == harness)).cloned().unwrap_or_else(|| panic!("no {harness} in {r:#}"))
+}
+
+/// The JSON report of Claude Code, or the whole one for `--all`.
+fn report(sb: &Sandbox, root: &Path, args: &[&str]) -> Value {
+    if args.contains(&"--all") { whole(sb, root, args) } else { of(sb, root, args, "Claude Code") }
 }
 
 fn near(v: &Value, want: f64) {
@@ -297,7 +309,7 @@ fn one_session_is_broken_down() {
     let out = sb.run_in(&root, &["doctor", "sessions", "--session", "5f0c"], &[]);
     assert!(out.code != 0 && out.stderr.contains("2 sessions start with `5f0c`"), "{}", out.stderr);
     let out = sb.run_in(&root, &["doctor", "sessions", "--session", "zzz"], &[]);
-    assert!(out.code != 0 && out.stderr.contains("no Claude Code session of this project starts with `zzz`"), "{}", out.stderr);
+    assert!(out.code != 0 && out.stderr.contains("no Claude Code or Codex session of this project starts with `zzz`"), "{}", out.stderr);
 }
 
 #[test]
@@ -322,9 +334,9 @@ fn a_project_without_sessions() {
     let text = run(&sb, &root, &[]);
     assert_eq!(
         text,
-        "No Claude Code session of this project in the last 14 days. Transcripts are read from ~/.claude/projects/".to_string()
+        "No Claude Code or Codex session of this project in the last 14 days. Transcripts are read from ~/.claude/projects/".to_string()
             + &transcripts(&sb, &root).file_name().unwrap().to_string_lossy()
-            + ".\n"
+            + " and ~/.codex/sessions.\n"
     );
     let r = report(&sb, &root, &[]);
     assert_eq!((r["sessions"].as_u64(), r["requests"].as_u64(), r["total_weighted"].as_u64()), (Some(0), Some(0), Some(0)));
@@ -348,17 +360,17 @@ fn days_and_other_projects() {
     let other = project(&sb, "other");
     second_session(&transcripts(&sb, &other), &other);
     let text = run(&sb, &root, &["--all", "--days", "40"]);
-    assert!(text.starts_with("Claude Code sessions in the last 40 days, by project, largest first:\n"), "{text}");
-    assert!(text.contains("  ~/code/demo: 2 sessions, 9 main-thread requests. Largest: "), "{text}");
-    assert!(text.contains("  ~/code/other: 1 sessions, 2 main-thread requests"), "{text}");
-    assert!(text.contains("  all 2 projects: 3 sessions, 11 main-thread requests"), "{text}");
+    assert!(text.starts_with("Sessions in the last 40 days, by project, largest first:\n"), "{text}");
+    assert!(text.contains("  Claude Code  ~/code/demo: 2 sessions, 9 main-thread requests. Largest: "), "{text}");
+    assert!(text.contains("  Claude Code  ~/code/other: 1 sessions, 2 main-thread requests"), "{text}");
+    assert!(text.contains("  Claude Code  all 2 projects: 3 sessions, 11 main-thread requests"), "{text}");
     let r = report(&sb, &root, &["--all", "--days", "40"]);
-    assert_eq!((r["projects"].as_array().map(Vec::len), r["total"]["sessions"].as_u64()), (Some(2), Some(3)), "{r:#}");
+    assert_eq!((r["projects"].as_array().map(Vec::len), r["totals"][0]["sessions"].as_u64()), (Some(2), Some(3)), "{r:#}");
     // Another configuration directory is followed.
     let elsewhere = sb.home("elsewhere");
     let out = sb.run_in(&root, &["doctor", "sessions"], &[("CLAUDE_CONFIG_DIR", elsewhere.to_str().unwrap())]);
     assert!(
-        out.ok().starts_with("No Claude Code session of this project in the last 14 days. Transcripts are read from ~/elsewhere/projects/"),
+        out.ok().starts_with("No Claude Code or Codex session of this project in the last 14 days. Transcripts are read from ~/elsewhere/projects/"),
         "{}",
         out.stdout
     );
@@ -449,4 +461,191 @@ fn the_harness_reason_for_a_cache_miss() {
     // Where the two agree, nothing is added.
     let (sb, root) = both("sessions-miss-none");
     assert!(!run(&sb, &root, &[]).contains("the harness names"));
+}
+
+// ----- Codex -----
+
+const ROLLOUT: &str = "01a1d94c-0000-7000-8000-00000000000a";
+const OUTSIDE: &str = "01a1d94c-0000-7000-8000-00000000000b";
+
+/// A rollout line.
+fn cx(minute: i64, kind: &str, payload: Value) -> Value {
+    json!({"timestamp": ts(minute), "ordinal": minute, "type": kind, "payload": payload})
+}
+
+fn meta(cwd: &Path) -> Value {
+    cx(
+        0,
+        "session_meta",
+        json!({"id": "x", "cwd": cwd.display().to_string(), "cli_version": "0.164.0", "model_provider": "openai", "base_instructions": {"text": "..."}}),
+    )
+}
+
+fn model(minute: i64, name: &str) -> Value {
+    cx(
+        minute,
+        "turn_context",
+        json!({"model": name, "cwd": "/somewhere", "collaboration_mode": {"mode": "default", "settings": {"model": name, "reasoning_effort": "medium"}}}),
+    )
+}
+
+/// One request: `input` is everything sent, `cached` and `written` parts of it. `total` is the
+/// running total the harness keeps.
+fn tokens(minute: i64, input: u64, cached: u64, written: u64, output: u64, reasoning: u64, total: u64) -> Value {
+    let last = json!({"input_tokens": input, "cached_input_tokens": cached, "cache_write_input_tokens": written, "output_tokens": output, "reasoning_output_tokens": reasoning, "total_tokens": input + output});
+    cx(
+        minute,
+        "event_msg",
+        json!({"type": "token_count", "info": {"last_token_usage": last, "total_token_usage": {"total_tokens": total}, "model_context_window": 258_400}, "rate_limits": null}),
+    )
+}
+
+fn shell(minute: i64, id: &str, script: &str) -> Value {
+    let args = json!({"command": ["bash", "-lc", script]}).to_string();
+    cx(minute, "response_item", json!({"type": "function_call", "name": "shell", "arguments": args, "call_id": id}))
+}
+
+fn output(minute: i64, id: &str, text: &str) -> Value {
+    cx(minute, "response_item", json!({"type": "function_call_output", "call_id": id, "output": text}))
+}
+
+fn rollout_path(sb: &Sandbox, id: &str) -> PathBuf {
+    sb.home(&format!(".codex/sessions/2026/11/10/rollout-2026-11-10T09-00-00-{id}.jsonl"))
+}
+
+/// A Codex session run in a directory inside the project: a report of nothing, a request
+/// reported twice, a repeated shell output, a cold restart after eight minutes, a model switch,
+/// a compaction said twice and a line of a kind the report does not know. And a session run
+/// in another directory.
+fn codex_sessions(sb: &Sandbox, root: &Path) {
+    let inside = root.join("sub");
+    std::fs::create_dir_all(&inside).unwrap();
+    let log = "ok\n".repeat(4000);
+    jsonl(
+        &rollout_path(sb, ROLLOUT),
+        &[
+            meta(&inside),
+            model(0, "gpt-6"),
+            tokens(0, 0, 0, 0, 0, 0, 0),
+            shell(0, "c1", "cd x && cargo test"),
+            output(0, "c1", &log),
+            tokens(0, 30_000, 0, 30_000, 500, 300, 30_500),
+            tokens(0, 30_000, 0, 30_000, 500, 300, 30_500),
+            shell(1, "c2", "cd x && cargo test"),
+            output(1, "c2", &log),
+            tokens(1, 31_000, 30_000, 1_000, 200, 100, 61_700),
+            // Eight minutes away, and this provider reports no cache writes.
+            tokens(9, 32_000, 0, 0, 100, 0, 93_800),
+            model(10, "gpt-6-mini"),
+            tokens(10, 33_000, 1_000, 30_000, 100, 0, 126_900),
+            cx(10, "compacted", json!({"message": "summary"})),
+            cx(10, "event_msg", json!({"type": "context_compacted"})),
+            tokens(11, 8_000, 0, 8_000, 100, 0, 135_000),
+            cx(11, "mystery_line", json!({"whatever": 1})),
+        ],
+    );
+    let elsewhere = sb.home("code/elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    jsonl(&rollout_path(sb, OUTSIDE), &[meta(&elsewhere), model(0, "gpt-6"), tokens(0, 50_000, 0, 50_000, 100, 0, 50_100)]);
+}
+
+#[test]
+fn a_codex_session_in_numbers() {
+    let sb = Sandbox::new("sessions-codex");
+    let root = project(&sb, "cx");
+    codex_sessions(&sb, &root);
+    let before = sb.snapshot();
+    let r = of(&sb, &root, &[], "Codex");
+    assert_eq!(sb.snapshot(), before, "the report writes nothing");
+    // The session in the other directory is not this project's. One request per report of
+    // tokens: not the empty one, and the one reported twice only once.
+    assert_eq!((r["sessions"].as_u64(), r["requests"].as_u64()), (Some(1), Some(5)), "{r:#}");
+    let w = &r["weighted"];
+    near(&w["cache_read"], 0.1 * 31_000.0);
+    near(&w["cache_write"], 1.25 * 69_000.0);
+    near(&w["input"], 32_000.0 + 2_000.0);
+    near(&w["output"], 5.0 * 1_000.0);
+    // Eight minutes away is a cold restart with no one-hour cache to tell apart, paid as
+    // uncached input. Then a switch of model. Nothing after the compaction.
+    let cold = &r["cold_restarts"];
+    assert_eq!(cold["count"], 2, "{cold:#}");
+    let cause = |key: &str| cold["by_cause"].as_array().unwrap().iter().find(|c| c["cause"] == key).cloned().unwrap();
+    assert_eq!((cause("idle_five_minutes")["count"].as_u64(), cause("idle_hour")["count"].as_u64()), (Some(1), Some(0)));
+    near(&cause("idle_five_minutes")["weighted"], 0.9 * 31_000.0);
+    near(&cause("model_switch")["weighted"], 1.15 * 30_000.0 + 0.9 * 2_000.0);
+    assert_eq!(r["model_switches"], 1);
+    // The compaction, said twice, is one boundary, sized by the requests either side of it.
+    let c = &r["compactions"]["auto"];
+    assert_eq!((c["count"].as_u64(), c["pre_tokens"].clone()), (Some(1), json!([33_000])), "{c:#}");
+    near(&c["weighted_estimate"], 0.1 * 33_000.0 + 1.25 * 8_000.0);
+    assert_eq!(r["start"]["first_context_tokens"], json!([30_000, 8_000]));
+    // Thinking is the reasoning tokens, as a part of the output.
+    let t = &r["thinking"];
+    assert_eq!((t["recorded_requests"].as_u64(), t["thinking_tokens"].as_u64(), t["output_tokens"].as_u64()), (Some(5), Some(400), Some(1_000)), "{t:#}");
+    // The shell's results by the program it ran, and the second, same output of the same call.
+    let groups = r["tool_results"]["groups"].as_array().unwrap();
+    assert_eq!((groups.len(), groups[0]["tool"].as_str(), groups[0]["results"].as_u64()), (1, Some("shell cargo"), Some(2)), "{groups:?}");
+    let rep = &r["repeated_outputs"];
+    assert_eq!((rep["count"].as_u64(), rep["bytes"].as_u64()), (Some(1), Some(12_000)), "{r:#}");
+    // Two requests carry it before the compaction.
+    near(&rep["weighted"], 12_000.0 / 3.5 * (1.25 + 0.1 * 2.0));
+    assert!(r["transcripts"].as_str().unwrap().ends_with("/.codex/sessions"));
+
+    let text = run(&sb, &root, &[]);
+    assert!(text.starts_with("Codex sessions of this project in the last 14 days: 1 session, 5 main-thread requests, "), "{text}");
+    assert!(text.contains("(Weighted as for Claude Code, although Codex providers price differently"), "{text}");
+    assert!(text.contains("1 idle for more than five minutes ("), "{text}");
+    assert!(
+        text.contains("Repeated outputs: 1 call gave back word for word what the same call with the same arguments gave earlier in the stretch (12 KB)."),
+        "{text}"
+    );
+    assert!(text.contains("Thinking: 400 of 1k output tokens (40%), counted as output, at 5 times the weight of input."), "{text}");
+    assert!(!text.contains("Claude Code sessions"), "{text}");
+    // A Codex session by the start of its id, and `CODEX_HOME` followed.
+    let one = run(&sb, &root, &["--session", "01a1d94c-0000-7000-8000-00000000000a"]);
+    assert!(one.starts_with(&format!("Codex session {ROLLOUT}: 5 main-thread requests from ")), "{one}");
+    let out = sb.run_in(&root, &["doctor", "sessions"], &[("CODEX_HOME", sb.home("nowhere").to_str().unwrap())]);
+    assert!(out.ok().starts_with("No Claude Code or Codex session of this project"), "{}", out.stdout);
+}
+
+#[test]
+fn codex_carried_context() {
+    let sb = Sandbox::new("sessions-codex-carry");
+    let root = project(&sb, "cxlong");
+    let mut lines = vec![meta(&root), model(0, "gpt-6")];
+    let (mut before, mut total) = (0u64, 0u64);
+    for i in 0..10u64 {
+        let context = 150_000 + 50_000 * i;
+        total += context + 10;
+        lines.push(tokens(i as i64, context, before, context - before, 10, 0, total));
+        before = context;
+    }
+    jsonl(&rollout_path(&sb, ROLLOUT), &lines);
+    let c = of(&sb, &root, &[], "Codex")["carried_context"].clone();
+    assert_eq!((c["requests_above"].as_u64(), c["peak_context"].as_u64(), c["compactions_instead"].as_u64()), (Some(8), Some(600_000), Some(3)), "{c:#}");
+    near(&c["weighted"], 180_000.0);
+    near(&c["saved_reads_estimate"], 262_500.0);
+    assert!(run(&sb, &root, &[]).contains("Compacting at 200k instead: 3 compactions, about 154k, so about 109k less (an estimate).\n"));
+}
+
+#[test]
+fn a_project_with_sessions_of_both_harnesses() {
+    let (sb, root) = both("sessions-both");
+    codex_sessions(&sb, &root);
+    let text = run(&sb, &root, &[]);
+    let claude = text.find("Claude Code sessions of this project").expect("a Claude Code report");
+    let codex = text.find("\nCodex sessions of this project").expect("a Codex report");
+    assert!(claude == 0 && codex > claude, "{text}");
+    let r = whole(&sb, &root, &[]);
+    let names: Vec<&str> = r["harnesses"].as_array().unwrap().iter().map(|h| h["harness"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Claude Code", "Codex"]);
+    // Every project of either harness, each line naming its harness.
+    let all = run(&sb, &root, &["--all"]);
+    assert!(all.contains("  Claude Code  ~/code/demo: 2 sessions, 9 main-thread requests"), "{all}");
+    assert!(all.contains("  Codex        ~/code/demo/sub: 1 sessions, 5 main-thread requests"), "{all}");
+    assert!(all.contains("  Codex        ~/code/elsewhere: 1 sessions, 1 main-thread requests"), "{all}");
+    assert!(all.contains("  Codex        all 2 projects: 2 sessions, 6 main-thread requests"), "{all}");
+    let r = whole(&sb, &root, &["--all"]);
+    let totals: Vec<&str> = r["totals"].as_array().unwrap().iter().map(|t| t["harness"].as_str().unwrap()).collect();
+    assert_eq!(totals, ["Claude Code", "Codex"]);
 }

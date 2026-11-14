@@ -13,7 +13,8 @@
 //! cache read weighs 0.1, a cache write 1.25 (2 for the one-hour cache), an output token 5.
 //! Dollars are not printed: prices differ by model and change.
 //!
-//! Claude Code is the harness read here. Another one comes in as a second [`Transcripts`].
+//! Two harnesses are read, each through a [`Transcripts`]: Claude Code and Codex. Codex
+//! sessions are weighed by the same convention, although its providers price differently.
 
 use super::harness::Ctx;
 use crate::output::count;
@@ -50,14 +51,15 @@ const POST_TOKENS: u64 = 25_000;
 /// A finding under this share of the total is left out.
 const WORTH_NAMING: f64 = 0.01;
 
-const USAGE: &str = "Where the tokens of this project's sessions went, read from the harness's own transcripts on
-this machine (Claude Code), and which habits cost the most. Nothing is run, changed or sent.
+const USAGE: &str = "Where the tokens of this project's sessions went, read from the harnesses' own transcripts on
+this machine (Claude Code and Codex, one report each), and which habits cost the most.
+Nothing is run, changed or sent.
 
 Usage: codefast doctor sessions [--days N] [--session ID] [--carry N] [--all] [--json]
   --days N       the sessions whose transcript changed in the last N days (default 14)
   --session ID   one session, named by the start of its id, with each finding broken down
   --carry N      the context, in tokens, above which carrying it is counted (default 200000)
-  --all          every project the harness keeps transcripts of: one line each, then the totals
+  --all          every project with sessions of either harness: one line each, then the totals
   --json         the same numbers as JSON
 ";
 
@@ -158,12 +160,13 @@ pub struct Request {
 /// What a tool gave back, as the conversation carries it.
 #[derive(Debug, Clone, Default)]
 pub struct ToolResult {
-    /// The tool's name (`Read`, `Bash`, `mcp__codefast__context`).
-    pub tool: String,
     /// What it is summed under: the tool, `Bash WORD`, `MCP SERVER`.
     pub group: String,
     /// The file, for a read.
     pub path: Option<String>,
+    /// What makes two results the same call: a read's file, a call's tool and arguments.
+    /// `None` for results that are not compared.
+    pub repeat: Option<String>,
     pub bytes: u64,
     pub hash: u64,
 }
@@ -189,19 +192,48 @@ pub struct Transcript {
     pub subagents: Vec<Request>,
 }
 
+/// The harness a transcript comes from, where the report says something different for each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Kind {
+    #[default]
+    ClaudeCode,
+    Codex,
+}
+
+impl Kind {
+    pub fn name(self) -> &'static str {
+        match self {
+            Kind::ClaudeCode => "Claude Code",
+            Kind::Codex => "Codex",
+        }
+    }
+
+    /// Whether the harness can keep a one-hour cache, so that an hour away is told apart from
+    /// five minutes away. Codex leaves the cache to its provider, and providers differ: five
+    /// minutes is the threshold for it.
+    fn hour_cache(self) -> bool {
+        self == Kind::ClaudeCode
+    }
+}
+
 /// A harness whose session transcripts this report can read.
 pub trait Transcripts: Sync {
-    fn name(&self) -> &'static str;
-    /// Where the transcripts of every project are.
-    fn location(&self) -> PathBuf;
-    /// The directory of the transcripts of the project at `root`.
-    fn project_dir(&self, root: &Path) -> PathBuf;
-    /// Every project directory there is.
-    fn project_dirs(&self) -> Vec<PathBuf>;
-    /// The sessions of one project directory, each with when its transcript last changed.
-    fn sessions(&self, dir: &Path) -> Vec<(PathBuf, SystemTime)>;
+    fn kind(&self) -> Kind;
+    /// Where the transcripts of the project at `root` are read from, as the report names it.
+    fn location(&self, root: &Path) -> PathBuf;
+    /// The sessions of the project at `root` whose transcript changed since `since`.
+    fn sessions(&self, root: &Path, since: SystemTime) -> Vec<PathBuf>;
+    /// Every session whose transcript changed since `since`, by project.
+    fn projects(&self, since: SystemTime) -> Vec<Vec<PathBuf>>;
+    /// The id of the session in `file`, as `--session` matches it.
+    fn id(&self, file: &Path) -> String;
     /// One session, read whole.
     fn read(&self, file: &Path) -> Transcript;
+}
+
+/// When a file last changed.
+fn modified(p: &Path) -> SystemTime {
+    std::fs::metadata(p).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
 // ----- Claude Code -----
@@ -448,7 +480,8 @@ fn read_jsonl(path: &Path, sub: bool, t: &mut Transcript) {
                     let (tool, g, path) =
                         block["tool_use_id"].as_str().and_then(|id| calls.get(id)).cloned().unwrap_or_else(|| ("?".to_string(), "other".to_string(), None));
                     let hash = xxhash_rust::xxh3::xxh3_64(text.as_bytes());
-                    t.events.push(Event::ToolResult(ToolResult { tool, group: g, path, bytes: text.len() as u64, hash }));
+                    let repeat = if tool == "Read" { path.clone() } else { None };
+                    t.events.push(Event::ToolResult(ToolResult { group: g, path, repeat, bytes: text.len() as u64, hash }));
                 }
             }
             Some("system") if !sidechain => match v["subtype"].as_str() {
@@ -484,39 +517,43 @@ fn jsonl_below(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     }
 }
 
-impl Transcripts for ClaudeCode {
-    fn name(&self) -> &'static str {
-        "Claude Code"
-    }
-
-    fn location(&self) -> PathBuf {
-        self.config.join("projects")
-    }
-
-    fn project_dir(&self, root: &Path) -> PathBuf {
-        self.location().join(super::audit::project_slug(root))
-    }
-
-    fn project_dirs(&self) -> Vec<PathBuf> {
-        let mut v: Vec<PathBuf> = std::fs::read_dir(self.location()).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
-        v.sort();
-        v
-    }
-
-    fn sessions(&self, dir: &Path) -> Vec<(PathBuf, SystemTime)> {
-        let mut v: Vec<(PathBuf, SystemTime)> = std::fs::read_dir(dir)
+impl ClaudeCode {
+    /// The transcripts of one project directory changed since `since`.
+    fn in_dir(dir: &Path, since: SystemTime) -> Vec<PathBuf> {
+        let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
             .into_iter()
             .flatten()
             .flatten()
             .map(|e| e.path())
-            .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "jsonl"))
-            .map(|p| {
-                let t = std::fs::metadata(&p).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
-                (p, t)
-            })
+            .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "jsonl") && modified(p) >= since)
             .collect();
         v.sort();
         v
+    }
+}
+
+impl Transcripts for ClaudeCode {
+    fn kind(&self) -> Kind {
+        Kind::ClaudeCode
+    }
+
+    fn location(&self, root: &Path) -> PathBuf {
+        self.config.join("projects").join(super::audit::project_slug(root))
+    }
+
+    fn sessions(&self, root: &Path, since: SystemTime) -> Vec<PathBuf> {
+        ClaudeCode::in_dir(&self.location(root), since)
+    }
+
+    fn projects(&self, since: SystemTime) -> Vec<Vec<PathBuf>> {
+        let mut dirs: Vec<PathBuf> =
+            std::fs::read_dir(self.config.join("projects")).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        dirs.sort();
+        dirs.iter().map(|d| ClaudeCode::in_dir(d, since)).filter(|v| !v.is_empty()).collect()
+    }
+
+    fn id(&self, file: &Path) -> String {
+        file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
     }
 
     fn read(&self, file: &Path) -> Transcript {
@@ -529,6 +566,233 @@ impl Transcripts for ClaudeCode {
             let mut s = Transcript::default();
             read_jsonl(&f, true, &mut s);
             t.subagents.extend(s.events.into_iter().filter_map(|e| if let Event::Request(r) = e { Some(r) } else { None }));
+        }
+        t
+    }
+}
+
+// ----- Codex -----
+
+/// `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl`, one JSON object per line
+/// with `timestamp`, `type` and `payload`. A session belongs to the project its `session_meta`
+/// names as `cwd`, or to the project that directory lies in.
+pub struct Codex {
+    pub home: PathBuf,
+}
+
+/// Tools that run a shell command: their results are summed by the program they ran.
+const SHELLS: [&str; 6] = ["shell", "shell_command", "exec_command", "local_shell", "local_shell_call", "container.exec"];
+
+/// The command line a Codex shell call runs: `["bash", "-lc", "cargo test"]` is `cargo test`.
+fn codex_command(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => {
+            let words: Vec<&str> = parts.iter().filter_map(Value::as_str).collect();
+            match words.as_slice() {
+                [_, flag, script, ..] if matches!(*flag, "-lc" | "-c") => script.to_string(),
+                _ => words.join(" "),
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+/// What a Codex tool's results are summed under: `shell WORD` for a shell, `MCP SERVER` for a
+/// tool of an MCP server, the tool's name otherwise.
+fn codex_group(name: &str, args: &Value) -> String {
+    if SHELLS.contains(&name) {
+        let command = codex_command(if args["command"].is_null() { &args["cmd"] } else { &args["command"] });
+        let word = first_word(&command);
+        return if word.is_empty() { "shell".to_string() } else { format!("shell {word}") };
+    }
+    if let Some((server, _)) = name.strip_prefix("mcp__").unwrap_or(name).split_once("__") {
+        return format!("MCP {server}");
+    }
+    name.to_string()
+}
+
+/// The text a Codex tool output puts into the conversation: a string, a list of parts, or an
+/// object with `output` or `content`.
+fn codex_output(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts.iter().filter_map(|p| p["text"].as_str().or(p.as_str())).collect::<Vec<_>>().join("\n"),
+        Value::Object(_) if !v["output"].is_null() => codex_output(&v["output"]),
+        Value::Object(_) => codex_output(&v["content"]),
+        _ => String::new(),
+    }
+}
+
+/// One request's counts from `last_token_usage`. `input_tokens` holds everything sent, the
+/// cached part and the part written to the cache included. `reasoning_output_tokens` is taken
+/// as a part of `output_tokens`, as the Responses API counts reasoning. `None` when the counts
+/// are all zero: that is not a request.
+fn codex_usage(u: &Value) -> Option<Usage> {
+    let n = |k: &str| u[k].as_u64();
+    let all = ["input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens"];
+    if !u.is_object() || all.iter().all(|k| n(k).unwrap_or(0) == 0) {
+        return None;
+    }
+    let (cached, written) = (n("cached_input_tokens"), n("cache_write_input_tokens").unwrap_or(0));
+    Some(Usage {
+        input: n("input_tokens").map(|i| i.saturating_sub(cached.unwrap_or(0) + written)),
+        cache_read: cached,
+        cache_write: Some(written),
+        write_5m: None,
+        write_1h: None,
+        output: n("output_tokens"),
+        thinking: n("reasoning_output_tokens"),
+    })
+}
+
+/// Lines worth parsing in a rollout.
+fn codex_wanted(line: &[u8]) -> bool {
+    use memchr::memmem::find;
+    [&b"session_meta"[..], b"turn_context", b"token_count", b"response_item", b"compact"].iter().any(|n| find(line, n).is_some())
+}
+
+impl Codex {
+    /// Every rollout changed since `since`.
+    fn rollouts(&self, since: SystemTime) -> Vec<PathBuf> {
+        let mut v = Vec::new();
+        jsonl_below(&self.home.join("sessions"), 3, &mut v);
+        v.retain(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("rollout-")) && modified(p) >= since);
+        v.sort();
+        v
+    }
+
+    /// The directory a rollout's session ran in, from its `session_meta` near the top.
+    fn cwd(file: &Path) -> Option<PathBuf> {
+        let reader = std::io::BufReader::new(std::fs::File::open(file).ok()?);
+        for line in reader.lines().take(20) {
+            let line = line.ok()?;
+            if !line.contains("session_meta") {
+                continue;
+            }
+            let v: Value = serde_json::from_str(&line).ok()?;
+            if v["type"] == "session_meta" {
+                let cwd = PathBuf::from(v["payload"]["cwd"].as_str()?);
+                return Some(cwd.canonicalize().unwrap_or(cwd));
+            }
+        }
+        None
+    }
+}
+
+impl Transcripts for Codex {
+    fn kind(&self) -> Kind {
+        Kind::Codex
+    }
+
+    fn location(&self, _root: &Path) -> PathBuf {
+        self.home.join("sessions")
+    }
+
+    fn sessions(&self, root: &Path, since: SystemTime) -> Vec<PathBuf> {
+        self.rollouts(since).into_iter().filter(|f| Codex::cwd(f).is_some_and(|c| c.starts_with(root))).collect()
+    }
+
+    fn projects(&self, since: SystemTime) -> Vec<Vec<PathBuf>> {
+        let mut by: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+        for f in self.rollouts(since) {
+            if let Some(cwd) = Codex::cwd(&f) {
+                by.entry(cwd).or_default().push(f);
+            }
+        }
+        by.into_values().collect()
+    }
+
+    fn id(&self, file: &Path) -> String {
+        // `rollout-2026-11-14T14-33-46-<uuid>`: the uuid.
+        let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let rest = stem.strip_prefix("rollout-").unwrap_or(&stem);
+        match rest.get(19..20) {
+            Some("-") => rest[20..].to_string(),
+            _ => rest.to_string(),
+        }
+    }
+
+    fn read(&self, file: &Path) -> Transcript {
+        let mut t = Transcript { id: self.id(file), ..Default::default() };
+        let Ok(f) = std::fs::File::open(file) else { return t };
+        let mut reader = std::io::BufReader::with_capacity(1 << 16, f);
+        let mut line: Vec<u8> = Vec::new();
+        let mut model = String::new();
+        // The running total of the last `token_count`: a report repeated with the same total is
+        // the same request.
+        let mut total = Value::Null;
+        // Calls by id: (tool, group, what makes two calls the same).
+        let mut calls: HashMap<String, (String, String, String)> = HashMap::new();
+        loop {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            if !codex_wanted(&line) {
+                continue;
+            }
+            let Ok(v) = serde_json::from_slice::<Value>(&line) else { continue };
+            let at = v["timestamp"].as_str().and_then(parse_time);
+            let p = &v["payload"];
+            let (kind, inner) = (v["type"].as_str().unwrap_or(""), p["type"].as_str().unwrap_or(""));
+            match (kind, inner) {
+                ("session_meta", _) => t.cwd = t.cwd.take().or_else(|| p["cwd"].as_str().map(str::to_string)),
+                ("turn_context", _) => {
+                    if let Some(m) = p["model"].as_str().or(p["collaboration_mode"]["settings"]["model"].as_str()) {
+                        model = m.to_string();
+                    }
+                }
+                ("event_msg", "token_count") => {
+                    let info = &p["info"];
+                    let Some(usage) = codex_usage(&info["last_token_usage"]) else { continue };
+                    if !info["total_token_usage"].is_null() && info["total_token_usage"] == total {
+                        continue;
+                    }
+                    total = info["total_token_usage"].clone();
+                    t.events.push(Event::Request(Request { model: model.clone(), at, sidechain: false, usage, miss: None }));
+                }
+                ("response_item", "function_call" | "custom_tool_call" | "local_shell_call") => {
+                    let id = p["call_id"].as_str().or(p["id"].as_str()).unwrap_or("").to_string();
+                    let (name, args) = match inner {
+                        "local_shell_call" => ("local_shell_call".to_string(), json!({"command": p["action"]["command"]})),
+                        "custom_tool_call" => (p["name"].as_str().unwrap_or("?").to_string(), json!({"input": p["input"]})),
+                        _ => {
+                            let raw = p["arguments"].as_str().unwrap_or("");
+                            (p["name"].as_str().unwrap_or("?").to_string(), serde_json::from_str(raw).unwrap_or_else(|_| json!({"arguments": raw})))
+                        }
+                    };
+                    let group = codex_group(&name, &args);
+                    let key = format!("{name} {args}");
+                    calls.insert(id, (name, group, key));
+                }
+                ("response_item", o) if o.ends_with("_output") => {
+                    let text = codex_output(&p["output"]);
+                    let (_, group, key) =
+                        p["call_id"].as_str().and_then(|id| calls.get(id)).cloned().unwrap_or_else(|| ("?".to_string(), "other".to_string(), String::new()));
+                    let hash = xxhash_rust::xxh3::xxh3_64(text.as_bytes());
+                    let repeat = (!key.is_empty()).then_some(key);
+                    t.events.push(Event::ToolResult(ToolResult { group, path: None, repeat, bytes: text.len() as u64, hash }));
+                }
+                // The rollout may say it twice (an event and an item): once is a boundary.
+                (k, i) if (k.contains("compact") || i.contains("compact")) && !matches!(t.events.last(), Some(Event::Compaction { .. })) => {
+                    t.events.push(Event::Compaction { at, trigger: p["trigger"].as_str().unwrap_or("").to_string(), pre: None, post: None });
+                }
+                _ => {}
+            }
+        }
+        // A compaction's sizes are not recorded: the context of the request before it and of
+        // the one after stand in for them (an estimate).
+        for i in 0..t.events.len() {
+            if let Event::Compaction { .. } = t.events[i] {
+                let before = t.events[..i].iter().rev().find_map(|e| if let Event::Request(r) = e { r.usage.context() } else { None });
+                let after = t.events[i + 1..].iter().find_map(|e| if let Event::Request(r) = e { r.usage.context() } else { None });
+                if let Event::Compaction { pre, post, .. } = &mut t.events[i] {
+                    *pre = pre.or(before);
+                    *post = post.or(after);
+                }
+            }
         }
         t
     }
@@ -577,15 +841,16 @@ impl Cause {
     }
 }
 
-/// Why request `cur` found the cache cold after `prev`: first match wins.
-pub fn cause(prev: &Request, cur: &Request) -> Cause {
+/// Why request `cur` found the cache cold after `prev`: first match wins. `hour`: the harness
+/// can keep a one-hour cache, so an hour away is a cause of its own.
+pub fn cause(prev: &Request, cur: &Request, hour: bool) -> Cause {
     let gap = match (prev.at, cur.at) {
         (Some(a), Some(b)) => b - a,
         _ => 0,
     };
     if prev.model != cur.model {
         Cause::ModelSwitch
-    } else if gap >= IDLE_HOUR_MS {
+    } else if hour && gap >= IDLE_HOUR_MS {
         Cause::IdleHour
     } else if gap >= IDLE_FIVE_MS {
         Cause::IdleFive
@@ -596,13 +861,22 @@ pub fn cause(prev: &Request, cur: &Request) -> Cause {
 
 /// The weighted tokens a cold restart cost more than a warm one would have: `None` when `cur`
 /// read enough of `prev`'s context from the cache, or when a count is not recorded.
-pub fn cold_cost(prev: &Usage, cur: &Usage) -> Option<f64> {
+///
+/// `uncached`: what was sent again without being written to the cache counts too, at the
+/// price of uncached input. A Codex provider that reports no cache writes bills a cold
+/// request so. For Claude Code the cache writes alone are counted.
+pub fn cold_cost(prev: &Usage, cur: &Usage, uncached: bool) -> Option<f64> {
     let before = prev.context()?;
     let read = cur.cache_read?;
     if before <= COLD_FROM || read as f64 >= COLD_SHARE * before as f64 {
         return None;
     }
-    Some((cur.write_weight() - CACHE_READ) * before.min(cur.cache_write.unwrap_or(0)) as f64)
+    let written = before.min(cur.cache_write.unwrap_or(0));
+    let mut cost = (cur.write_weight() - CACHE_READ) * written as f64;
+    if uncached {
+        cost += (INPUT - CACHE_READ) * (before - written).min(cur.input.unwrap_or(0)) as f64;
+    }
+    Some(cost)
 }
 
 /// Whether the harness's own reason for a cache miss names another cause than `cause`. `None`
@@ -689,6 +963,7 @@ pub struct Thinking {
 /// The numbers of one or more sessions.
 #[derive(Debug, Clone, Default)]
 pub struct Stats {
+    pub kind: Kind,
     pub sessions: usize,
     pub requests: usize,
     pub main: Split,
@@ -769,8 +1044,8 @@ pub fn compaction_at(threshold: u64, post: u64) -> f64 {
 }
 
 impl Stats {
-    pub fn new(carry: u64) -> Stats {
-        Stats { carry: Carry { threshold: carry, ..Default::default() }, ..Default::default() }
+    pub fn new(kind: Kind, carry: u64) -> Stats {
+        Stats { kind, carry: Carry { threshold: carry, ..Default::default() }, ..Default::default() }
     }
 
     pub fn total(&self) -> f64 {
@@ -823,6 +1098,14 @@ impl Stats {
     }
 
     /// The findings with their weighted cost, largest first, without those under 1% of the total.
+    /// What a result given back twice is called: a read in Claude Code, a call's output in Codex.
+    pub fn repeat_key(&self) -> &'static str {
+        match self.kind {
+            Kind::ClaudeCode => "repeated_reads",
+            Kind::Codex => "repeated_outputs",
+        }
+    }
+
     pub fn findings(&self) -> Vec<(&'static str, f64)> {
         let mut v = vec![
             ("start", self.start()),
@@ -830,7 +1113,7 @@ impl Stats {
             ("thinking", self.thinking_cost()),
             ("manual_compactions", self.compaction_cost(true)),
             ("automatic_compactions", self.compaction_cost(false)),
-            ("repeated_reads", self.repeat_cost()),
+            (self.repeat_key(), self.repeat_cost()),
             ("carried_context", if self.carry.above > 0 { self.carry.cost } else { 0.0 }),
         ];
         let total = self.total();
@@ -920,8 +1203,8 @@ impl Stats {
                         if p.model != r.model {
                             self.switches += 1;
                         }
-                        if let Some(cost) = cold_cost(&p.usage, &r.usage).filter(|_| !compacted) {
-                            let why = cause(p, r);
+                        if let Some(cost) = cold_cost(&p.usage, &r.usage, self.kind == Kind::Codex).filter(|_| !compacted) {
+                            let why = cause(p, r, self.kind.hour_cache());
                             self.cold.push(Cold {
                                 session: t.id.clone(),
                                 at: r.at,
@@ -957,7 +1240,7 @@ impl Stats {
                 }
                 Event::Fallback { .. } => {}
                 Event::ToolResult(r) => {
-                    let repeat = r.tool == "Read" && r.path.as_ref().is_some_and(|p| !reads.insert((p.clone(), r.hash)));
+                    let repeat = r.repeat.as_ref().is_some_and(|k| !reads.insert((k.clone(), r.hash)));
                     open.push((r.clone(), k, repeat));
                 }
             }
@@ -1104,10 +1387,11 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
             push(
                 true,
                 &format!(
-                    "Thinking: {} of {} output tokens ({}){partly}, billed as output at 5 times the input price.",
+                    "Thinking: {} of {} output tokens ({}){partly}, {}.",
                     short(t.thinking as f64),
                     short(t.output as f64),
-                    share(t.thinking as f64, t.output as f64)
+                    share(t.thinking as f64, t.output as f64),
+                    if s.kind == Kind::Codex { "counted as output, at 5 times the weight of input" } else { "billed as output at 5 times the input price" }
                 ),
             );
             push(false, "Lower effort for routine work.");
@@ -1118,7 +1402,13 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
             let at: Vec<String> = of.iter().map(|c| c.pre.map(|p| short(p as f64)).unwrap_or_else(|| "?".to_string())).collect();
             let early = of.iter().filter(|c| c.early()).count();
             let early = if early > 0 { format!(", {early} of them early (under 100k)") } else { String::new() };
-            let what = if manual { "Manual compactions" } else { "Automatic compactions" };
+            // Codex does not record what started a compaction, nor its sizes: those are the
+            // context of the requests either side of it.
+            let what = match (manual, s.kind) {
+                (true, _) => "Manual compactions",
+                (false, Kind::ClaudeCode) => "Automatic compactions",
+                (false, Kind::Codex) => "Compactions",
+            };
             push(true, &format!("{what}: {}, at {} tokens{early}. Each read the conversation and wrote a summary (an estimate).", of.len(), list(&at, 6)));
             push(
                 false,
@@ -1155,22 +1445,29 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
                 push(false, &format!("Compacting at {t} instead: {n}, which would not have paid (an estimate)."));
             }
         }
-        "repeated_reads" => {
+        "repeated_reads" | "repeated_outputs" => {
             let bytes: u64 = s.repeats.iter().map(|r| r.bytes).sum();
             let n = s.repeats.len();
-            push(
-                true,
-                &format!(
-                    "Repeated reads: {n} read{} gave back a file word for word as an earlier read of the same stretch did ({}).",
-                    if n == 1 { "" } else { "s" },
-                    size(bytes)
-                ),
-            );
+            let plural = if n == 1 { "" } else { "s" };
+            if key == "repeated_reads" {
+                push(
+                    true,
+                    &format!("Repeated reads: {n} read{plural} gave back a file word for word as an earlier read of the same stretch did ({}).", size(bytes)),
+                );
+            } else {
+                push(
+                    true,
+                    &format!(
+                        "Repeated outputs: {n} call{plural} gave back word for word what the same call with the same arguments gave earlier in the stretch ({}).",
+                        size(bytes)
+                    ),
+                );
+            }
             push(false, "The first copy is still in the conversation: read again only what changed.");
             if detail {
                 let mut by: BTreeMap<&str, (usize, u64)> = BTreeMap::new();
                 for r in &s.repeats {
-                    let e = by.entry(r.path.as_deref().unwrap_or("?")).or_default();
+                    let e = by.entry(r.path.as_deref().unwrap_or(&r.group)).or_default();
                     e.0 += 1;
                     e.1 += r.bytes;
                 }
@@ -1186,8 +1483,9 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
 }
 
 /// The report of one project or one session.
-fn text(s: &Stats, ctx: &Ctx, harness: &str, dir: &Path, days: u64, session: Option<&str>) -> String {
+fn text(s: &Stats, ctx: &Ctx, dir: &Path, days: u64, session: Option<&str>) -> String {
     let mut out = String::new();
+    let harness = s.kind.name();
     let total = s.total();
     match session {
         Some(id) => {
@@ -1208,10 +1506,16 @@ fn text(s: &Stats, ctx: &Ctx, harness: &str, dir: &Path, days: u64, session: Opt
             short(total)
         )),
     }
-    out.push_str(&format!(
-        "(A weighted token is one uncached input token of the request's model: a cache read weighs 0.1, a cache write 1.25, or 2 for the one-hour cache, an output token 5. Output and thinking are the counts the transcript recorded, the largest of the lines of a request. Read from {} on this machine.)\n",
-        ctx.show(dir)
-    ));
+    out.push_str(&match s.kind {
+        Kind::ClaudeCode => format!(
+            "(A weighted token is one uncached input token of the request's model: a cache read weighs 0.1, a cache write 1.25, or 2 for the one-hour cache, an output token 5. Output and thinking are the counts the transcript recorded, the largest of the lines of a request. Read from {} on this machine.)\n",
+            ctx.show(dir)
+        ),
+        Kind::Codex => format!(
+            "(Weighted as for Claude Code, although Codex providers price differently: one uncached input token of the request's model, a cache read 0.1, a cache write 1.25, an output token 5. Output and thinking are the counts the transcript recorded, thinking as a part of output. Read from {} on this machine.)\n",
+            ctx.show(dir)
+        ),
+    });
     let m = &s.main;
     out.push_str(&format!(
         "  main thread {:>7}  cache reads {} ({}), cache writes {} ({}), uncached input {} ({}), output {} ({})\n",
@@ -1348,7 +1652,6 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
             "groups": groups.iter().map(|(g, x)| json!({"tool": g, "results": x.results, "bytes": x.bytes, "weighted": round(x.cost)})).collect::<Vec<_>>(),
             "largest": s.largest.iter().map(carried).collect::<Vec<_>>(),
         },
-        "repeated_reads": {"count": s.repeats.len(), "bytes": s.repeats.iter().map(|r| r.bytes).sum::<u64>(), "weighted": round(s.repeat_cost()), "share": ratio(s.repeat_cost(), total)},
         "carried_context": {
             "threshold": s.carry.threshold,
             "requests": s.carry.requests,
@@ -1366,6 +1669,7 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
         "findings": s.findings().iter().map(|(k, c)| json!({"finding": k, "weighted": round(*c), "share": ratio(*c, total)})).collect::<Vec<_>>(),
         "by_session": s.per_session.iter().map(|x| json!({"session": x.id, "requests": x.requests, "weighted": round(x.weighted)})).collect::<Vec<_>>(),
     });
+    out[s.repeat_key()] = json!({"count": s.repeats.len(), "bytes": s.repeats.iter().map(|r| r.bytes).sum::<u64>(), "weighted": round(s.repeat_cost()), "share": ratio(s.repeat_cost(), total)});
     if detail {
         out["cold_restarts"]["items"] = s
             .cold
@@ -1377,7 +1681,7 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
             .iter()
             .map(|c| json!({"session": c.session, "at": c.at.map(|m| when(Some(m))), "trigger": if c.manual { "manual" } else { "auto" }, "pre_tokens": c.pre, "post_tokens": c.post, "early": c.early(), "weighted_estimate": round(c.cost)}))
             .collect();
-        out["repeated_reads"]["items"] = s.repeats.iter().map(carried).collect();
+        out[s.repeat_key()]["items"] = s.repeats.iter().map(carried).collect();
         out["start"]["items"] = s
             .stretches
             .iter()
@@ -1421,7 +1725,7 @@ fn options(args: &[String]) -> Result<Option<Options>> {
             "--all" => o.all = true,
             "--json" => o.json = true,
             "--help" | "-h" | "help" => return Ok(None),
-            other => bail!("unknown option `{other}` (usage: codefast doctor sessions [--days N] [--session ID] [--all] [--json])"),
+            other => bail!("unknown option `{other}` (usage: codefast doctor sessions [--days N] [--session ID] [--carry N] [--all] [--json])"),
         }
     }
     if o.all && o.session.is_some() {
@@ -1430,84 +1734,117 @@ fn options(args: &[String]) -> Result<Option<Options>> {
     Ok(Some(o))
 }
 
-/// The transcripts changed in the last `days` days.
-fn recent(source: &dyn Transcripts, dir: &Path, days: u64) -> Vec<PathBuf> {
-    let since = SystemTime::now().checked_sub(Duration::from_secs(days * 86_400)).unwrap_or(SystemTime::UNIX_EPOCH);
-    source.sessions(dir).into_iter().filter(|(_, t)| *t >= since).map(|(p, _)| p).collect()
+/// The harnesses read, Claude Code first.
+fn sources(ctx: &Ctx) -> Vec<Box<dyn Transcripts>> {
+    let codex = super::harness::env_path("CODEX_HOME").unwrap_or_else(|| ctx.home(".codex"));
+    vec![Box::new(ClaudeCode { config: super::audit::claude_dir(ctx) }), Box::new(Codex { home: codex })]
+}
+
+fn since(days: u64) -> SystemTime {
+    SystemTime::now().checked_sub(Duration::from_secs(days * 86_400)).unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
 fn stats(source: &dyn Transcripts, files: &[PathBuf], carry: u64) -> Stats {
     let transcripts: Vec<Transcript> = files.par_iter().map(|f| source.read(f)).collect();
-    let mut s = Stats::new(carry);
+    let mut s = Stats::new(source.kind(), carry);
     for t in &transcripts {
         s.add(t);
     }
     s
 }
 
-fn all_projects(source: &dyn Transcripts, ctx: &Ctx, o: &Options) -> Result<String> {
+fn findings_json(s: &Stats) -> Vec<Value> {
+    s.findings().iter().map(|(k, c)| json!({"finding": k, "weighted": round(*c), "share": ratio(*c, s.total())})).collect()
+}
+
+fn all_projects(ctx: &Ctx, o: &Options) -> Result<String> {
+    let from = since(o.days);
     let mut rows: Vec<(String, Stats)> = Vec::new();
-    for dir in source.project_dirs() {
-        let files = recent(source, &dir, o.days);
-        if files.is_empty() {
-            continue;
+    let mut sums: Vec<(usize, Stats)> = Vec::new();
+    for source in sources(ctx) {
+        let mut sum = Stats::new(source.kind(), o.carry);
+        let mut projects = 0;
+        for files in source.projects(from) {
+            let s = stats(source.as_ref(), &files, o.carry);
+            // Named from the home directory, wherever the command runs.
+            let name = s
+                .cwd
+                .as_deref()
+                .map(|c| match ctx.home.as_ref().and_then(|h| Path::new(c).strip_prefix(h).ok()) {
+                    Some(rel) => format!("~/{}", rel.display()),
+                    None => c.to_string(),
+                })
+                .unwrap_or_else(|| "?".to_string());
+            sum.sessions += s.sessions;
+            sum.requests += s.requests;
+            sum.main.add(&s.main);
+            sum.sub.add(&s.sub);
+            sum.sub_requests += s.sub_requests;
+            sum.stretches.extend(s.stretches.iter().cloned());
+            sum.cold.extend(s.cold.iter().cloned());
+            sum.compactions.extend(s.compactions.iter().cloned());
+            sum.repeats.extend(s.repeats.iter().cloned());
+            sum.thinking.requests += s.thinking.requests;
+            sum.thinking.recorded += s.thinking.recorded;
+            sum.thinking.thinking += s.thinking.thinking;
+            sum.thinking.output += s.thinking.output;
+            sum.carry.requests += s.carry.requests;
+            sum.carry.above += s.carry.above;
+            sum.carry.peak = sum.carry.peak.max(s.carry.peak);
+            sum.carry.cost += s.carry.cost;
+            sum.carry.compactions += s.carry.compactions;
+            sum.carry.instead += s.carry.instead;
+            sum.carry.saved += s.carry.saved;
+            projects += 1;
+            rows.push((name, s));
         }
-        let s = stats(source, &files, o.carry);
-        let name =
-            s.cwd.as_deref().map(|c| ctx.show(Path::new(c))).unwrap_or_else(|| dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
-        rows.push((name, s));
+        if projects > 0 {
+            sums.push((projects, sum));
+        }
     }
     rows.sort_by(|a, b| b.1.total().total_cmp(&a.1.total()));
-    let mut sum = Stats::new(o.carry);
-    for (_, s) in &rows {
-        sum.sessions += s.sessions;
-        sum.requests += s.requests;
-        sum.main.add(&s.main);
-        sum.sub.add(&s.sub);
-        sum.sub_requests += s.sub_requests;
-        sum.stretches.extend(s.stretches.iter().cloned());
-        sum.cold.extend(s.cold.iter().cloned());
-        sum.compactions.extend(s.compactions.iter().cloned());
-        sum.repeats.extend(s.repeats.iter().cloned());
-        sum.thinking.requests += s.thinking.requests;
-        sum.thinking.recorded += s.thinking.recorded;
-        sum.thinking.thinking += s.thinking.thinking;
-        sum.thinking.output += s.thinking.output;
-        sum.carry.requests += s.carry.requests;
-        sum.carry.above += s.carry.above;
-        sum.carry.peak = sum.carry.peak.max(s.carry.peak);
-        sum.carry.cost += s.carry.cost;
-        sum.carry.compactions += s.carry.compactions;
-        sum.carry.instead += s.carry.instead;
-        sum.carry.saved += s.carry.saved;
-    }
     let largest = |s: &Stats| s.findings().first().map(|(k, c)| format!(". Largest: {} ({})", k.replace('_', " "), share(*c, s.total()))).unwrap_or_default();
     if o.json {
         let projects: Vec<Value> = rows
             .iter()
-            .map(|(name, s)| json!({"project": name, "sessions": s.sessions, "requests": s.requests, "weighted": round(s.total()), "findings": s.findings().iter().map(|(k, c)| json!({"finding": k, "weighted": round(*c), "share": ratio(*c, s.total())})).collect::<Vec<_>>()}))
+            .map(|(name, s)| json!({"harness": s.kind.name(), "project": name, "sessions": s.sessions, "requests": s.requests, "weighted": round(s.total()), "findings": findings_json(s)}))
             .collect();
-        let total = json!({"sessions": sum.sessions, "requests": sum.requests, "weighted": round(sum.total()), "findings": sum.findings().iter().map(|(k, c)| json!({"finding": k, "weighted": round(*c), "share": ratio(*c, sum.total())})).collect::<Vec<_>>()});
-        return Ok(format!("{}\n", serde_json::to_string_pretty(&json!({"harness": source.name(), "days": o.days, "projects": projects, "total": total}))?));
+        let totals: Vec<Value> = sums
+            .iter()
+            .map(|(n, s)| json!({"harness": s.kind.name(), "projects": n, "sessions": s.sessions, "requests": s.requests, "weighted": round(s.total()), "findings": findings_json(s)}))
+            .collect();
+        return Ok(format!("{}\n", serde_json::to_string_pretty(&json!({"days": o.days, "projects": projects, "totals": totals}))?));
     }
     if rows.is_empty() {
-        return Ok(format!("No {} session in the last {} days under {}.\n", source.name(), o.days, ctx.show(&source.location())));
+        let places: Vec<String> =
+            sources(ctx).iter().map(|s| ctx.show(&s.location(Path::new("/")).parent().map(Path::to_path_buf).unwrap_or_default())).collect();
+        return Ok(format!("No Claude Code or Codex session in the last {} days under {}.\n", o.days, places.join(" or ")));
     }
-    let mut out = format!("{} sessions in the last {} days, by project, largest first:\n", source.name(), o.days);
+    let width = rows.iter().map(|(_, s)| s.kind.name().len()).max().unwrap_or(0);
+    let mut out = format!("Sessions in the last {} days, by project, largest first:\n", o.days);
     for (name, s) in rows.iter().take(20) {
-        out.push_str(&format!("  {:>7}  {name}: {} sessions, {} main-thread requests{}\n", short(s.total()), count(s.sessions), count(s.requests), largest(s)));
+        out.push_str(&format!(
+            "  {:>7}  {:<width$}  {name}: {} sessions, {} main-thread requests{}\n",
+            short(s.total()),
+            s.kind.name(),
+            count(s.sessions),
+            count(s.requests),
+            largest(s)
+        ));
     }
     if rows.len() > 20 {
         out.push_str(&format!("  … {} more projects\n", rows.len() - 20));
     }
-    out.push_str(&format!(
-        "  {:>7}  all {} projects: {} sessions, {} main-thread requests{}\n",
-        short(sum.total()),
-        rows.len(),
-        count(sum.sessions),
-        count(sum.requests),
-        largest(&sum)
-    ));
+    for (n, sum) in &sums {
+        out.push_str(&format!(
+            "  {:>7}  {:<width$}  all {n} projects: {} sessions, {} main-thread requests{}\n",
+            short(sum.total()),
+            sum.kind.name(),
+            count(sum.sessions),
+            count(sum.requests),
+            largest(sum)
+        ));
+    }
     out.push_str("`codefast doctor sessions` in a project shows its findings.\n");
     Ok(out)
 }
@@ -1515,44 +1852,59 @@ fn all_projects(source: &dyn Transcripts, ctx: &Ctx, o: &Options) -> Result<Stri
 pub fn run(root: &Path, args: &[String]) -> Result<String> {
     let Some(o) = options(args)? else { return Ok(USAGE.to_string()) };
     let ctx = Ctx::new(root);
-    let source = ClaudeCode { config: super::audit::claude_dir(&ctx) };
     if o.all {
-        return all_projects(&source, &ctx, &o);
+        return all_projects(&ctx, &o);
     }
-    let dir = source.project_dir(&ctx.root);
-    let files = match &o.session {
-        Some(prefix) => {
-            let found: Vec<PathBuf> = source
-                .sessions(&dir)
-                .into_iter()
-                .map(|(p, _)| p)
-                .filter(|p| p.file_stem().is_some_and(|s| s.to_string_lossy().starts_with(prefix.as_str())))
-                .collect();
-            match found.len() {
-                0 => bail!("no {} session of this project starts with `{prefix}` (they are in {})", source.name(), ctx.show(&dir)),
-                1 => found,
-                n => bail!(
-                    "{n} sessions start with `{prefix}`: {}",
-                    found.iter().filter_map(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned()).collect::<Vec<_>>().join(", ")
-                ),
-            }
+    let sources = sources(&ctx);
+    // The sessions of each harness: those of the window, or the one `--session` names.
+    let mut chosen: Vec<Vec<PathBuf>> = sources.iter().map(|src| src.sessions(&ctx.root, since(o.days))).collect();
+    if let Some(prefix) = &o.session {
+        let mut found: Vec<(usize, PathBuf)> = Vec::new();
+        for (i, src) in sources.iter().enumerate() {
+            found.extend(src.sessions(&ctx.root, SystemTime::UNIX_EPOCH).into_iter().filter(|f| src.id(f).starts_with(prefix.as_str())).map(|f| (i, f)));
         }
-        None => recent(&source, &dir, o.days),
-    };
-    let s = stats(&source, &files, o.carry);
+        match found.len() {
+            0 => bail!("no Claude Code or Codex session of this project starts with `{prefix}`"),
+            1 => {
+                chosen = vec![Vec::new(); sources.len()];
+                let (i, f) = found.remove(0);
+                chosen[i].push(f);
+            }
+            n => bail!("{n} sessions start with `{prefix}`: {}", found.iter().map(|(i, f)| sources[*i].id(f)).collect::<Vec<_>>().join(", ")),
+        }
+    }
+    let all: Vec<(&dyn Transcripts, Stats)> = sources.iter().zip(&chosen).map(|(src, files)| (src.as_ref(), stats(src.as_ref(), files, o.carry))).collect();
     if o.json {
-        let mut v = to_json(&s, &ctx, o.session.is_some());
-        v["harness"] = json!(source.name());
-        v["project"] = json!(ctx.root.display().to_string());
-        v["transcripts"] = json!(dir.display().to_string());
-        v["days"] = if o.session.is_some() { Value::Null } else { json!(o.days) };
-        return Ok(format!("{}\n", serde_json::to_string_pretty(&v)?));
+        let harnesses: Vec<Value> = all
+            .iter()
+            .filter(|(_, s)| o.session.is_none() || s.sessions > 0)
+            .map(|(src, s)| {
+                let mut v = to_json(s, &ctx, o.session.is_some());
+                v["harness"] = json!(s.kind.name());
+                v["transcripts"] = json!(src.location(&ctx.root).display().to_string());
+                v
+            })
+            .collect();
+        let days = if o.session.is_some() { Value::Null } else { json!(o.days) };
+        return Ok(format!("{}\n", serde_json::to_string_pretty(&json!({"project": ctx.root.display().to_string(), "days": days, "harnesses": harnesses}))?));
     }
-    if s.sessions == 0 {
-        return Ok(format!("No {} session of this project in the last {} days. Transcripts are read from {}.\n", source.name(), o.days, ctx.show(&dir)));
+    let reports: Vec<String> = all
+        .iter()
+        .filter(|(_, s)| s.sessions > 0)
+        .map(|(src, s)| {
+            let id = o.session.as_ref().and_then(|_| s.per_session.first()).map(|p| p.id.clone());
+            text(s, &ctx, &src.location(&ctx.root), o.days, id.as_deref())
+        })
+        .collect();
+    if reports.is_empty() {
+        let places: Vec<String> = all.iter().map(|(src, _)| ctx.show(&src.location(&ctx.root))).collect();
+        return Ok(format!(
+            "No Claude Code or Codex session of this project in the last {} days. Transcripts are read from {}.\n",
+            o.days,
+            places.join(" and ")
+        ));
     }
-    let id = o.session.as_ref().and_then(|_| s.per_session.first()).map(|p| p.id.clone());
-    Ok(text(&s, &ctx, source.name(), &dir, o.days, id.as_deref()))
+    Ok(reports.join("\n"))
 }
 
 #[cfg(test)]
@@ -1595,24 +1947,31 @@ mod tests {
     fn a_cold_restart_and_its_cause() {
         let prev = Request { model: "a".into(), at: Some(0), usage: u(1, 50_000, 0, 10), ..Default::default() };
         let warm = u(1, 50_000, 300, 10);
-        assert_eq!(cold_cost(&prev.usage, &warm), None);
+        assert_eq!(cold_cost(&prev.usage, &warm, false), None);
         let cold = u(1, 2_000, 60_000, 10);
-        assert_eq!(cold_cost(&prev.usage, &cold), Some((1.25 - 0.1) * 50_001.0));
+        assert_eq!(cold_cost(&prev.usage, &cold, false), Some((1.25 - 0.1) * 50_001.0));
+        // Sent again as uncached input, with no cache write: 0.9 a token where it is counted.
+        let uncached = u(40_000, 0, 0, 10);
+        assert_eq!(cold_cost(&prev.usage, &uncached, false), Some(0.0));
+        assert!((cold_cost(&prev.usage, &uncached, true).unwrap() - 0.9 * 40_000.0).abs() < 1e-6);
         // A small conversation is not worth naming, and an unknown read is not a cold one.
-        assert_eq!(cold_cost(&u(1, 10_000, 0, 1), &u(1, 0, 10_000, 1)), None);
-        assert_eq!(cold_cost(&prev.usage, &Usage { cache_read: None, ..cold }), None);
+        assert_eq!(cold_cost(&u(1, 10_000, 0, 1), &u(1, 0, 10_000, 1), false), None);
+        assert_eq!(cold_cost(&prev.usage, &Usage { cache_read: None, ..cold }, false), None);
         let at = |m: &str, minutes: i64| Request { model: m.into(), at: Some(minutes * 60_000), ..Default::default() };
-        assert_eq!(cause(&prev, &at("b", 90)), Cause::ModelSwitch);
-        assert_eq!(cause(&prev, &at("a", 55)), Cause::IdleHour);
-        assert_eq!(cause(&prev, &at("a", 54)), Cause::IdleFive);
-        assert_eq!(cause(&prev, &at("a", 5)), Cause::IdleFive);
-        assert_eq!(cause(&prev, &at("a", 4)), Cause::Other);
+        assert_eq!(cause(&prev, &at("b", 90), true), Cause::ModelSwitch);
+        assert_eq!(cause(&prev, &at("a", 55), true), Cause::IdleHour);
+        assert_eq!(cause(&prev, &at("a", 54), true), Cause::IdleFive);
+        assert_eq!(cause(&prev, &at("a", 5), true), Cause::IdleFive);
+        assert_eq!(cause(&prev, &at("a", 4), true), Cause::Other);
+        // Without a one-hour cache an hour away is five minutes away and more.
+        assert_eq!(cause(&prev, &at("a", 90), false), Cause::IdleFive);
     }
 
     #[test]
     fn a_session_in_numbers() {
-        let read =
-            |path: &str, hash: u64| Event::ToolResult(ToolResult { tool: "Read".into(), group: "Read".into(), path: Some(path.into()), bytes: 3500, hash });
+        let read = |path: &str, hash: u64| {
+            Event::ToolResult(ToolResult { group: "Read".into(), path: Some(path.into()), repeat: Some(path.into()), bytes: 3500, hash })
+        };
         let t = Transcript {
             id: "s".into(),
             events: vec![
@@ -1630,7 +1989,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let mut s = Stats::new(CARRY);
+        let mut s = Stats::new(Kind::ClaudeCode, CARRY);
         s.add(&t);
         assert_eq!((s.sessions, s.requests, s.cold.len()), (1, 6, 1));
         assert_eq!(s.cold[0].cause, Cause::IdleHour);
@@ -1656,7 +2015,7 @@ mod tests {
             before = context;
         }
         let t = Transcript { id: "s".into(), events, ..Default::default() };
-        let mut s = Stats::new(CARRY);
+        let mut s = Stats::new(Kind::ClaudeCode, CARRY);
         s.add(&t);
         let c = s.carry;
         // Compacted at 200k down to 25k, the context repeats every 175k: requests of 250k to
@@ -1678,7 +2037,7 @@ mod tests {
         // brings the context down to 225k only, and would not have paid.
         let mut big = vec![Event::Compaction { at: None, trigger: "auto".into(), pre: Some(500_000), post: Some(300_000) }];
         big.extend(t.events.iter().cloned());
-        let mut b = Stats::new(450_000);
+        let mut b = Stats::new(Kind::ClaudeCode, 450_000);
         b.add(&Transcript { id: "b".into(), events: big, ..Default::default() });
         assert_eq!((b.carry.above, b.carry.compactions), (3, 1));
         assert!((b.carry.saved - 0.1 * 3.0 * 225_000.0).abs() < 1e-6);
@@ -1687,7 +2046,7 @@ mod tests {
         finding(&mut out, &b, "carried_context", b.carry.cost, &Ctx::new(Path::new("/")), false);
         assert!(out.contains("Compacting at 450k instead: 1 compaction, about 326k, which would not have paid (an estimate).\n"), "{out}");
         assert!(!out.contains("Start a fresh session"), "{out}");
-        let mut low = Stats::new(700_000);
+        let mut low = Stats::new(Kind::ClaudeCode, 700_000);
         low.add(&t);
         assert_eq!((low.carry.above, low.carry.cost), (0, 0.0));
         assert!(!low.findings().iter().any(|(k, _)| *k == "carried_context"));
@@ -1703,6 +2062,29 @@ mod tests {
         assert_eq!(disagrees("cache_ttl_expired", Cause::IdleFive), Some(false));
         assert_eq!(disagrees("previous_message_not_found", Cause::IdleHour), None);
         assert_eq!(disagrees("unavailable", Cause::Other), None);
+    }
+
+    #[test]
+    fn codex_counts_and_tools() {
+        let u = codex_usage(
+            &json!({"input_tokens": 1000, "cached_input_tokens": 700, "cache_write_input_tokens": 200, "output_tokens": 50, "reasoning_output_tokens": 30}),
+        )
+        .unwrap();
+        assert_eq!((u.input, u.cache_read, u.cache_write, u.output, u.thinking), (Some(100), Some(700), Some(200), Some(50), Some(30)));
+        assert_eq!(u.context(), Some(1000));
+        // A provider that reports no cache writes, and a report of nothing.
+        let v = codex_usage(&json!({"input_tokens": 1000, "cached_input_tokens": 900, "output_tokens": 5})).unwrap();
+        assert_eq!((v.input, v.cache_write, v.thinking), (Some(100), Some(0), None));
+        assert!(codex_usage(&json!({"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0, "reasoning_output_tokens": 0})).is_none());
+        assert_eq!(codex_group("shell", &json!({"command": ["bash", "-lc", "cd x && cargo test"]})), "shell cargo");
+        assert_eq!(codex_group("exec_command", &json!({"cmd": "rg -n foo"})), "shell rg");
+        assert_eq!(codex_group("local_shell_call", &json!({"command": ["git", "status"]})), "shell git");
+        assert_eq!(codex_group("mcp__codefast__context", &Value::Null), "MCP codefast");
+        assert_eq!(codex_group("apply_patch", &Value::Null), "apply_patch");
+        assert_eq!(codex_output(&json!({"output": "abc", "metadata": {}})), "abc");
+        assert_eq!(codex_output(&json!([{"type": "input_text", "text": "a"}, {"type": "input_text", "text": "b"}])), "a\nb");
+        let c = Codex { home: PathBuf::new() };
+        assert_eq!(c.id(Path::new("/s/rollout-2026-11-14T14-33-46-01a1d94c-6cbb-7f10.jsonl")), "01a1d94c-6cbb-7f10");
     }
 
     #[test]
