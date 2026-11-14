@@ -838,10 +838,15 @@ leaves the machine, and no model is called.
 | Claude Code | `$CLAUDE_CONFIG_DIR/projects/`, `~/.claude/projects/` when the variable is unset | those in the directory named after the project's path |
 | Codex | `$CODEX_HOME/sessions/`, `~/.codex/sessions/` when the variable is unset | those whose `session_meta` names the project's directory, or a directory inside it, as `cwd` |
 
-Every figure is in weighted tokens: one uncached input token of the request's own model. A cache
-read weighs 0.1, a cache write 1.25 (2 for the one-hour cache), an output token 5. Dollars are not
-printed, since prices differ by model and change. Codex sessions are weighed by the same
-convention, although Codex providers price differently. The report gives the split of the main thread
+Every figure is in weighted tokens: one uncached input token of the request's own model, with
+each kind of token weighed as that model's published price weighs it (Anthropic's price list,
+read 2026-11-15). Output is 5 and a cache write 1.25 (2 for the one-hour cache) for every
+model. A cache read is 0.1, except 0.05 on Claude Opus 5.5 and Sonnet 5.5 and 0.025 on Claude
+Fable 5.2 and 5.1 and Mythos 5.2 and 5.1. Claude Haiku 5.5 steps up: a request whose prompt
+(cache reads and writes included) is over 100,000 tokens pays every kind of token five times as
+much. A model the table does not name, every Codex model among them, is weighed 0.1, 1.25, 2
+and 5. The line under the title names the weights in play. Dollars are not printed, since
+prices change. The report gives the split of the main thread
 and the sub-agents' total, then each finding with its cost and share, largest first, and the one
 thing to do about it. A finding under 1% of the total is left out.
 
@@ -851,7 +856,8 @@ thing to do about it. A finding under 1% of the total is left out.
 | cold restarts | a request that read under 20% of the previous context from the cache, by cause: a model switch, more than an hour idle, more than five minutes idle, other. Codex has no one-hour cache to tell apart, so for it the idle cause is five minutes. Where Claude Code recorded its own reason for the miss, `--session` prints it next to the cause, and the report says when the two differ for more than a quarter of the restarts |
 | compactions | manual and automatic ones, the conversation size at each, and the manual ones under 100k tokens. The cost is an estimate. Codex records neither what started a compaction nor its sizes: the context of the requests either side of it stands in for them |
 | thinking | thinking tokens as a share of the output, where the transcript records them. For Codex these are `reasoning_output_tokens`, taken as a part of `output_tokens` |
-| carried context | the context above 200k tokens (`--carry N`) read again by each request. Against it, an estimate of compacting at that size: the context drops to what the session's compactions left (25k without one, at most half the threshold) and grows again, which counts the compactions and the reads they save |
+| carried context | the context above 200k tokens (`--carry N`, and 100k for a session of Claude Haiku 5.5, where its price steps) read again by each request. Against it, an estimate of compacting at that size: the context drops to what the session's compactions left (25k without one, at most half the threshold) and grows again, which counts the compactions and the reads they save, each read at the price its length pays |
+| price step | for Claude Haiku 5.5: the requests whose prompt was over 100k tokens, what they cost, and what they would have cost at the lower price |
 | repeated reads | a file read again within a stretch that came back word for word as before. For Codex: a call with the same tool and arguments that gave back the same output |
 
 It also lists the tools whose results weighed most (Bash and Codex's shell by the program they
