@@ -1512,7 +1512,7 @@ fn cpu_seconds() -> Option<f64> {
 /// Shortest call chain from `from` to `to`. The search runs from both ends at once: forwards
 /// over what each function calls, backwards over who calls it, always growing the side that is
 /// cheaper to grow, until the two meet.
-pub fn path(ix: &Index, rs: &Resolver, from: &str, to: &str, common: &Common, max_depth: u32, out: &mut Out) {
+pub fn path(ix: &Index, rs: &Resolver, from: &str, to: &str, common: &Common, max_depth: u32, max_seconds: f64, out: &mut Out) {
     let pf = PathFilter::new(&[]);
     let cands = |s: &str| -> Vec<Target> {
         targets_for(ix, rs, &parse_spec(ix, s), common, &pf).into_iter().filter(|t| matches!(t.class, Class::Callable)).take(8).collect()
@@ -1548,16 +1548,17 @@ pub fn path(ix: &Index, rs: &Resolver, from: &str, to: &str, common: &Common, ma
     let mut expanded = 0usize;
     let started = std::time::Instant::now();
     let cpu_at_start = cpu_seconds();
-    // The search may work for eight seconds. On a busy machine that is more than eight seconds
-    // on the clock, and an answer cut short by other people's work would differ from run to
-    // run: so the work is what is timed, and the clock only keeps the wait bounded.
+    // The search may work for `max_seconds` (eight from the command line, one for a hook, which
+    // has a prompt waiting). On a busy machine that is more than as many seconds on the clock,
+    // and an answer cut short by other people's work would differ from run to run: so the work
+    // is what is timed, and the clock only keeps the wait bounded.
     let worked = || match (cpu_at_start, cpu_seconds()) {
         (Some(a), Some(b)) => b - a,
         _ => started.elapsed().as_secs_f64(),
     };
     let mut depth = 0u32;
     let budget_nodes = 60_000usize;
-    while meet.is_none() && !ff.is_empty() && !bf.is_empty() && depth < max_depth && expanded < budget_nodes && worked() < 8.0 && started.elapsed().as_secs() < 40 {
+    while meet.is_none() && !ff.is_empty() && !bf.is_empty() && depth < max_depth && expanded < budget_nodes && worked() < max_seconds && started.elapsed().as_secs_f64() < max_seconds * 5.0 {
         depth += 1;
         // Backward steps over a widely used function are expensive: weigh by how many files
         // mention the names on that frontier.
@@ -1635,7 +1636,7 @@ pub fn path(ix: &Index, rs: &Resolver, from: &str, to: &str, common: &Common, ma
         k = *nk;
     }
     let chain: Vec<String> = std::iter::once(pa.name_str().into_owned()).chain(steps.iter().map(|s| s.to.clone())).collect();
-    out.push(&format!("{} ({} hops)", chain.join(" → "), steps.len()));
+    out.push(&format!("{} ({} hop{})", chain.join(" → "), steps.len(), if steps.len() == 1 { "" } else { "s" }));
     for s in &steps {
         out.line(&format!("  {}:{} {} calls {}{}", s.path, s.line, s.from, s.to, s.note));
     }

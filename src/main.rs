@@ -521,7 +521,7 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Check(a) => query::changed::check(&ix, &rs, &a.files, &common, &mut out),
         Cmd::Changed => query::changed::changed(&ix, &rs, &common, &mut out),
         Cmd::Rename(a) => query::rename::rename(&ix, &rs, &ix.root, &a.target, &a.new_name, &query::rename::Options { dry_run: a.dry_run, force: a.force }, &mut out),
-        Cmd::Path(a) => query::refs::path(&ix, &rs, &a.from, &a.to, &common, a.max_depth, &mut out),
+        Cmd::Path(a) => query::refs::path(&ix, &rs, &a.from, &a.to, &common, a.max_depth, 8.0, &mut out),
         Cmd::Locate(a) => {
             let text = if a.text.len() == 1 && a.text[0] == "-" {
                 let mut s = String::new();

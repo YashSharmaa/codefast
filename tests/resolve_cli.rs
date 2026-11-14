@@ -455,3 +455,22 @@ fn a_member_asked_for_on_the_wrong_owner_is_found_where_it_is() {
     has(&exact, "config/config.go:11-13 RemoteConfig.marshal");
     lacks(&exact, "no `");
 }
+
+#[test]
+fn a_place_names_the_definition_at_that_place() {
+    // One function with a definition per architecture is one entity. Asked about by name, the
+    // answer is about one of them. Asked about by place, it is about the one at that place.
+    let arc = "#include \"../task.h\"\n\nint copy_thread(struct task *p)\n{\n    clear_regs(p);\n    return 0;\n}\n";
+    let x86 = "#include \"../task.h\"\n\nint copy_thread(struct task *p)\n{\n    save_fsgs(p);\n    return 0;\n}\n";
+    let head = "struct task { int id; };\nvoid clear_regs(struct task *p);\nvoid save_fsgs(struct task *p);\nint copy_thread(struct task *p);\n";
+    let lib = "#include \"task.h\"\n\nvoid clear_regs(struct task *p)\n{\n    p->id = 0;\n}\n\nvoid save_fsgs(struct task *p)\n{\n    p->id = 1;\n}\n";
+    let p = Project::new("c-per-arch", &[("arch/arc/process.c", arc), ("arch/x86/process.c", x86), ("arch/task.h", head), ("arch/lib.c", lib)]);
+    let at_x86 = p.ask(&["callees", "arch/x86/process.c:3"]);
+    has(&at_x86, "arch/x86/process.c:3 int copy_thread(struct task *p)");
+    has(&at_x86, "save_fsgs");
+    lacks(&at_x86, "clear_regs");
+    let at_arc = p.ask(&["callees", "arch/arc/process.c:3"]);
+    has(&at_arc, "arch/arc/process.c:3 int copy_thread(struct task *p)");
+    has(&at_arc, "clear_regs");
+    lacks(&at_arc, "save_fsgs");
+}
