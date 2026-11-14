@@ -334,11 +334,9 @@ fn whole_text(ix: &Index, q: &str) -> Option<(FileId, u32)> {
 fn stands_as_typed(ix: &Index, q: &str, common: &Common) -> bool {
     let q = q.trim().trim_matches(|c| matches!(c, '"' | '\'' | '`'));
     let words: Vec<&str> = q.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|w| w.len() >= 3).collect();
-    let spaced = q.split_whitespace().count();
-    // Two plain words that some comment happens to hold in that order ("control method") are
-    // a question, not a quotation: it takes a third word, or a character that prose has not.
-    let quoted = spaced >= 3 || q.chars().any(|c| !(c.is_alphabetic() || c == ' '));
-    if q.len() < 8 || q.len() > MESSAGE_BYTES || spaced < 2 || !quoted || words.is_empty() {
+    // Two words that some comment happens to hold in that order ("control method", "ftdi_sio
+    // driver") are a question and not a quotation: it takes a third word.
+    if q.len() < 8 || q.len() > MESSAGE_BYTES || q.split_whitespace().count() < 3 || words.is_empty() {
         return false;
     }
     // Every word of it has to be known, and the files that have its rarest word are the

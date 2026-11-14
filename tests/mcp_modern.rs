@@ -552,8 +552,8 @@ fn a_text_that_stands_in_the_code_is_answered_with_its_places() {
     let t = text(&r);
     assert!(t.contains("src/io.h") && t.contains("src/io.c") && !t.contains("candidate files"), "{t}");
 
-    // Words that stand nowhere as typed are still an open question, and so are two plain
-    // words that a comment happens to hold ("the device").
+    // Words that stand nowhere as typed are still an open question, and so are two words
+    // that a comment happens to hold ("the device").
     for q in ["bytes written by the copy loop", "the device"] {
         let r = s.call("search", json!({"queries": [q]}));
         assert!(text(&r).contains("candidate files"), "{}", text(&r));
