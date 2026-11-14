@@ -13,7 +13,7 @@ export CODEFAST_BIN=$PWD/target/release/codefast
 | 72 verified questions about the Linux kernel | `uv run bench/k3/run_k3.py --questions bench/k3/questions.verified.jsonl` | a kernel checkout in `bench/repos/linux` |
 | Localisation without a model | `uv run bench/tier1/run_locate.py --dataset locbench --loader-args "--subset ripwire-r4-60"` | `bench/scripts/datasets/fetch_datasets.sh` |
 | Real sessions, with and without the plugin | `uv run bench/tier2/live.py run --tag T --n 13 --arms control,plugin --jobs 2`, then `score --tag T` | Claude Code and `CLAUDE_CONFIG_DIR` set to the login to use. This spends model usage |
-| The same on tasks no build has been looked at on | `uv run bench/tier2/live.py run --tag H --held K,N,E,R,D,I,L --arms control,plugin --reps 2 --jobs 2` | the same, plus the go-git checkout and its oracle |
+| The same on tasks no build has been looked at on | `uv run --with tiktoken python -I bench/tier2/live.py run --tag H --held K2,C,N,E,R,D,I,L,W,W2 --arms control,plugin --reps 2 --jobs 2` | the same, plus the go-git checkout and its oracle |
 | How much of a kernel question's verified answer the prompt card already holds, with no model | `uv run --with tiktoken python -I bench/tier2/card_k.py` | the kernel checkout. It builds an index of its own for the binary |
 | Which prompts of which family a change to the hooks reaches, with no model | `python3 -I bench/tier2/card_diff.py --old OLD_BINARY --new NEW_BINARY --show` | the task files the `make_*_tasks.py` builders write |
 
