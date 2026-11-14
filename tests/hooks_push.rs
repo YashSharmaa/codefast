@@ -523,8 +523,12 @@ fn what_a_conversation_wrote_itself_is_not_explained_to_it() {
     hook(&home, &repo.dir, "user-prompt-submit", in_session(&prompt, "heredoc").as_bytes(), &[]).assert_quiet("a card about a file written through the shell");
     hook(&home, &repo.dir, "post-tool-use", payload("claude-post-bash-grep", &repo.dir, &home).as_bytes(), &[]).assert_quiet("a grep for a symbol of that file");
     hook(&home, &repo.dir, "pre-tool-use", payload("claude-pre-read", &repo.dir, &home).as_bytes(), &[]).assert_quiet("a read of a long file the conversation wrote");
-    // Another conversation is told as ever.
+    // Another conversation is told as ever, and so is one whose write failed.
     assert_eq!(hook(&home, &repo.dir, "user-prompt-submit", in_session(&prompt, "other").as_bytes(), &[]).context("UserPromptSubmit"), CARD);
+    let failed = wrote(&repo, &home, "failed", "src/io.c").replace("\"PostToolUse\"", "\"PostToolUseFailure\"");
+    assert!(failed.contains("PostToolUseFailure"));
+    hook(&home, &repo.dir, "post-tool-use", failed.as_bytes(), &[]).assert_quiet("a write that failed");
+    assert_eq!(hook(&home, &repo.dir, "user-prompt-submit", in_session(&prompt, "failed").as_bytes(), &[]).context("UserPromptSubmit"), CARD);
     // After a compaction the conversation has the code no longer: the card is news again.
     let compact = hook(&home, &repo.dir, "session-start", payload("claude-session-compact", &repo.dir, &home).as_bytes(), &[]);
     assert_eq!(compact.code, 0, "{}", compact.stderr);

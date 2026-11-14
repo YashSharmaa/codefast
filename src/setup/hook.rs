@@ -2435,7 +2435,11 @@ fn post_tool_use(passed: &Path, payload: &Payload, started: Instant) -> String {
             (searches, dir)
         }
         Some(Call::Search(s)) => (vec![s], None),
-        Some(Call::Edit { paths, whole }) => return after_edit(passed, payload, Did::Wrote { paths, whole }, None, started),
+        Some(Call::Edit { paths, whole }) => {
+            // A write that failed wrote nothing: the conversation does not hold that file.
+            let failed = payload.event_name.as_deref().is_some_and(|n| n.to_ascii_lowercase().ends_with("failure"));
+            return after_edit(passed, payload, Did::Wrote { paths, whole: if failed { Vec::new() } else { whole } }, None, started);
+        }
         _ => return String::new(),
     };
     if !searches.iter().any(|s| shell::identifier(s).is_some()) {
