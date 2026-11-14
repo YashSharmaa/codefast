@@ -73,9 +73,6 @@ ARMS = {
     # job costs, next to one conversation that carries all of them.
     "control-fresh": dict(plugin=False, fresh=True),
     "plugin-fresh": dict(plugin=True, fresh=True),
-    # And with the list of what the uncommitted work defines, at the start of each session
-    # (an experiment, see LIVE.md).
-    "plugin-fresh-recap": dict(plugin=True, fresh=True, env={"CODEFAST_START_RECAP": "1"}),
     # A conversation with a smaller window for automatic compaction. Claude Haiku 5.5 costs five
     # times as much a token in a request whose prompt is over 100,000 tokens. The harness
     # compacts 33,000 tokens under the window: at 67,000 with the smallest window it takes

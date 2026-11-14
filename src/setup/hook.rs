@@ -1049,9 +1049,6 @@ fn session_start(passed: &Path, payload: &Payload) -> String {
     let cli = cli();
     // After a compaction the conversation has lost its own record of what it changed. The
     // work tree still has it: the definitions added, removed and altered so far.
-    // An experiment (`CODEFAST_START_RECAP=1`): the same list for a session that starts in a
-    // tree with uncommitted work, which is what a new session finds after another one stopped.
-    let recap_at_start = matches!(payload.source.as_deref(), None | Some("startup" | "clear")) && std::env::var_os("CODEFAST_START_RECAP").is_some_and(|v| v == "1");
     let compacted = payload.source.as_deref() == Some("compact");
     // What the conversation wrote it no longer has word for word: a card about it is news again.
     if matches!(payload.source.as_deref(), Some("compact" | "clear"))
@@ -1062,7 +1059,7 @@ fn session_start(passed: &Path, payload: &Payload) -> String {
     // The summary of a compacted conversation also shortens the request it was working on,
     // and what it drops are the exact strings and rules. The transcript still has them.
     let request = if compacted { request_in_progress(payload) } else { None };
-    if (compacted || recap_at_start) && counts.is_some() && refresh_allowed() {
+    if compacted && counts.is_some() && refresh_allowed() {
         if let Ok(ix) = fresh::open(&place.root, &OpenOptions { refresh: true, quiet: true }) {
             let mut out = crate::output::Out::new(RECAP_TOKENS);
             if crate::query::changed::summary(&ix, &crate::query::Common::default(), &mut out) > 0 {
