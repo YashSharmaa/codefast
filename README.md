@@ -89,12 +89,32 @@ harness and says for each what was tested.
 | A rename everywhere it is surely meant | `codefast rename Owner.name NewName` |
 | What the uncommitted edits broke or left behind | `codefast check` |
 | The API of an installed dependency | `codefast dep NAME SYMBOL` |
+| The parts a repository falls into, what everything goes through, unexpected couplings and import cycles | `codefast map` (`--html FILE` draws it) |
 | What your harness configuration costs per request | `codefast doctor context` |
 | Where the tokens of your sessions went, and which habits cost the most | `codefast doctor sessions` |
 
 The agent gets the same answers through five MCP tools (`search`, `show`, `refs`, `path`, `grep`),
 and without asking through hooks: a prompt that names a symbol comes with its definition and its
 uses, a search comes with what it did not print, an edit with the places it left broken.
+
+<details>
+<summary>The map of a repository, drawn: <code>codefast map --html map.html</code></summary>
+<br>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/map-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/map-light.png">
+    <img alt="The page codefast map writes for the syft repository: one circle for each of 16 groups of files that call each other, sized by its definitions and joined by lines as thick as the calls between them, with a side panel that lists the definitions most files use, each with its file and line, and the couplings between groups that have a single call between them." src="docs/assets/map-light.png" width="880">
+  </picture>
+</p>
+
+One file that opens without a network: the groups come from the resolved call graph, a click on
+one lists its files and its most used definitions, and the side panel has the hubs, the unexpected
+couplings and the import cycles. The Linux kernel takes 27 seconds. The idea of such a map is
+[Graphify](https://github.com/Graphify-Labs/graphify)'s. This one is asked for and never pushed
+into a session, and it is computed from calls the index has resolved.
+
+</details>
 
 <details>
 <summary>The six moments at which a hook adds facts, with what it prints</summary>
@@ -141,6 +161,11 @@ A weighted token is one uncached input token of the request's own model: a cache
 a cache write 1.25, an output token 5. The example is a made-up project.
 
 </details>
+
+In Claude Code the hooks also say it at the moment it matters, to you and not to the model: when a
+conversation has passed 200,000 tokens, what every request now pays to read it again, and when you
+come back to a conversation whose prompt cache has run out, that the next request sends all of it
+again as new input.
 
 `codefast doctor context` is the other half: what your plugins, skills, MCP servers and
 instruction files add to every request, and the setting that switches each off for this project.
