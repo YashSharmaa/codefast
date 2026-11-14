@@ -120,6 +120,7 @@ fn first_session(dir: &Path, root: &Path) {
         },
         json!({"type": "mystery-line", "whatever": [1, 2, 3]}),
         // Seventy minutes later the cache has expired.
+        json!({"type": "user", "isSidechain": false, "message": {"role": "user", "content": "Carry on."}, "timestamp": ts(72)}),
         assistant("m4", opus, 72, usage(10, 0, 40_000, 100, 50), json!([{"type": "text", "text": "Back."}]), root),
         json!({"type": "system", "subtype": "model_fallback", "originalModel": opus, "fallbackModel": sonnet, "isSidechain": false, "timestamp": ts(73)}),
         assistant("m5", sonnet, 73, usage(10, 0, 41_000, 100, 50), json!([{"type": "text", "text": "On another model."}]), root),
@@ -485,6 +486,7 @@ fn sub_agents_are_conversations_of_their_own() {
         &[
             line("w1", opus, 0, usage(5, 0, 30_000, 100, 0)),
             line("w2", opus, 1, usage(5, 30_000, 5_000, 100, 0)),
+            result("tw", 8, json!("Finished `release` profile")),
             line("w3", opus, 8, usage(5, 0, 36_000, 100, 0)),
             line("w4", opus, 9, usage(5, 36_000, 100, 50, 0)),
         ],
@@ -504,25 +506,37 @@ fn sub_agents_are_conversations_of_their_own() {
         long.push(line(&format!("h{i}"), "claude-opus-5", 13 + i, usage(0, 600_000, 0, 10, 0)));
     }
     jsonl(&dir.join(FIRST).join("subagents/workflows/run-1/agent-long.jsonl"), &long);
+    // The third takes six minutes to write one reply, a large file: the request after it was
+    // sent six minutes after the one that began the reply.
+    jsonl(
+        &dir.join(FIRST).join("subagents/agent-writes.jsonl"),
+        &[
+            line("x1", opus, 0, usage(5, 0, 40_000, 100, 0)),
+            line("x1", opus, 6, usage(5, 0, 40_000, 9_000, 0)),
+            result("tx", 6, json!("File created.")),
+            line("x2", opus, 6, usage(5, 0, 49_000, 100, 0)),
+        ],
+    );
 
     let r = report(&sb, &root, &[]);
     let a = &r["subagents"];
     assert_eq!(
         (a["requests"].as_u64(), a["agents_with_transcripts"].as_u64(), a["agents_on_the_five_minute_cache"].as_u64()),
-        (Some(37), Some(2), Some(2)),
+        (Some(39), Some(3), Some(3)),
         "{a:#}"
     );
-    // The wait: 35,005 tokens written again at 1.25 where a read is 0.05.
+    // The wait and the long reply: 35,005 and 40,005 tokens written again at 1.25 where a read
+    // is 0.05.
     let cold = &a["cold_restarts"];
-    assert_eq!(cold["count"], 1, "{cold:#}");
+    assert_eq!(cold["count"], 2, "{cold:#}");
     let five = cold["by_cause"].as_array().unwrap().iter().find(|c| c["cause"] == "idle_five_minutes").cloned().unwrap();
-    assert_eq!(five["count"], 1);
-    near(&five["weighted"], 1.2 * 35_005.0);
+    assert_eq!((five["count"].as_u64(), five["after_a_long_reply"].as_u64()), (Some(2), Some(1)), "{five:#}");
+    near(&five["weighted"], 1.2 * (35_005.0 + 40_005.0));
     // The long one, as the main thread's conversation of the same shape: compacting at 500k.
     let c = &a["carried_context"];
     assert_eq!(
         (c["threshold"].as_u64(), c["requests"].as_u64(), c["requests_above"].as_u64(), c["compactions_instead"].as_u64(), c["peak_context"].as_u64()),
-        (Some(500_000), Some(37), Some(22), Some(1), Some(600_000)),
+        (Some(500_000), Some(39), Some(22), Some(1), Some(600_000)),
         "{c:#}"
     );
     near(&c["difference_estimate"], 935_000.0 - 142_500.0);
@@ -533,24 +547,94 @@ fn sub_agents_are_conversations_of_their_own() {
     assert!(found.contains(&"agent_cold_restarts"), "{found:?}");
 
     let text = run(&sb, &root, &[]);
-    assert!(text.contains(" 37 requests (") && text.contains("), 2 agents with transcripts of their own: cache reads "), "{text}");
+    assert!(text.contains(" 39 requests (") && text.contains("), 3 agents with transcripts of their own: cache reads "), "{text}");
     assert!(
         text.contains(
-            "Cold restarts in sub-agents: 1 request of sub-agents sent the agent's conversation again at the price of new input: 1 idle for more than five minutes (42k).\n"
+            "Cold restarts in sub-agents: 2 requests of sub-agents sent the agent's conversation again at the price of new input: 2 idle for more than five minutes (90k).\n"
         ),
         "{text}"
     );
     assert!(
         text.contains(
-            "A sub-agent's prompt cache lasts five minutes here: one that waits longer on a command pays for its whole conversation again when it comes back.\n"
+            "A sub-agent's prompt cache lasts five minutes here, counted from when a request is sent: 1 followed a reply that took longer than that to write and 1 followed a tool call that took longer than that.\n"
         ),
         "{text}"
     );
-    assert!(text.contains("Carried context in sub-agents: 22 of 37 requests of sub-agents (59%) carried more than 500k tokens, at most 600k.\n"), "{text}");
+    assert!(
+        text.contains("A large file costs less written in parts, and a long command costs less in the background with a look every few minutes.\n"),
+        "{text}"
+    );
+    // The one-hour cache would have spared both, and made every cache write of the three agents
+    // dearer: 0.75 more a token on the 655,000 the long one wrote and on what the other two
+    // wrote without their restarts, against the 90,012 the restarts cost.
+    let hour = &a["cold_restarts"]["with_the_one_hour_cache"];
+    assert_eq!(hour["spared"], 2, "{hour:#}");
+    near(&hour["saved_weighted"], 1.2 * (35_005.0 + 40_005.0));
+    near(&hour["extra_writes_weighted_estimate"], 0.75 * (655_000.0 + 71_100.0 - 35_005.0 + 89_000.0 - 40_005.0));
+    assert!(
+        text.contains(
+            "`subagentPromptCacheTtl` set to `1h` would have spared 2 of them and still cost more here: a cache write costs 2 there instead of 1.25, about 555k more for the writes against 90k saved.\n"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("Carried context in sub-agents: 22 of 39 requests of sub-agents (56%) carried more than 500k tokens, at most 600k.\n"), "{text}");
+    assert!(
+        text.contains(
+            "`CLAUDE_CODE_AUTO_COMPACT_WINDOW=500000` moves it there for the main conversation and its sub-agents alike, and `autoCompactWindow` in an agent's definition for that agent alone.\n"
+        ),
+        "{text}"
+    );
     assert!(text.contains("A long job costs less given to several agents in turn"), "{text}");
     // One session broken down names the dearest cold request of its agents.
     let one = run(&sb, &root, &["--session", FIRST]);
     assert!(one.contains("idle for more than five minutes after 7 min, 35k tokens sent again: 42k"), "{one}");
+    assert!(one.contains("idle for more than five minutes (a reply that took that long) after 6 min, 40k tokens sent again: 48k"), "{one}");
+}
+
+/// A main thread on the five-minute cache, which a session signed in with an API key writes
+/// to: ten minutes away cost the conversation again, and the one-hour cache is weighed.
+#[test]
+fn a_main_thread_on_the_five_minute_cache() {
+    let sb = Sandbox::new("sessions-five");
+    let root = project(&sb, "five");
+    let typed = |minute: i64| json!({"type": "user", "isSidechain": false, "message": {"role": "user", "content": "Next."}, "timestamp": ts(minute)});
+    let sonnet = "claude-sonnet-5-5";
+    jsonl(
+        &transcripts(&sb, &root).join(format!("{FIRST}.jsonl")),
+        &[
+            typed(0),
+            assistant("m1", sonnet, 0, usage(10, 0, 60_000, 100, 0), json!([]), &root),
+            typed(10),
+            assistant("m2", sonnet, 10, usage(10, 0, 61_000, 100, 0), json!([]), &root),
+            typed(11),
+            assistant("m3", sonnet, 11, usage(10, 61_000, 1_000, 100, 0), json!([]), &root),
+        ],
+    );
+    let r = report(&sb, &root, &[]);
+    let cold = &r["cold_restarts"];
+    assert_eq!(cold["count"], 1, "{cold:#}");
+    // 60,010 tokens written again at 1.25 where a read is 0.05. With the one-hour cache they
+    // would have been read, and the 61,990 other tokens written at 2 instead of 1.25.
+    near(&cold["weighted"], 1.2 * 60_010.0);
+    let hour = &cold["with_the_one_hour_cache"];
+    assert_eq!(hour["spared"], 1, "{hour:#}");
+    near(&hour["saved_weighted"], 1.2 * 60_010.0);
+    near(&hour["extra_writes_weighted_estimate"], 0.75 * (122_000.0 - 60_010.0));
+    let text = run(&sb, &root, &[]);
+    assert!(
+        text.contains("Cold restarts: 1 request sent the conversation again at the price of new input: 1 idle for more than five minutes (72k).\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("These sessions write to the five-minute cache, which is counted from when a request is sent: 1 came after a pause longer than that.\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "`promptCacheTtl` set to `1h` would have spared one of them: a cache write costs 2 there instead of 1.25, about 46k more for the writes against 72k saved, so about 26k less (an estimate).\n"
+        ),
+        "{text}"
+    );
 }
 
 #[test]

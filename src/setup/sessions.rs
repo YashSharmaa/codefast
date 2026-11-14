@@ -310,6 +310,13 @@ pub struct Request {
     pub model: String,
     /// Milliseconds since the epoch.
     pub at: Option<i64>,
+    /// When the request was sent, as near as the transcript has it: the time of the line
+    /// before its reply. A prompt cache lives from then, not from when the reply ends.
+    pub sent: Option<i64>,
+    /// When the last part of its reply was written.
+    pub done: Option<i64>,
+    /// What it answers is the result of a tool call, not something a person typed.
+    pub after_tool: bool,
     /// A sub-agent's request, not one of the main thread.
     pub sidechain: bool,
     pub usage: Usage,
@@ -617,6 +624,9 @@ fn read_jsonl(path: &Path, sub: bool, t: &mut Transcript) {
     // Tool calls by id: (tool, group, path).
     let mut calls: HashMap<String, (String, String, Option<String>)> = HashMap::new();
     let mut n = 0usize;
+    // The time of the last line that is not a reply and that no request has answered yet, and
+    // whether it held the result of a tool call: the next request was sent when it was written.
+    let mut asked: Option<(i64, bool)> = None;
     loop {
         line.clear();
         match reader.read_until(b'\n', &mut line) {
@@ -651,9 +661,11 @@ fn read_jsonl(path: &Path, sub: bool, t: &mut Transcript) {
                 let miss = m["diagnostics"]["cache_miss_reason"]["type"].as_str().map(str::to_string);
                 // A line without an id is a request of its own.
                 let id = m["id"].as_str().map(str::to_string).unwrap_or_else(|| format!("line {n}"));
+                let at = v["timestamp"].as_str().and_then(parse_time);
                 if let Some(&i) = seen.get(&id) {
                     if let Some(Event::Request(r)) = t.events.get_mut(i) {
                         r.usage.merge(&u);
+                        r.done = r.done.max(at);
                         if r.miss.is_none() {
                             r.miss = miss;
                         }
@@ -661,9 +673,15 @@ fn read_jsonl(path: &Path, sub: bool, t: &mut Transcript) {
                     continue;
                 }
                 seen.insert(id, t.events.len());
-                t.events.push(Event::Request(Request { model, at: v["timestamp"].as_str().and_then(parse_time), sidechain, usage: u, miss }));
+                // A request was sent when what it answers was written. One that follows another
+                // with nothing between them in the transcript has only its own time.
+                let answers = if sidechain { None } else { asked.take() };
+                let (sent, after_tool) = (answers.map(|a| a.0).or(at), answers.is_some_and(|a| a.1));
+                t.events.push(Event::Request(Request { model, at, sent, done: at, after_tool, sidechain, usage: u, miss }));
             }
             Some("user") if !sidechain => {
+                let tool = v["message"]["content"].as_array().is_some_and(|blocks| blocks.iter().any(|b| b["type"] == "tool_result"));
+                asked = v["timestamp"].as_str().and_then(parse_time).map(|at| (at, tool)).or(asked);
                 if v["isCompactSummary"] == true
                     && let Some(Event::Compaction { summary, .. }) = t.events.last_mut()
                 {
@@ -991,7 +1009,16 @@ impl Transcripts for Codex {
                         continue;
                     }
                     total = info["total_token_usage"].clone();
-                    t.events.push(Event::Request(Request { model: model.clone(), at, sidechain: false, usage, miss: None }));
+                    t.events.push(Event::Request(Request {
+                        model: model.clone(),
+                        at,
+                        sent: at,
+                        done: at,
+                        after_tool: false,
+                        sidechain: false,
+                        usage,
+                        miss: None,
+                    }));
                 }
                 ("response_item", "function_call" | "custom_tool_call" | "local_shell_call") => {
                     let id = p["call_id"].as_str().or(p["id"].as_str()).unwrap_or("").to_string();
@@ -1137,13 +1164,16 @@ impl Cause {
     }
 }
 
+/// The time from `prev` being sent to `cur` being sent, in milliseconds: what a prompt cache
+/// has to outlive.
+pub fn gap(prev: &Request, cur: &Request) -> Option<i64> {
+    Some(cur.sent.or(cur.at)? - prev.sent.or(prev.at)?)
+}
+
 /// Why request `cur` found the cache cold after `prev`: first match wins. `hour`: the harness
 /// can keep a one-hour cache, so an hour away is a cause of its own.
 pub fn cause(prev: &Request, cur: &Request, hour: bool) -> Cause {
-    let gap = match (prev.at, cur.at) {
-        (Some(a), Some(b)) => b - a,
-        _ => 0,
-    };
+    let gap = gap(prev, cur).unwrap_or(0);
     if prev.model != cur.model {
         Cause::ModelSwitch
     } else if hour && gap >= IDLE_HOUR_MS {
@@ -1204,10 +1234,81 @@ pub struct Cold {
     /// A model fallback the harness recorded explains the switch.
     pub fallback: bool,
     pub before: u64,
+    /// From the request before being sent to this one being sent.
     pub gap_ms: Option<i64>,
+    /// Of that, how long the reply before took to write. The rest is its tool calls, and
+    /// waiting for the person.
+    pub reply_ms: Option<i64>,
+    /// It answered the result of a tool call, not something a person typed.
+    pub after_tool: bool,
+    /// What the request wrote to the cache again.
+    pub rewritten: u64,
     pub cost: f64,
     /// The harness's own reason for the miss, when it recorded one.
     pub reason: Option<String>,
+}
+
+impl Cold {
+    /// It followed a reply that took longer to write than its tool calls took to run.
+    pub fn after_long_reply(&self) -> bool {
+        matches!((self.gap_ms, self.reply_ms), (Some(gap), Some(reply)) if reply * 2 >= gap)
+    }
+}
+
+/// The request `cur` that found the cache cold after `prev`.
+fn cold(session: &str, prev: &Request, cur: &Request, cause: Cause, fallback: bool, cost: f64) -> Cold {
+    let before = prev.usage.context().unwrap_or(0);
+    Cold {
+        session: session.to_string(),
+        at: cur.at,
+        cause,
+        fallback,
+        before,
+        gap_ms: gap(prev, cur),
+        reply_ms: prev.sent.zip(prev.done).map(|(sent, done)| done - sent),
+        after_tool: cur.after_tool,
+        rewritten: before.min(cur.usage.cache_write.unwrap_or(0)),
+        cost,
+        reason: cur.miss.clone(),
+    }
+}
+
+/// What the one-hour cache would have done for conversations that wrote to the five-minute
+/// one: every cache write dearer, and the cold restarts within the hour not happening.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct HourTrade {
+    /// What the cache writes would have cost more.
+    pub extra: f64,
+    /// The cold restarts it would have spared, and what they cost.
+    pub spared: usize,
+    pub saved: f64,
+}
+
+impl HourTrade {
+    pub fn gain(&self) -> f64 {
+        self.saved - self.extra
+    }
+
+    /// One request of a conversation on the five-minute cache.
+    fn request(&mut self, r: &Request, w: &Weights) {
+        self.extra += w.times(r.usage.context()) * (w.write_1h - w.write_5m) * r.usage.write_5m.unwrap_or(0) as f64;
+    }
+
+    /// One of its requests that found the cache cold: within the hour it would have read what
+    /// it wrote again.
+    fn cold(&mut self, c: &Cold, cur: &Request, w: &Weights) {
+        if c.cause == Cause::IdleFive && c.gap_ms.is_some_and(|g| g < IDLE_HOUR_MS) {
+            self.spared += 1;
+            self.saved += c.cost;
+            self.extra -= w.times(cur.usage.context()) * (w.write_1h - w.write_5m) * c.rewritten as f64;
+        }
+    }
+
+    fn merge(&mut self, o: &HourTrade) {
+        self.extra += o.extra;
+        self.spared += o.spared;
+        self.saved += o.saved;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1293,6 +1394,8 @@ pub struct Agents {
     pub five_minutes: usize,
     /// Their requests that found the cache cold.
     pub cold: Vec<Cold>,
+    /// What the one-hour cache would have done for those on the five-minute one.
+    pub hour: HourTrade,
     /// The context they carried, and what compacting it earlier would have done.
     pub carry: Carry,
 }
@@ -1323,6 +1426,8 @@ pub struct Stats {
     pub carry: Carry,
     pub step: Step,
     pub agents: Agents,
+    /// What the one-hour cache would have done for main threads on the five-minute one.
+    pub hour: HourTrade,
     /// `--carry`, when it was given.
     pub carry_given: Option<u64>,
 }
@@ -1617,6 +1722,8 @@ impl Stats {
         self.agents.count += o.agents.count;
         self.agents.five_minutes += o.agents.five_minutes;
         self.agents.cold.extend(o.agents.cold.iter().cloned());
+        self.agents.hour.merge(&o.agents.hour);
+        self.hour.merge(&o.hour);
         self.agents.carry.peak = self.agents.carry.peak.max(o.agents.carry.peak);
         for w in &o.agents.carry.windows {
             self.agents.carry.window(w.threshold).merge(w);
@@ -1687,6 +1794,9 @@ impl Stats {
             (None, None) => WINDOWS.to_vec(),
         };
         let shapes: Vec<Shape> = tried.iter().map(|at| own.at(*at)).collect();
+        // A main thread that writes to the five-minute cache and never to the one-hour one.
+        let wrote = |pick: fn(&Usage) -> Option<u64>| main.iter().map(|r| pick(&r.usage).unwrap_or(0)).sum::<u64>();
+        let five = self.kind == Kind::ClaudeCode && wrote(|u| u.write_1h) == 0 && wrote(|u| u.write_5m) > 0;
         // For each: whether the stretch has passed it, and the compactions counted in it.
         let mut runs = vec![(false, 0u64); tried.len()];
         let mut prev: Option<&Request> = None;
@@ -1726,22 +1836,21 @@ impl Stats {
                     }
                     first_at = first_at.or(r.at);
                     last_at = r.at.or(last_at);
+                    if five {
+                        self.hour.request(r, &w);
+                    }
                     if let Some(p) = prev {
                         if p.model != r.model {
                             self.switches += 1;
                         }
                         if let Some(cost) = cold_cost_in(&p.usage, &r.usage, self.kind == Kind::Codex, &w).filter(|_| !compacted) {
                             let why = cause(p, r, self.kind.hour_cache());
-                            self.cold.push(Cold {
-                                session: t.id.clone(),
-                                at: r.at,
-                                cause: why,
-                                fallback: why == Cause::ModelSwitch && fallbacks.contains(&(p.model.as_str(), r.model.as_str())),
-                                before: p.usage.context().unwrap_or(0),
-                                gap_ms: p.at.zip(r.at).map(|(a, b)| b - a),
-                                cost,
-                                reason: r.miss.clone(),
-                            });
+                            let fell = why == Cause::ModelSwitch && fallbacks.contains(&(p.model.as_str(), r.model.as_str()));
+                            let found = cold(&t.id, p, r, why, fell, cost);
+                            if five {
+                                self.hour.cold(&found, r, &w);
+                            }
+                            self.cold.push(found);
                         }
                     }
                     if k == 0 {
@@ -1816,7 +1925,8 @@ impl Stats {
         // Which cache it writes to decides how long it may wait.
         let written = |pick: fn(&Usage) -> Option<u64>| own.iter().map(|r| pick(&r.usage).unwrap_or(0)).sum::<u64>();
         let hour = written(|u| u.write_1h) > 0;
-        if !hour && written(|u| u.write_5m) > 0 {
+        let five = !hour && written(|u| u.write_5m) > 0;
+        if five {
             self.agents.five_minutes += 1;
         }
         let mut prev: Option<&Request> = None;
@@ -1838,19 +1948,17 @@ impl Stats {
                             window.request(c, base, times, &w, shape, resend, run);
                         }
                     }
+                    if five {
+                        self.agents.hour.request(r, &w);
+                    }
                     if let Some(p) = prev
                         && let Some(cost) = cold_cost_in(&p.usage, &r.usage, self.kind == Kind::Codex, &w).filter(|_| !compacted)
                     {
-                        self.agents.cold.push(Cold {
-                            session: session.to_string(),
-                            at: r.at,
-                            cause: cause(p, r, hour),
-                            fallback: false,
-                            before: p.usage.context().unwrap_or(0),
-                            gap_ms: p.at.zip(r.at).map(|(a, b)| b - a),
-                            cost,
-                            reason: r.miss.clone(),
-                        });
+                        let found = cold(session, p, r, cause(p, r, hour), false, cost);
+                        if five {
+                            self.agents.hour.cold(&found, r, &w);
+                        }
+                        self.agents.cold.push(found);
                     }
                     compacted = false;
                     prev = Some(r);
@@ -1955,17 +2063,62 @@ fn by_cause(cold: &[Cold]) -> String {
     parts.join(", ")
 }
 
+/// What outlived the five-minute cache, and the one thing to do about each kind: a reply that
+/// took that long to write, or a tool call that took that long to run.
+fn outlived(cold: &[Cold]) -> (String, &'static str) {
+    let idle: Vec<&Cold> = cold.iter().filter(|x| x.cause == Cause::IdleFive).collect();
+    let replies = idle.iter().filter(|x| x.after_long_reply()).count();
+    let calls = idle.iter().filter(|x| !x.after_long_reply() && x.after_tool).count();
+    let pauses = idle.len() - replies - calls;
+    let mut parts = Vec::new();
+    if replies > 0 {
+        parts.push(format!("{} followed a reply that took longer than that to write", count(replies)));
+    }
+    if calls > 0 {
+        parts.push(format!("{} followed a tool call that took longer than that", count(calls)));
+    }
+    if pauses > 0 {
+        parts.push(format!("{} came after a pause longer than that", count(pauses)));
+    }
+    let todo = match (replies > 0, calls > 0) {
+        (true, true) => "A large file costs less written in parts, and a long command costs less in the background with a look every few minutes.",
+        (true, false) => "A large file costs less written in parts.",
+        (false, true) => "A long command costs less run in the background with a look every few minutes.",
+        (false, false) => "",
+    };
+    let last = parts.pop().unwrap_or_default();
+    (if parts.is_empty() { last } else { format!("{} and {last}", parts.join(", ")) }, todo)
+}
+
+/// What the one-hour cache would have done, in a line: `setting` is the harness's name for it.
+fn hour_line(trade: &HourTrade, setting: &str) -> String {
+    let them = if trade.spared == 1 { "one of them".to_string() } else { format!("{} of them", count(trade.spared)) };
+    let sums = format!("a cache write costs 2 there instead of 1.25, about {} more for the writes against {} saved", short(trade.extra), short(trade.saved));
+    if trade.gain() > 0.0 {
+        format!("`{setting}` set to `1h` would have spared {them}: {sums}, so about {} less (an estimate).", short(trade.gain()))
+    } else {
+        format!("`{setting}` set to `1h` would have spared {them} and still cost more here: {sums}.")
+    }
+}
+
 /// One cold request, for the breakdown of a session.
 fn cold_item(x: &Cold) -> String {
-    let fell = if x.fallback { " (a model fallback)" } else { "" };
+    let fell = if x.fallback {
+        " (a model fallback)"
+    } else if x.cause == Cause::IdleFive && x.after_long_reply() {
+        " (a reply that took that long)"
+    } else {
+        ""
+    };
     let theirs = x.reason.as_deref().map(|r| format!(" (harness: {r})")).unwrap_or_default();
     format!("  {}  {}{fell}{theirs} after {}, {} tokens sent again: {}", when(x.at), x.cause.words(), minutes(x.gap_ms), short(x.before as f64), short(x.cost))
 }
 
 /// The context some conversations carried and what compacting it earlier would have done:
 /// the main thread's, or the sub-agents'.
-/// `setting`: say how the harness is told to compact there.
-fn carried_finding(carry: &Carry, title: &str, of: &str, advice: &str, setting: bool, push: &mut dyn FnMut(bool, &str)) {
+/// `setting`: how the harness is told to compact there, for the main thread (`Some(false)`) or
+/// for sub-agents (`Some(true)`).
+fn carried_finding(carry: &Carry, title: &str, of: &str, advice: &str, setting: Option<bool>, push: &mut dyn FnMut(bool, &str)) {
     let Some(w) = carry.featured() else { return };
     let t = short(w.threshold as f64);
     let read = if w.gain() > 0.0 { String::new() } else { format!(" Reading the part above {t} again cost {}.", short(w.cost)) };
@@ -1993,8 +2146,17 @@ fn carried_finding(carry: &Carry, title: &str, of: &str, advice: &str, setting: 
                 ),
             );
         }
-        if setting {
-            push(false, &format!("`/autocompact {t}` moves it there: the harness compacts about 33k tokens under the window it is given."));
+        match setting {
+            Some(false) => push(false, &format!("`/autocompact {t}` moves it there: the harness compacts about 33k tokens under the window it is given.")),
+            // The one way to set it that the harness documents for sub-agents.
+            Some(true) => push(
+                false,
+                &format!(
+                    "`CLAUDE_CODE_AUTO_COMPACT_WINDOW={}` moves it there for the main conversation and its sub-agents alike, and `autoCompactWindow` in an agent's definition for that agent alone.",
+                    w.threshold
+                ),
+            ),
+            None => {}
         }
         push(false, advice);
     }
@@ -2048,6 +2210,15 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
             if !todo.is_empty() {
                 push(false, &todo.join(" "));
             }
+            // A main thread on the five-minute cache: what outlived it, and the longer cache.
+            if s.hour.spared > 0 {
+                let (what, todo) = outlived(&s.cold);
+                push(false, &format!("These sessions write to the five-minute cache, which is counted from when a request is sent: {what}."));
+                if !todo.is_empty() {
+                    push(false, todo);
+                }
+                push(false, &hour_line(&s.hour, "promptCacheTtl"));
+            }
             if detail {
                 s.cold.iter().take(ITEMS).for_each(|x| push(false, &cold_item(x)));
             }
@@ -2064,11 +2235,14 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
                 ),
             );
             if s.agents.five_minutes > 0 && cold.iter().any(|x| x.cause == Cause::IdleFive) {
-                push(
-                    false,
-                    "A sub-agent's prompt cache lasts five minutes here: one that waits longer on a command pays for its whole conversation again when it comes back.",
-                );
-                push(false, "Long builds and test runs cost less run by the main thread, or in the background with a look every few minutes.");
+                let (what, todo) = outlived(cold);
+                push(false, &format!("A sub-agent's prompt cache lasts five minutes here, counted from when a request is sent: {what}."));
+                if !todo.is_empty() {
+                    push(false, todo);
+                }
+                if s.agents.hour.spared > 0 {
+                    push(false, &hour_line(&s.agents.hour, "subagentPromptCacheTtl"));
+                }
             }
             if detail {
                 // The dearest first: a session can have hundreds of agents.
@@ -2131,7 +2305,7 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
             "Carried context",
             "requests",
             "Start a fresh session at a natural break, or compact earlier, when the context stays far above what the next step needs.",
-            s.kind == Kind::ClaudeCode,
+            (s.kind == Kind::ClaudeCode).then_some(false),
             &mut push,
         ),
         "agent_carried_context" => carried_finding(
@@ -2139,7 +2313,7 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
             "Carried context in sub-agents",
             "requests of sub-agents",
             "A long job costs less given to several agents in turn, each told what the last one did, than to one agent that carries it all.",
-            false,
+            (s.kind == Kind::ClaudeCode).then_some(true),
             &mut push,
         ),
         "price_step" => {
@@ -2366,11 +2540,18 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
             .iter()
             .map(|c| {
                 let of: Vec<&Cold> = cold.iter().filter(|x| x.cause == *c).collect();
-                json!({"cause": c.key(), "count": of.len(), "weighted": round(of.iter().map(|x| x.cost).sum()), "after_fallback": of.iter().filter(|x| x.fallback).count()})
+                json!({
+                    "cause": c.key(),
+                    "count": of.len(),
+                    "weighted": round(of.iter().map(|x| x.cost).sum()),
+                    "after_fallback": of.iter().filter(|x| x.fallback).count(),
+                    "after_a_long_reply": of.iter().filter(|x| *c == Cause::IdleFive && x.after_long_reply()).count(),
+                })
             })
             .collect()
     };
     let causes = by_cause(&s.cold);
+    let hour = |t: &HourTrade| json!({"spared": t.spared, "saved_weighted": round(t.saved), "extra_writes_weighted_estimate": round(t.extra), "difference_estimate": t.gain().round() + 0.0});
     let compactions = |manual: bool| {
         let of: Vec<&Compaction> = s.compactions.iter().filter(|c| c.manual == manual).collect();
         let cost: f64 = of.iter().map(|c| c.cost).sum();
@@ -2439,7 +2620,13 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
             "share": ratio(s.sub.total(), total),
             "agents_with_transcripts": s.agents.count,
             "agents_on_the_five_minute_cache": s.agents.five_minutes,
-            "cold_restarts": {"count": s.agents.cold.len(), "weighted": round(agents_cold), "share": ratio(agents_cold, total), "by_cause": by_cause(&s.agents.cold)},
+            "cold_restarts": {
+                "count": s.agents.cold.len(),
+                "weighted": round(agents_cold),
+                "share": ratio(agents_cold, total),
+                "by_cause": by_cause(&s.agents.cold),
+                "with_the_one_hour_cache": hour(&s.agents.hour),
+            },
             "carried_context": carry_json(&s.agents.carry),
         },
         "start": {
@@ -2448,7 +2635,7 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
             "stretches": s.stretches.len(),
             "first_context_tokens": s.stretches.iter().map(|x| x.first).collect::<Vec<_>>(),
         },
-        "cold_restarts": {"count": s.cold.len(), "weighted": round(s.cold_cost()), "share": ratio(s.cold_cost(), total), "by_cause": causes, "harness_names_another_cause": s.harness_disagrees()},
+        "cold_restarts": {"count": s.cold.len(), "weighted": round(s.cold_cost()), "share": ratio(s.cold_cost(), total), "by_cause": causes, "harness_names_another_cause": s.harness_disagrees(), "with_the_one_hour_cache": hour(&s.hour)},
         "compactions": {"manual": compactions(true), "auto": compactions(false)},
         "thinking": thinking,
         "models": s.models.iter().map(|(m, (n, w))| json!({"model": m, "requests": n, "weighted": round(*w)})).collect::<Vec<_>>(),
@@ -2706,7 +2893,8 @@ mod tests {
     }
 
     fn req(model: &str, minute: i64, usage: Usage) -> Event {
-        Event::Request(Request { model: model.to_string(), at: Some(minute * 60_000), sidechain: false, usage, miss: None })
+        let at = Some(minute * 60_000);
+        Event::Request(Request { model: model.to_string(), at, sent: at, done: at, after_tool: false, sidechain: false, usage, miss: None })
     }
 
     #[test]
@@ -2966,12 +3154,24 @@ mod tests {
         *carry.window(200_000) = Window { threshold: 200_000, requests: 10, above: 9, saved: 10_000.0, compactions: 6, ..Default::default() };
         *carry.window(400_000) = Window { threshold: 400_000, requests: 10, above: 5, saved: 8_500.0, compactions: 2, ..Default::default() };
         let mut lines = Vec::new();
-        carried_finding(&carry, "Carried context", "requests", "Advice.", true, &mut |_, text| lines.push(text.to_string()));
+        carried_finding(&carry, "Carried context", "requests", "Advice.", Some(false), &mut |_, text| lines.push(text.to_string()));
         assert_eq!(lines[0], "Carried context: 5 of 10 requests (50%) carried more than 400k tokens, at most 900k.");
         assert_eq!(lines[2], "At 200k: 6 more compactions, about 10k less in all.");
         assert_eq!(lines[3], "`/autocompact 400k` moves it there: the harness compacts about 33k tokens under the window it is given.");
         assert_eq!(lines[4], "Advice.");
-        let cold = |cause: Cause| Cold { session: String::new(), at: None, cause, fallback: false, before: 0, gap_ms: None, cost: 1_000.0, reason: None };
+        let cold = |cause: Cause| Cold {
+            session: String::new(),
+            at: None,
+            cause,
+            fallback: false,
+            before: 0,
+            gap_ms: None,
+            reply_ms: None,
+            after_tool: false,
+            rewritten: 0,
+            cost: 1_000.0,
+            reason: None,
+        };
         assert_eq!(
             by_cause(&[cold(Cause::ModelSwitch), cold(Cause::IdleFive), cold(Cause::ModelSwitch)]),
             "2 model switches (2k), 1 idle for more than five minutes (1k)"
