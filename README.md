@@ -40,6 +40,15 @@ Measured so far (the tables are under [Results](#results)):
   the function that raises it 0.63, a rename across the repository 0.51 and a question about the
   Linux kernel 0.71. The answers are as good, checked against the Go type checker, the compiler
   and verified answers.
+- **First on a published agent benchmark it did not write.** On the 26 graded questions of
+  agent-context-bench about apache/superset, run under that benchmark's own protocol with the same
+  model, codefast answers the lookups at 1.00 and the hard tasks at 0.98, where the best published
+  arm has 1.00 and 0.94, for the lowest cost of a task and one tool call. It was the first run,
+  and nothing was changed for it.
+- **Not on the other one.** Asked which files a kernel bug report points to, as in the published
+  comparison of repository maps on LinuxFLBench, a session with codefast costs 0.77 of the same
+  session without it and does not find the file more often. The paper's best map found it more
+  often.
 - **Right in one call.** 0.96 out of 1 on 72 verified questions about the Linux kernel, at a
   median of 155 tokens per answer. Best-case ripgrep: 0.89, two calls, 384 tokens.
 - **Fast and exact.** The whole Linux kernel indexes in 8 s. The call graph agrees with compilers
@@ -212,7 +221,7 @@ raw results are in `bench/results/`.
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/live-sessions-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/live-sessions-light.svg">
-    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Who calls this method: 0.30. The same question in TypeScript: 0.53. Four such questions in one session: 0.15. What does this function call: 0.56. Where does this error come from: 0.63. Rename a Go method everywhere: 0.51. A question about the Linux kernel: 0.71. Write a function that was taken out: 1.03. Fix a bug, failing tests given: 0.93. Fix a bug from the issue text alone: 0.92." src="docs/assets/live-sessions-light.svg" width="880">
+    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Who calls this method: 0.30. The same question in TypeScript: 0.53. Four such questions in one session: 0.15. What does this function call: 0.56. Where does this error come from: 0.63. Rename a Go method everywhere: 0.51. A question about the Linux kernel: 0.71. Which files is this kernel bug in: 0.77. Write a function that was taken out: 1.03. Fix a bug, failing tests given: 0.93. Fix a bug from the issue text alone: 0.92." src="docs/assets/live-sessions-light.svg" width="880">
   </picture>
 </p>
 
@@ -226,15 +235,16 @@ protocol.
 **Held-out tasks.** These were set aside while the build was made and run once it was final:
 caller questions and renames in go-git, a repository codefast had never been run on when they were
 set aside, callee questions on the same repository, error messages of go-git and syft, kernel
-questions that no session had used, the bug-fix tasks not used before, and functions of gitleaks
-and go-git to write again, which no build was looked at on. Two runs per task and arm, and four on
-the kernel questions, the callee questions, the code-writing family and the two bug-fix families
-(`bench/results/live-heldout-haiku.jsonl`). The kernel and callee rows were measured on 0.3.0, the
-code-writing row on 0.2.9 and 0.2.10, the two bug-fix rows on 0.2.8, the TypeScript row on 0.2.6
-and the rest on 0.2.2. For every prompt of those other families the hooks of 0.3.0 print exactly
-what the hooks of 0.2.10 print (`bench/tier2/card_diff.py`). The prompts of the callee questions
-were used without a model while the card for them was made, and no session was run on them before
-the build was final.
+questions that no session had used, kernel bug reports from the half of LinuxFLBench the file
+ranking was never tuned on, the bug-fix tasks not used before, and functions of gitleaks and
+go-git to write again, which no build was looked at on. Two runs per task and arm, and four on the
+kernel questions, the callee questions, the code-writing family and the two bug-fix families
+(`bench/results/live-heldout-haiku.jsonl`). The kernel, kernel bug and callee rows were measured
+on 0.3.0, the code-writing row on 0.2.9 and 0.2.10, the two bug-fix rows on 0.2.8, the TypeScript
+row on 0.2.6 and the rest on 0.2.2. For every prompt of those other families the hooks of 0.3.0
+print exactly what the hooks of 0.2.10 print (`bench/tier2/card_diff.py`). The prompts of the
+callee questions were used without a model while the card for them was made, and no session was
+run on them before the build was final.
 
 | Task | Tasks | Right, without and with | Requests | Tool output read, characters | Cost with codefast | Cheaper in |
 |---|---:|---|---|---|---:|---:|
@@ -245,32 +255,35 @@ the build was final.
 | **Where does this error come from?**<br>An error text of go-git or syft: which function creates it, and who calls that function. Checked against the type checker's call graph | 12 | 0.99 and 1.00 | 5.8 and 3.4 | 4.4k and 4.2k | **0.63** | 11 of 12 |
 | **Rename a Go method everywhere**<br>In go-git, where other types have a method of the same name. Checked by the compiler and by what was renamed | 10 | 10 of 10 in each arm | 9.3 and 5.4 | 19.7k and 8.2k | **0.51** | 9 of 10 |
 | **A question about the Linux kernel**<br>18 of the 72 verified questions, none used in a session before | 18 | 0.97 and 1.00 | 4.2 and 2.7 | 4.2k and 3.1k | **0.71** | 13 of 18 |
+| **Which files is this kernel bug in?**<br>48 bug reports of LinuxFLBench, each in a checkout of the kernel version it was filed against. Right when the file the real fix changed is among the up to ten files of the answer | 48 | 0.77 and 0.73 | 5.2 and 4.2 | 13.8k and 12.9k | **0.77** | 37 of 48 |
 | **Write a function that was taken out**<br>20 functions of gitleaks and go-git whose body is replaced by a panic. Checked by running the tests of their package | 20 | 20 and 19.5 of 20 solved | 7.3 and 6.8 | 14.4k and 14.2k | **1.03** | 9 of 20 |
 | **Fix a bug, failing tests given**<br>Issues of Django and sqlglot. Checked by running the tests of the real fix | 15 | 15 of 15 in each arm | 6.3 and 5.8 | 12.7k and 10.5k | **0.93** | 9 of 15 |
 | **Fix a bug from the issue text alone**<br>The same issues without their tests. Checked afterwards against the tests of the real fix | 15 | 7.5 and 7.2 of 15 solved | 7.1 and 6.5 | 9.9k and 9.1k | **0.92** | 6 of 15 |
 
-What this says. Where the work is finding things, a session costs a third to two thirds of what
-it did, and the longer the session runs the more it saves, because what an agent reads early is
-sent again with every later request. The gain is largest where a text search gives the wrong
-answer: a method whose name several types share, a message that could be written anywhere in the
-tree, a rename that has to find every call. What the card for the prompt says decides the short
-sessions. A question about what a function calls cost 1.14 of the control with the plugin of
-0.2.10, whose card named the function and its callers and left the answer to a call: the session
-made three calls on top of its own reading. With a card that is the answer it costs 0.56,
-in 12 of 12 tasks less than the control, with answers as right against the compiler. A question
-about the kernel, whose code the model largely knows, costs 0.71, and where the card holds
-the whole answer, about 0.6. Where a failing test already points at the line, the agent takes
-the same steps with or without codefast. Writing a function is the model's own work: over 20
-functions of two repositories a session costs 1.03 of the control, 0.95 on the first
-repository and 1.08 on the second, and neither figure can be told from 1.00 at this size. Fixing
-a bug is mostly the model's own work, and an index shortens the finding and not the fixing: with
-the tests given a fix costs 0.93 of the control and from the issue text alone 0.92,
-each pooled over four runs. The median task of either family is level with its control, so what
-the total saves comes from the long sessions, the ones where the agent would otherwise have gone
-looking. A card that guessed where the fix belonged from the words of the report made both
-families worse and was taken out. The agent reached for codefast of its own accord in
-66 of the 75 held-out tasks about structure and in 3 of the
-30 bug-fix tasks, with no word about it in the prompt.
+What this says. Where the work is finding things, a session costs a third to two thirds of what it
+did, and the longer the session runs the more it saves, because what an agent reads early is sent
+again with every later request. The gain is largest where a text search gives the wrong answer: a
+method whose name several types share, a message that could be written anywhere in the tree, a
+rename that has to find every call. What the card for the prompt says decides the short sessions.
+A question about what a function calls cost 1.14 of the control with the plugin of 0.2.10, whose
+card named the function and its callers and left the answer to a call: the session made three
+calls on top of its own reading. With a card that is the answer it costs 0.56, in 12 of 12 tasks
+less than the control, with answers as right against the compiler. A question about the kernel,
+whose code the model largely knows, costs 0.71, and where the card holds the whole answer, about
+0.6. Asked which files a kernel bug report points to, a session costs 0.77 of the control and does
+not find the file more often: it is among the files of the answer for 0.73 of the reports against
+0.77, which two runs of 48 reports cannot tell from no difference and which leans the wrong way if
+it leans at all. Where a failing test already points at the line, the agent takes the same steps
+with or without codefast. Writing a function is the model's own work: over 20 functions of two
+repositories a session costs 1.03 of the control, 0.95 on the first repository and 1.08 on the
+second, and neither figure can be told from 1.00 at this size. Fixing a bug is mostly the model's
+own work, and an index shortens the finding and not the fixing: with the tests given a fix costs
+0.93 of the control and from the issue text alone 0.92, each pooled over four runs. The median
+task of either family is level with its control, so what the total saves comes from the long
+sessions, the ones where the agent would otherwise have gone looking. A card that guessed where
+the fix belonged from the words of the report made both families worse and was taken out. The
+agent reached for codefast of its own accord in 66 of the 75 held-out tasks about structure and in
+3 of the 30 bug-fix tasks, with no word about it in the prompt.
 
 The same held-out tasks with Sonnet 5.5, one run per task and arm: a caller question 0.29, a
 session of four 0.23, an error traced to its origin 0.70 and a rename 0.74. The session with
@@ -313,6 +326,99 @@ renames in syft and gitleaks and 23 of 24 in go-git changed 2,907 references and
 compiler error outside the lines the command itself had listed, and 42 more were refused
 (`bench/results/rename-offline-go-git.jsonl`, `rename-sample*.jsonl`).
 
+
+### Two published agent benchmarks
+
+Both set a coding agent with a context tool against the same agent without one, and both
+publish their tasks. One codefast leads, and one it does not.
+
+**agent-context-bench**
+([Rybalchenko, 2026](https://github.com/Neko1313/agent-context-bench)) asks Claude Code 26
+questions about apache/superset 6.0.0 and grades each answer against a key. An arm is one MCP
+server and nothing else: the built-in tools are denied and the system prompt says the tools
+must be used. Its repository has every run of four arms. codefast was run as a fifth under the
+same protocol (`bench/acb/run_acb.py`): the command line, the system prompt and the limit of
+turns of the published harness, three runs per task, the published grading rule. Nothing in
+codefast was changed for it, and these are the figures of its first run
+(`bench/results/acb-codefast-haiku.jsonl`). A second run, with the released 0.3.0 binary, gave
+the same accuracy and cost in both tables (`acb-codefast-haiku-rerun.jsonl`).
+
+The 20 lookups (where is this class defined, what does it inherit from, which hook calls this
+route), with Haiku 4.5:
+
+| Arm | Accuracy | Tool calls | Cost of a task | Seconds |
+|---|---:|---:|---:|---:|
+| grep and read, as published | 0.97 | 11 | $0.051 | 44.5 |
+| graphlens, as published | 0.97 | 3 | $0.027 | 14.9 |
+| Serena (a language server), as published | 0.98 | 4 | $0.022 | 24.7 |
+| CodeGraph, as published | 1.00 | 3 | $0.019 | 11.7 |
+| **codefast** | **1.00** | **1** | **$0.012** | **6.0** |
+
+The 6 hard tasks (which of several classes defines this method, which subclasses override it,
+which files call this function):
+
+| Arm | Accuracy | Answered | Tool calls | Cost of a task | Seconds |
+|---|---:|---:|---:|---:|---:|
+| grep and read, as published | 0.67 | 83% | 38 | $0.385 | 163.7 |
+| graphlens, as published | 0.89 | 100% | 1 | $0.014 | 8.7 |
+| Serena, as published | 0.88 | 100% | 10 | $0.051 | 36.3 |
+| CodeGraph, as published | 0.94 | 100% | 4 | $0.042 | 19.1 |
+| **codefast** | **0.98** | 100% | **1** | **$0.009** | **6.1** |
+
+Accuracy is the mean over the runs and the other columns are the median run, worked out from
+the published rows of the same model by the same script. The 0.98 is four runs of 18 at 0.89:
+the answer names the right four classes and repeats the question's words "excluding the base
+BaseEngineSpec", which the grading rule counts as a fifth class. codefast indexes superset in
+1.0 s, where the study reports 48 s for CodeGraph, 84 s for graphlens and 94 s for Serena on
+its machine.
+
+The study's other two models, run the same way (`bench/results/acb-codefast-sonnet.jsonl`,
+`acb-codefast-opus.jsonl`):
+
+| Model | Tasks | codefast: accuracy, cost of a task | Best published accuracy | Cheapest published arm |
+|---|---|---|---|---|
+| Sonnet 4.6 | 20 lookups | 1.00, $0.012 | 1.00 (all four arms) | Serena, 1.00 at $0.029 |
+| | 6 hard | 0.89, $0.013 | CodeGraph, 0.89 at $0.044 | graphlens, 0.79 at $0.020 |
+| Opus 4.8 | 20 lookups | 1.00, $0.021 | Serena, 1.00 at $0.037 | CodeGraph, 0.97 at $0.034 |
+| | 6 hard | 0.97, $0.042 | CodeGraph, 0.96 at $0.029 | graphlens, 0.85 at $0.016 |
+
+Over the three models and the two kinds of task codefast is the most accurate arm or level with
+it in all six cells, and the cheapest in five. With Opus on the hard tasks it is the most
+accurate and the third cheapest of five. Most of what Sonnet lost on the hard tasks is one
+question, where it listed the test files that call a function along with the 17 source files
+of the key: a complete answer that the key does not want.
+
+What differs from the published runs: they are from June 2026 with Claude Code 2.1.187, and
+these from November with 2.1.323 on another machine. The login here is not a file that could be
+copied into an empty configuration directory, so the sessions ran with user settings switched
+off in an empty directory instead, and two built-in tools that did not exist in June are denied
+as well. A session was given the five tools of codefast and nothing else.
+
+**LinuxFLBench with an agent** ([arXiv 2611.07286](https://arxiv.org/abs/2611.07286)) gives
+Claude Code a kernel bug report and a checkout of the kernel version it was filed against, and
+asks for the files the fix has to change. The paper's best repository map takes 39% of the
+tokens off its baseline and raises the share of reports whose file is among the first ten of
+the answer by 0.11. codefast does not repeat that.
+
+| | File first | File in the ten | Tokens of a session |
+|---|---:|---:|---:|
+| As published, Haiku 4.5: no map | 0.572 | 0.717 | 1,008,163 |
+| As published: the best map | 0.526 | 0.829 | 610,910 |
+| Here, Haiku 5.5, 48 held-out reports: no plugin | 0.542 | 0.771 | 135,316 |
+| Here: with the plugin | 0.521 | 0.729 | 105,115 |
+| Here, the paper's settings, 20 development reports: no plugin | 0.350 | 0.550 | 740,085 |
+| Here, the paper's settings: with a build of the plugin that was not released | 0.300 | 0.600 | 667,008 |
+
+With a current model the plugin takes 22% of the tokens off (8 to 36% at 95%) and does not
+find the file more often: the difference in the ten lies between -0.10 and +0.01. Under the
+paper's own settings, Haiku 4.5 at low effort with 30 turns, it changes little (10% fewer
+tokens, anywhere between 31% fewer and 15% more), and the paper's sentence that the tools must
+be used made the sessions longer. A card that puts the ranking of `codefast locate` in front
+of the session was built for this task, looked good on the reports it was developed on (19%
+fewer tokens than the released plugin) and did nothing on the held-out ones (5%, which could be
+none), so it was not released. What has changed since the paper is the baseline: a session of
+today's model with no map at all is right for 0.77 of the reports at 135 thousand tokens, where
+the paper's baseline used a million. [`bench/tier2/LIVE.md`](bench/tier2/LIVE.md) has the tables.
 
 ### Index a huge repository
 

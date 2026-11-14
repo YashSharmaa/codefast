@@ -1,14 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="626" viewBox="0 0 880 626" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="672" viewBox="0 0 880 672" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
   <title id="t">The same session, with and without codefast</title>
-  <desc id="d">What a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final: who calls this method 0.30, the same question in typescript 0.53, four such questions in one session 0.15, what does this function call 0.56, where does this error come from 0.63, rename a go method everywhere 0.51, a question about the linux kernel 0.71, write a function that was taken out 1.03, fix a bug, failing tests given 0.93, fix a bug from the issue text alone 0.92.</desc>
-  <rect x="0.5" y="0.5" width="879" height="625" rx="12" fill="#f6f8fa" stroke="#d1d9e0"/>
+  <desc id="d">What a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final: who calls this method 0.30, the same question in typescript 0.53, four such questions in one session 0.15, what does this function call 0.56, where does this error come from 0.63, rename a go method everywhere 0.51, a question about the linux kernel 0.71, which files is this kernel bug in 0.77, write a function that was taken out 1.03, fix a bug, failing tests given 0.93, fix a bug from the issue text alone 0.92.</desc>
+  <rect x="0.5" y="0.5" width="879" height="671" rx="12" fill="#f6f8fa" stroke="#d1d9e0"/>
 
   <text x="28" y="42" font-size="20" font-weight="600" fill="#1f2328">The same session, with and without codefast</text>
   <text x="28" y="66" font-size="15" fill="#59636e">Cost of a Claude Code session with the plugin, as a share of the same session without it.</text>
 
   <!-- bench/results/live-heldout-haiku.jsonl, the table 'In real sessions' of the README. bars start at x=348, 330 px stand for a cost of 1.00 -->
-  <path d="M347.5 110V568" stroke="#afb8c1"/>
-  <path d="M678.5 110V568" stroke="#afb8c1"/>
+  <path d="M347.5 110V614" stroke="#afb8c1"/>
+  <path d="M678.5 110V614" stroke="#afb8c1"/>
   <text x="678" y="102" font-size="14" fill="#59636e" text-anchor="middle">without codefast = 1.00</text>
   <text x="332" y="130" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Who calls this method?</text>
   <text x="332" y="148" font-size="13.5" fill="#59636e" text-anchor="end">12 questions about go-git</text>
@@ -38,18 +38,22 @@
   <text x="332" y="424" font-size="13.5" fill="#59636e" text-anchor="end">18 questions</text>
   <path fill="#2a78d6" d="M348 398h230.30a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-230.30z"/>
   <text x="592.30" y="411.5" font-size="16" font-weight="600" fill="#1f2328">0.71</text>
-  <text x="332" y="452" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Write a function that was taken out</text>
-  <text x="332" y="470" font-size="13.5" fill="#59636e" text-anchor="end">20 functions, two Go repositories</text>
-  <path fill="#2a78d6" d="M348 444h335.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-335.90z"/>
-  <text x="697.90" y="457.5" font-size="16" font-weight="600" fill="#1f2328">1.03</text>
-  <text x="332" y="498" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Fix a bug, failing tests given</text>
-  <text x="332" y="516" font-size="13.5" fill="#59636e" text-anchor="end">15 issues</text>
-  <path fill="#2a78d6" d="M348 490h302.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-302.90z"/>
-  <text x="688.00" y="503.5" font-size="16" font-weight="600" fill="#1f2328">0.93</text>
-  <text x="332" y="544" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Fix a bug from the issue text alone</text>
+  <text x="332" y="452" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Which files is this kernel bug in?</text>
+  <text x="332" y="470" font-size="13.5" fill="#59636e" text-anchor="end">48 bug reports, 38 kernel versions</text>
+  <path fill="#2a78d6" d="M348 444h250.10a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-250.10z"/>
+  <text x="612.10" y="457.5" font-size="16" font-weight="600" fill="#1f2328">0.77</text>
+  <text x="332" y="498" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Write a function that was taken out</text>
+  <text x="332" y="516" font-size="13.5" fill="#59636e" text-anchor="end">20 functions, two Go repositories</text>
+  <path fill="#2a78d6" d="M348 490h335.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-335.90z"/>
+  <text x="697.90" y="503.5" font-size="16" font-weight="600" fill="#1f2328">1.03</text>
+  <text x="332" y="544" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Fix a bug, failing tests given</text>
   <text x="332" y="562" font-size="13.5" fill="#59636e" text-anchor="end">15 issues</text>
-  <path fill="#2a78d6" d="M348 536h299.60a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-299.60z"/>
-  <text x="688.00" y="549.5" font-size="16" font-weight="600" fill="#1f2328">0.92</text>
+  <path fill="#2a78d6" d="M348 536h302.90a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-302.90z"/>
+  <text x="688.00" y="549.5" font-size="16" font-weight="600" fill="#1f2328">0.93</text>
+  <text x="332" y="590" font-size="16" font-weight="600" fill="#1f2328" text-anchor="end">Fix a bug from the issue text alone</text>
+  <text x="332" y="608" font-size="13.5" fill="#59636e" text-anchor="end">15 issues</text>
+  <path fill="#2a78d6" d="M348 582h299.60a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-299.60z"/>
+  <text x="688.00" y="595.5" font-size="16" font-weight="600" fill="#1f2328">0.92</text>
 
-  <text x="28" y="606" font-size="13.5" fill="#59636e">Haiku 5.5 in Claude Code 2.1.323, held-out tasks, two to four runs per task and arm. Cost is priced from the size of every request.</text>
+  <text x="28" y="652" font-size="13.5" fill="#59636e">Haiku 5.5 in Claude Code 2.1.323, held-out tasks, two to four runs per task and arm. Cost is priced from the size of every request.</text>
 </svg>

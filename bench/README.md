@@ -12,6 +12,7 @@ language model except the two agent experiments in `tier2`, which are clearly ma
 | `tier1/` | Localisation without a model: task text in, ranked files and functions out |
 | `tier2/` | Agent experiments: real headless sessions with and without the plugin (`live.py`), and an earlier pilot with sub-agents |
 | `codex/` | The plugin inside Codex, checked with the real `codex` binary and a stand-in for the model |
+| `acb/` | codefast as one more arm of a published agent benchmark (agent-context-bench: 26 graded questions about apache/superset) |
 | `scripts/datasets/` | Loaders for the third party datasets, and the script that materialises a source tree at a given commit |
 | `scripts/oracles/` | The programs that built the call graph oracles, and the scorer |
 | `scripts/competitors/` | Index and query wrappers for other tools, run in a sandbox |
@@ -122,6 +123,18 @@ uv run bench/tier2/make_i_tasks.py           # the bug-fix tasks without their t
 uv run bench/tier2/live.py run --tag H --held K,N,E,R,D,I,L --arms control,plugin --model haiku --jobs 2 --reps 2
 ```
 
+Kernel bug reports are a family of their own (F), set up like the one published comparison of
+repository maps for a coding agent on LinuxFLBench (arXiv 2611.07286): the report, a checkout of
+the kernel version it was filed against, and up to ten files as the answer.
+
+```
+python3 -I bench/tier2/make_f_tasks.py          # 50 reports of the half the file ranking was never tuned on
+python3 -I bench/tier2/make_f_tasks.py --dev    # 40 of the other half, to develop on
+uv run --with tiktoken python -I bench/tier2/live.py run --tag F --held F --arms control,plugin --reps 2 --jobs 2
+uv run --with tiktoken python -I bench/tier2/live.py score --tag F --out rows.jsonl --quiet
+python3 -I bench/tier2/score_f.py rows.jsonl    # recall at 1, 5 and 10 and tokens, next to the published rows
+```
+
 `tier2/LIVE.md` is the protocol: the arms, the five kinds of task and how each answer is
 checked, what is measured, and why the tables report a cost priced from the size of every
 request instead of the billed cost. `--resume` continues a batch that was interrupted, and a
@@ -147,6 +160,29 @@ text is in the next request, the MCP tools and the command line answer in the re
 sandbox, and a session in a repository without an index gets one. What a model in Codex does
 with the cards is not measured by this, and has not been measured: the sessions of
 `tier2/live.py` are Claude Code sessions.
+
+## A published agent benchmark, with codefast as one more arm (`acb`)
+
+agent-context-bench (Rybalchenko, 2026, https://github.com/Neko1313/agent-context-bench) asks
+Claude Code 26 questions about apache/superset 6.0.0 and grades each answer against a key. An
+arm is one MCP server and nothing else: the built-in tools are denied and the system prompt
+says the tools must be used. Its repository has the tasks, the harness and every one of its
+936 runs, for a file system server (grep and read), graphlens, Serena and CodeGraph.
+
+`run_acb.py` runs the same protocol with codefast's MCP server as the arm. The command line,
+the system prompt, the list of denied tools and the limit of turns are read from the published
+harness at run time, and its tasks are not copied into this repository. `score` prints the
+rows next to the published rows of the same model.
+
+```
+python3 -I bench/acb/run_acb.py fetch      # the benchmark's repository and superset 6.0.0
+python3 -I bench/acb/run_acb.py run --arm codefast --out bench/results/acb-codefast-haiku.jsonl
+python3 -I bench/acb/run_acb.py score bench/results/acb-codefast-haiku.jsonl
+```
+
+This spends model usage: 78 sessions of Haiku 4.5. `--arm codegraph` runs the published
+CodeGraph arm again with the version installed under `bench/tools`, to see how far figures
+from another machine and another month can be set next to figures from here.
 
 ## The rename command, judged by the compiler (`tier2/rename_*.py`)
 
