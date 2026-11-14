@@ -20,6 +20,12 @@
 //! definitions the uncommitted changes added, removed and altered: what the session did so far,
 //! in a few lines, at the moment its own record of it was summarised away.
 //!
+//! Two notes are for the person at the keyboard and never reach the model (Claude Code's
+//! `systemMessage`): that a conversation has grown so long that every request pays a good deal
+//! to read it again, and that a conversation's prompt cache has run out, so that the next
+//! request sends all of it again as new input. Each is said once per occasion, and
+//! `CODEFAST_COST_NOTES=off` turns them off.
+//!
 //! The payload is the harness's hook input (Claude Code and Codex share the shape; Cursor and
 //! Gemini CLI are recognised by their own field names). The reply is the harness's hook output
 //! carrying `additionalContext`, or nothing. A hook never blocks or rewrites a tool call, prints
@@ -37,6 +43,9 @@
 //! # Environment
 //!
 //! `CODEFAST_HOOKS=off` (or `0`, `false`, `no`) turns all three events off.
+//! `CODEFAST_COST_NOTES=off` keeps the hooks and drops the two notes to the person, and
+//! `CODEFAST_CARRY` is the size in tokens from which a long conversation is spoken of
+//! (default 200000).
 //! `CODEFAST_HOOK_BUDGET_MS` is how long `post-tool-use` may wait for the caller summary
 //! (default 50; the definition line goes out either way). `--root`, `CODEFAST_ROOT`,
 //! `CODEFAST_INDEX_DIR` and `CODEFAST_NO_REFRESH` mean what they mean for every other command:
@@ -121,6 +130,18 @@ const CHECK_BYTES: usize = 2600;
 const CHECK_FILES: usize = 40;
 /// The summary of the uncommitted changes after a compaction, in tokens.
 const RECAP_TOKENS: usize = 350;
+
+/// A conversation smaller than this is not worth a word about what resending it costs.
+const COLD_NOTE_FROM: u64 = 60_000;
+/// A conversation above this many tokens is carried at a cost worth telling its owner
+/// (`CODEFAST_CARRY` sets another figure). The same threshold as `doctor sessions`.
+const CARRY_NOTE_FROM: u64 = super::sessions::CARRY;
+/// The note comes back each time the conversation has grown by this much more.
+const CARRY_NOTE_STEP: u64 = 100_000;
+/// How long a prompt cache lives after the last request, with what the harness takes to send
+/// the next one left off: the one-hour cache and the five-minute cache.
+const CACHE_HOUR: Duration = Duration::from_secs(55 * 60);
+const CACHE_FIVE: Duration = Duration::from_secs(5 * 60);
 
 const LOCK_FILE: &str = "refresh.lock";
 const LOCK_STALE: Duration = Duration::from_secs(600);
@@ -243,7 +264,7 @@ fn value_end(b: &[u8], i: usize) -> Option<usize> {
 }
 
 const WANTED: &[&str] =
-    &["session_id", "conversation_id", "agent_id", "cwd", "workspace_roots", "hook_event_name", "tool_name", "tool_input", "tool_response", "tool_output", "cursor_version", "prompt", "source"];
+    &["session_id", "conversation_id", "agent_id", "cwd", "workspace_roots", "hook_event_name", "tool_name", "tool_input", "tool_response", "tool_output", "cursor_version", "prompt", "source", "transcript_path", "context_tokens", "prompt_cache_likely_expired", "seconds_since_last_response"];
 
 /// The wanted members of the payload's top-level object, as raw JSON text. Everything else is
 /// stepped over without being parsed. `None` unless the input is one JSON object and nothing
@@ -325,6 +346,11 @@ struct Payload {
     source: Option<String>,
     /// What the tool printed, when the payload carries it and it is not large.
     output: Option<String>,
+    /// Where the harness keeps the record of this conversation.
+    transcript: Option<String>,
+    /// On resuming a conversation, what the harness says of it: its size in tokens, whether
+    /// its prompt cache has probably expired, and the seconds since its last reply.
+    resumed: (Option<u64>, Option<bool>, Option<u64>),
     /// Cursor's hook protocol: flat, snake-case output.
     cursor: bool,
 }
@@ -358,6 +384,10 @@ impl Payload {
                     }
                 }
                 "tool_response" | "tool_output" => p.output = output_text(raw).or(p.output),
+                "transcript_path" => p.transcript = string(raw),
+                "context_tokens" => p.resumed.0 = raw.trim().parse().ok(),
+                "prompt_cache_likely_expired" => p.resumed.1 = raw.trim().parse().ok(),
+                "seconds_since_last_response" => p.resumed.2 = raw.trim().parse::<f64>().ok().map(|x| x.max(0.0) as u64),
                 "cursor_version" => p.cursor = true,
                 _ => {}
             }
@@ -381,6 +411,11 @@ impl Payload {
             }
             _ => plain,
         }
+    }
+
+    /// A line for the person at the keyboard alone: nothing of it reaches the model.
+    fn to_user(&self, msg: &str) -> String {
+        if self.cursor || msg.is_empty() { String::new() } else { format!("{}\n", json!({"systemMessage": msg})) }
     }
 
     /// The hook output that carries `text` to the model, in the harness's own schema; empty
@@ -860,7 +895,8 @@ fn session_start(passed: &Path, payload: &Payload) -> String {
     // One line. What the tool can do is in its skill and its tool list: said again here, on
     // every session, it would be paid for on every request and read on none.
     let note = format!("{state}: `{cli} search NAME` prints a symbol's definition, its body and every place that uses it in one call.");
-    payload.reply_with(Event::SessionStart, &note, context_cost(&place, payload, &cli).as_deref())
+    let to_user = resume_note(&place, payload).or_else(|| context_cost(&place, payload, &cli));
+    payload.reply_with(Event::SessionStart, &note, to_user.as_deref())
 }
 
 /// Once a week per project, for the person and not for the model: what the harness's own
@@ -877,6 +913,96 @@ fn context_cost(place: &Place, payload: &Payload, cli: &str) -> Option<String> {
     let note = super::audit::session_note(&place.root, cli)?;
     std::fs::write(&stamp, b"").ok()?;
     Some(format!("codefast: {note}."))
+}
+
+// ----- what the conversation itself costs: for the person, never for the model -----
+
+fn cost_notes_off() -> bool {
+    std::env::var("CODEFAST_COST_NOTES").is_ok_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "0" | "false" | "no"))
+}
+
+fn carry_from() -> u64 {
+    std::env::var("CODEFAST_CARRY").ok().and_then(|v| v.trim().parse().ok()).filter(|n| *n > 0).unwrap_or(CARRY_NOTE_FROM)
+}
+
+fn idle_text(secs: u64) -> String {
+    match secs / 60 {
+        m if m < 60 => format!("{m} minutes"),
+        m if m < 120 => format!("1 hour {} minutes", m - 60),
+        m if m < 48 * 60 => format!("{} hours", m / 60),
+        m => format!("{} days", m / (24 * 60)),
+    }
+}
+
+/// What a conversation of `context` tokens costs to send again once its cache is gone, next to
+/// what it costs warm: a cache write against a cache read.
+fn cold_note(context: u64, idle_secs: u64, one_hour: bool, resumed: bool) -> String {
+    let times = if one_hour { super::sessions::CACHE_WRITE_1H } else { super::sessions::CACHE_WRITE_5M } / super::sessions::CACHE_READ;
+    let size = super::sessions::short(context as f64);
+    let lead = if resumed {
+        format!("this conversation is {size} tokens and its prompt cache has run out (idle for {}). The first request sends all of it again", idle_text(idle_secs))
+    } else {
+        format!("this conversation was idle for {}, longer than its prompt cache lives. This request sends its {size} tokens again", idle_text(idle_secs))
+    };
+    format!("codefast: {lead} as new input, about {times:.0} times what a warm request pays for them. Before a job that does not need the whole conversation, `/clear` or a new session costs none of that.")
+}
+
+/// Once per stretch of growth, what every request of a very long conversation pays before it
+/// does any work.
+fn carried_note(context: u64, cli: &str) -> String {
+    format!(
+        "codefast: this conversation is {} tokens long, and every request reads all of it again before doing any work: that alone costs what {} tokens of output cost, each time. `/compact` costs about one such request and makes the next ones several times lighter. `{cli} doctor sessions` shows where a session's tokens went.",
+        super::sessions::short(context as f64),
+        super::sessions::short(context as f64 * super::sessions::CACHE_READ / super::sessions::OUTPUT)
+    )
+}
+
+/// The note for the person who has just sent a prompt, if the conversation has come to cost
+/// something they can do something about. Claude Code only, where the hook is given the
+/// transcript, and never inside a subagent. Each occasion is told once.
+fn conversation_note(place: &Place, payload: &Payload, cli: &str) -> Option<String> {
+    if std::env::var_os("CLAUDECODE").is_none() || payload.agent.is_some() || cost_notes_off() {
+        return None;
+    }
+    let last = super::sessions::last_request(Path::new(payload.transcript.as_deref()?))?;
+    let session = Session::open(place, payload.session.as_deref())?;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_millis() as i64;
+    let idle = Duration::from_millis((now - last.at).max(0) as u64);
+    // Where the transcript does not say which cache is written, the longer one is assumed:
+    // a note about a cache that has not run out would be wrong, and a missing note is not.
+    let one_hour = last.one_hour.unwrap_or(true);
+    if idle >= if one_hour { CACHE_HOUR } else { CACHE_FIVE } && last.context >= COLD_NOTE_FROM {
+        return session.claim(&format!("cold {}", last.at / 60_000)).then(|| cold_note(last.context, idle.as_secs(), one_hour, false));
+    }
+    let from = carry_from();
+    if last.context >= from {
+        let step = (last.context - from) / CARRY_NOTE_STEP;
+        return session.claim(&format!("carried {step}")).then(|| carried_note(last.context, cli));
+    }
+    None
+}
+
+/// The same for a conversation that is being resumed, from what the harness says of it, before
+/// the first prompt is typed.
+fn resume_note(place: &Place, payload: &Payload) -> Option<String> {
+    if std::env::var_os("CLAUDECODE").is_none() || payload.agent.is_some() || cost_notes_off() || !matches!(payload.source.as_deref(), Some("resume" | "fork")) {
+        return None;
+    }
+    let (context, expired, idle) = match payload.resumed {
+        (Some(c), Some(e), idle) => (c, e, idle.unwrap_or(0)),
+        // An older harness does not say: the transcript does.
+        _ => {
+            let last = super::sessions::last_request(Path::new(payload.transcript.as_deref()?))?;
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_millis() as i64;
+            let idle = Duration::from_millis((now - last.at).max(0) as u64);
+            (last.context, idle >= if last.one_hour.unwrap_or(true) { CACHE_HOUR } else { CACHE_FIVE }, idle.as_secs())
+        }
+    };
+    if !expired || context < COLD_NOTE_FROM {
+        return None;
+    }
+    let session = Session::open(place, payload.session.as_deref())?;
+    session.claim(&format!("resumed {}", idle / 60)).then(|| cold_note(context, idle, true, true))
 }
 
 // ----- user-prompt-submit -----
@@ -1379,6 +1505,95 @@ fn answer_cards(ix: &Index, rs: &Resolver, place: &Place, session: &Session, fou
     sent
 }
 
+/// The one thing a rename of the prompt is about: by the owner it was written with, the file
+/// the prompt names, and what the prompt says it is ("the function", "its field"). `None`
+/// unless exactly one thing is left.
+fn rename_target<'a>(ix: &'a Index, rs: &Resolver<'a>, r: &prompt::Rename, paths: &[String]) -> Option<Target> {
+    let nid = ix.name_id(r.what.name.as_bytes())?;
+    let mut defs: Vec<DefId> = ix.defs_named_id(nid).take(OWNED_SCAN + 1).collect();
+    if defs.is_empty() || defs.len() > OWNED_SCAN {
+        return None;
+    }
+    if let Some(owner) = &r.what.owner {
+        let held: Vec<DefId> = defs.iter().copied().filter(|&d| ix.def(d).parent_name() == Some(owner.as_bytes())).collect();
+        defs = if held.is_empty() {
+            // `plan.Make`: a package or module, which is part of the path of the file.
+            let (stem, dir) = (format!("/{owner}."), format!("/{owner}/"));
+            let in_module = |d: &DefId| {
+                let path = format!("/{}", ix.def(*d).path());
+                ix.def(*d).parent().is_none() && (path.contains(&stem) || path.contains(&dir))
+            };
+            defs.into_iter().filter(in_module).collect()
+        } else {
+            held
+        };
+    }
+    let in_named_file: Vec<DefId> = defs.iter().copied().filter(|&d| paths.iter().any(|p| ix.def(d).path().ends_with(p.as_str()))).collect();
+    if !in_named_file.is_empty() {
+        defs = in_named_file;
+    }
+    if defs.is_empty() || defs.len() > MAX_DEFS {
+        return None;
+    }
+    let mut ents: Vec<Target> = rs.entities(&defs).into_iter().filter(|t| t.class != Class::Module).collect();
+    if let Some(sort) = r.sort {
+        let is = |c: Class| match sort {
+            prompt::Sort::Callable => c == Class::Callable,
+            prompt::Sort::Type => c == Class::Type,
+            prompt::Sort::Member => matches!(c, Class::Member | Class::Value),
+        };
+        if ents.iter().any(|t| is(t.class)) {
+            ents.retain(|t| is(t.class));
+        }
+    }
+    match &ents[..] {
+        [one] => Some(one.clone()),
+        _ => None,
+    }
+}
+
+/// A prompt that asks for renames and says both names of each gets the commands that do them,
+/// whole: `codefast rename Step.Target Name`. A command with a blank left in it is one more
+/// thing to work out, and a rename of three things is three searches by hand.
+fn rename_cards(ix: &Index, rs: &Resolver, session: &Session, found: &prompt::Mentions, cli: &str) -> Option<String> {
+    let mut lines: Vec<(bool, String, String)> = Vec::new();
+    for r in &found.renames {
+        let Some(target) = rename_target(ix, rs, r, &found.paths) else { continue };
+        let def = target.primary(ix);
+        if !current(ix, def.file()) {
+            continue;
+        }
+        let name = String::from_utf8_lossy(&target.name).into_owned();
+        let owner = target.owner.as_ref().map(|o| String::from_utf8_lossy(o).into_owned());
+        // The shortest way of saying it that means one thing to the command.
+        let alone = rs.entities_named(&target.name).iter().filter(|t| t.class != Class::Module).count() == 1;
+        let spec = match (&owner, alone) {
+            (Some(o), _) => format!("{o}.{name}"),
+            (None, true) => name.clone(),
+            (None, false) => format!("{}:{}", def.path(), def.rec.line),
+        };
+        let uses = spread(ix, rs, &target).filter(|s| s.starts_with("called from") || s.starts_with("used at"));
+        let key = def.qualified();
+        if session.seen(&format!("p:{key}")) {
+            continue;
+        }
+        lines.push((owner.is_some(), format!("`{cli} rename {spec} {}`", r.new_name), format!("{}:{}{}", def.path(), def.rec.line, uses.map(|u| format!(", {u}")).unwrap_or_default())));
+        session.claim(&format!("p:{key}"));
+        session.claim(&format!("s:{name}"));
+    }
+    // A member is renamed before the type it belongs to, while that type still has the name
+    // the command was written with.
+    lines.sort_by_key(|l| !l.0);
+    match &lines[..] {
+        [] => None,
+        [(_, command, place)] => Some(format!("{command} does this rename in one step: the definition at {place}, and every reference the index is sure of. It lists what it leaves alone.")),
+        many => Some(format!(
+            "each of these renames is one command, which changes the definition and every reference the index is sure of and lists what it leaves alone:\n{}",
+            many.iter().map(|(_, command, place)| format!("{command}  (defined at {place})")).collect::<Vec<_>>().join("\n")
+        )),
+    }
+}
+
 fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id: Option<String>, cli: String, tx: mpsc::Sender<String>) {
     let Some(ix) = open_index(&place) else { return };
     let Some(session) = Session::open(&place, session_id.as_deref()) else { return };
@@ -1396,6 +1611,13 @@ fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id:
 
     let mut code_left = CARD_CODE_LINES;
     let mut seen: Vec<DefId> = Vec::new();
+    // A rename whose two names the prompt gives: the commands, and nothing beside them.
+    if found.rename
+        && let Some(card) = rename_cards(&ix, &rs, &session, &found, &cli)
+    {
+        let _ = tx.send(card);
+        return;
+    }
     // First, the question itself where it has a shape the index answers whole.
     sent += answer_cards(&ix, &rs, &place, &session, &found, &cli, &mut seen, &tx);
     for m in order {
@@ -1496,29 +1718,35 @@ fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id:
 }
 
 fn user_prompt(passed: &Path, payload: &Payload, started: Instant) -> String {
-    let Some(text) = payload.prompt.as_deref() else { return String::new() };
+    let Some(place) = Place::find(passed, payload.cwd.as_deref()) else { return String::new() };
+    let cli = cli();
+    // For the person and not the model, and whatever the prompt says.
+    let note = conversation_note(&place, payload, &cli);
+    let cards = prompt_text(place, payload, cli, started);
+    match (cards, note) {
+        (Some(text), note) => payload.reply_with(Event::UserPromptSubmit, &text, note.as_deref()),
+        (None, Some(note)) => payload.to_user(&note),
+        (None, None) => String::new(),
+    }
+}
+
+/// What the prompt hook adds for the model: the cards of the symbols and messages it names.
+fn prompt_text(place: Place, payload: &Payload, cli: String, started: Instant) -> Option<String> {
+    let text = payload.prompt.as_deref()?;
     let found = prompt::mentions(text);
     if found.symbols.is_empty() && text.len() < ORIGIN_MIN_PROMPT {
-        return String::new();
+        return None;
     }
-    let Some(place) = Place::find(passed, payload.cwd.as_deref()) else { return String::new() };
     let session_id = payload.audience();
     let (tx, rx) = mpsc::channel();
-    let cli = cli();
     let quoted = clip_bytes(text, 24 * 1024);
-    let worker = std::thread::Builder::new().stack_size(16 << 20).spawn(move || prompt_cards(place, found, quoted, session_id, cli, tx));
-    if worker.is_err() {
-        return String::new();
-    }
+    std::thread::Builder::new().stack_size(16 << 20).spawn(move || prompt_cards(place, found, quoted, session_id, cli, tx)).ok()?;
     // Whatever is ready when the time is up goes out: a card that is late is not waited for.
     let mut cards: Vec<String> = Vec::new();
     while let Ok(card) = rx.recv_timeout(SLOW_DEADLINE.saturating_sub(started.elapsed())) {
         cards.push(card);
     }
-    if cards.is_empty() {
-        return String::new();
-    }
-    payload.reply(Event::UserPromptSubmit, &format!("codefast: {}", cards.join("\n")))
+    (!cards.is_empty()).then(|| format!("codefast: {}", cards.join("\n")))
 }
 
 // ----- post-tool-use -----

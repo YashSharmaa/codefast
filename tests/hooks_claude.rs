@@ -301,3 +301,120 @@ fn without_codefast_on_the_path_the_note_names_the_binary() {
     let note = hook(&home, &repo.dir, "post-tool-use", in_session(&input, "codex-plugin").as_bytes(), &from_codex).context("PostToolUse");
     assert!(note.contains(&format!("`{BIN} callers dev_read`")), "{note}");
 }
+
+/// Seconds since the epoch as the time a transcript line carries.
+fn rfc3339(secs: i64) -> String {
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let (d, m) = (doy - (153 * mp + 2) / 5 + 1, if mp < 10 { mp + 3 } else { mp - 9 });
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.000Z", rem / 3600, rem % 3600 / 60, rem % 60)
+}
+
+/// The transcript the prompt payload names, ending in a request that carried `context` tokens
+/// `minutes` ago and wrote to the one-hour or the five-minute cache.
+fn transcript(home: &std::path::Path, context: u64, minutes: i64, one_hour: bool) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let (long, short) = if one_hour { (900, 0) } else { (0, 900) };
+    let line = |id: &str, ctx: u64, at: i64| {
+        serde_json::json!({"type": "assistant", "isSidechain": false, "timestamp": rfc3339(at), "message": {"id": id, "model": "claude-sonnet-5", "usage": {
+            "input_tokens": 2, "cache_read_input_tokens": ctx - 902, "cache_creation_input_tokens": 900, "output_tokens": 0,
+            "cache_creation": {"ephemeral_1h_input_tokens": long, "ephemeral_5m_input_tokens": short}}}})
+        .to_string()
+    };
+    let text = format!(
+        "{}\n{}\n{}\n",
+        line("msg_1", 30_000, now - minutes * 60 - 600),
+        serde_json::json!({"type": "user", "message": {"role": "user", "content": "go on"}}),
+        line("msg_2", context, now - minutes * 60)
+    );
+    write(&home.join(".claude/projects/-work-project/0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11.jsonl"), &text);
+}
+
+/// What a reply says to the person at the keyboard, and whether it also carries context for
+/// the model.
+fn to_user(ran: &Ran) -> (String, bool) {
+    assert_eq!((ran.code, ran.stderr.as_str()), (0, ""));
+    let v: serde_json::Value = serde_json::from_str(&ran.stdout).unwrap_or_else(|e| panic!("not JSON ({e}): {:?}", ran.stdout));
+    (v["systemMessage"].as_str().unwrap_or_default().to_string(), v.get("hookSpecificOutput").is_some())
+}
+
+/// A very long conversation is read again in full by every request. The person is told what
+/// that costs once, and again when it has grown by another hundred thousand tokens. The model
+/// is told nothing.
+#[test]
+fn the_owner_of_a_very_long_conversation_is_told_what_each_request_carries() {
+    let (repo, home) = indexed("carried");
+    let claude = [("CLAUDECODE", "1")];
+    let plain = payload("claude-user-prompt", &repo.dir, &home).replace("dev_read returns -1 for a device that is open. Find out why and fix it.", "go on");
+    transcript(&home, 430_000, 1, true);
+    let (said, for_model) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude));
+    assert!(said.starts_with("codefast: this conversation is 430k tokens long, and every request reads all of it again"), "{said}");
+    assert!(said.contains("what 9k tokens of output cost") && said.contains("`/compact`") && said.contains("doctor sessions`"), "{said}");
+    assert!(!for_model, "nothing of it is context for the model");
+    hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude).assert_quiet("said once for this size");
+    transcript(&home, 470_000, 1, true);
+    hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude).assert_quiet("not again for forty thousand more");
+    transcript(&home, 540_000, 1, true);
+    let (said, _) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude));
+    assert!(said.contains("540k tokens long"), "{said}");
+
+    // A prompt that names a symbol gets its card, and the person gets the note beside it.
+    let card = in_session(&payload("claude-user-prompt", &repo.dir, &home), "with-a-card");
+    let (said, for_model) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", card.as_bytes(), &claude));
+    assert!(said.contains("540k tokens long") && for_model, "{said}");
+
+    // Silent: switched off, inside a subagent, in another harness, and for a short conversation.
+    let fresh = |id: &str| in_session(&plain, id);
+    hook(&home, &repo.dir, "user-prompt-submit", fresh("off").as_bytes(), &[("CLAUDECODE", "1"), ("CODEFAST_COST_NOTES", "off")]).assert_quiet("switched off");
+    let mut sub: serde_json::Value = serde_json::from_str(&fresh("sub")).unwrap();
+    sub["agent_id"] = serde_json::json!("a1b2c3");
+    hook(&home, &repo.dir, "user-prompt-submit", sub.to_string().as_bytes(), &claude).assert_quiet("a subagent");
+    hook(&home, &repo.dir, "user-prompt-submit", fresh("elsewhere").as_bytes(), &[]).assert_quiet("not Claude Code");
+    transcript(&home, 150_000, 1, true);
+    hook(&home, &repo.dir, "user-prompt-submit", fresh("short").as_bytes(), &claude).assert_quiet("150k tokens are not worth a word");
+    let (said, _) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", fresh("lower").as_bytes(), &[("CLAUDECODE", "1"), ("CODEFAST_CARRY", "100000")]));
+    assert!(said.contains("150k tokens long"), "the threshold can be set: {said}");
+}
+
+/// Past the life of its prompt cache, a conversation is sent again at the price of new input.
+#[test]
+fn the_owner_is_told_when_the_prompt_cache_has_run_out() {
+    let (repo, home) = indexed("cold");
+    let claude = [("CLAUDECODE", "1")];
+    let plain = payload("claude-user-prompt", &repo.dir, &home).replace("dev_read returns -1 for a device that is open. Find out why and fix it.", "go on");
+    transcript(&home, 150_000, 70, true);
+    let (said, for_model) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude));
+    assert!(said.starts_with("codefast: this conversation was idle for 1 hour 10 minutes, longer than its prompt cache lives. This request sends its 150k tokens again as new input, about 20 times"), "{said}");
+    assert!(said.contains("`/clear`") && !for_model, "{said}");
+    hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude).assert_quiet("once for this gap");
+
+    // The five-minute cache runs out sooner and costs less to write.
+    transcript(&home, 150_000, 6, false);
+    let (said, _) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "five").as_bytes(), &claude));
+    assert!(said.contains("idle for 6 minutes") && said.contains("about 12 times"), "{said}");
+    // Half an hour is inside the one-hour cache, and a small conversation costs little either way.
+    transcript(&home, 150_000, 30, true);
+    hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "warm").as_bytes(), &claude).assert_quiet("the cache still holds");
+    transcript(&home, 40_000, 300, true);
+    hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "small").as_bytes(), &claude).assert_quiet("a small conversation");
+
+    // On resuming, the harness says what it knows, and the person is told before typing.
+    let mut resume: serde_json::Value = serde_json::from_str(&payload("claude-session-start", &repo.dir, &home)).unwrap();
+    resume["source"] = serde_json::json!("resume");
+    resume["context_tokens"] = serde_json::json!(300_000);
+    resume["prompt_cache_likely_expired"] = serde_json::json!(true);
+    resume["seconds_since_last_response"] = serde_json::json!(7200);
+    let (said, for_model) = to_user(&hook(&home, &repo.dir, "session-start", in_session(&resume.to_string(), "resumed").as_bytes(), &claude));
+    assert!(said.starts_with("codefast: this conversation is 300k tokens and its prompt cache has run out (idle for 2 hours). The first request sends all of it again as new input"), "{said}");
+    assert!(for_model, "the session's own note goes to the model as before");
+    resume["prompt_cache_likely_expired"] = serde_json::json!(false);
+    let (said, _) = to_user(&hook(&home, &repo.dir, "session-start", in_session(&resume.to_string(), "resumed-warm").as_bytes(), &claude));
+    assert!(!said.contains("prompt cache"), "a warm cache is not spoken of: {said}");
+}

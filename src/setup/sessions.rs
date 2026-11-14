@@ -324,6 +324,61 @@ fn usage(u: &Value) -> Usage {
     }
 }
 
+/// The last request of the main thread that a transcript records.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Last {
+    /// What the next request will send before anything new: the last request's context and
+    /// its reply.
+    pub context: u64,
+    /// Milliseconds since the epoch.
+    pub at: i64,
+    /// Whether the conversation is written to the one-hour cache, where the transcript says.
+    pub one_hour: Option<bool>,
+}
+
+/// The last main-thread request of the transcript at `path`, found from the end of the file:
+/// a transcript can be a hundred megabytes, and a hook has no time to read it.
+pub fn last_request(path: &Path) -> Option<Last> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    for window in [1u64 << 19, 1 << 22, 1 << 25] {
+        let from = len.saturating_sub(window);
+        file.seek(SeekFrom::Start(from)).ok()?;
+        let mut buf = Vec::new();
+        file.by_ref().take(window).read_to_end(&mut buf).ok()?;
+        // The window begins in the middle of a line unless it begins the file.
+        let start = if from == 0 { 0 } else { memchr::memchr(b'\n', &buf).map_or(buf.len(), |i| i + 1) };
+        let mut found: Option<Last> = None;
+        for line in buf[start..].rsplit(|b| *b == b'\n') {
+            if memchr::memmem::find(line, b"\"assistant\"").is_none() {
+                continue;
+            }
+            let Ok(v) = serde_json::from_slice::<Value>(line) else { continue };
+            if v["type"] != "assistant" || v["isSidechain"] == true || v["message"]["model"] == "<synthetic>" {
+                continue;
+            }
+            let u = usage(&v["message"]["usage"]);
+            let (Some(context), Some(at)) = (u.context(), v["timestamp"].as_str().and_then(parse_time)) else { continue };
+            let written = (u.write_5m.unwrap_or(0), u.write_1h.unwrap_or(0));
+            let which = (written.0 + written.1 > 0).then_some(written.1 > 0);
+            match &mut found {
+                // The newest request gives the size and the time. Which cache it writes to is
+                // taken from the newest request that wrote anything.
+                None => found = Some(Last { context: context + u.output.unwrap_or(0), at, one_hour: which }),
+                Some(last) => last.one_hour = last.one_hour.or(which),
+            }
+            if found.is_some_and(|l| l.one_hour.is_some()) {
+                break;
+            }
+        }
+        if found.is_some() || from == 0 {
+            return found;
+        }
+    }
+    None
+}
+
 /// Which kind of line this is worth parsing as, decided without parsing it. Most of a large
 /// transcript is lines of other kinds (requests as sent, attachments, snapshots).
 fn wanted(line: &[u8]) -> bool {

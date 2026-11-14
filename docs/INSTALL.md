@@ -855,6 +855,21 @@ by when a transcript last changed), `--session ID` breaks one session down reque
 Counts that an older harness version did not write, such as thinking tokens, are reported as
 not recorded rather than as zero. Codex is not read yet.
 
+In Claude Code two notes go to you and not to the model, so they cost no tokens. Each is said
+once per occasion, and `CODEFAST_COST_NOTES=off` turns them off:
+
+- When a conversation has passed 200,000 tokens: what every request now pays to read it again,
+  and that `/compact` costs about one such request. It comes back each time the conversation has
+  grown by another 100,000 tokens. `CODEFAST_CARRY=N` sets another threshold.
+- When you come back to a conversation of 60,000 tokens or more after its prompt cache has run
+  out (an hour, or five minutes where the transcript shows the five-minute cache), or resume
+  such a conversation: that the next request sends all of it again as new input, at 12 to 20
+  times the price of a warm one, and that `/clear` or a new session avoids it when the next job
+  does not need the history.
+
+`codefast doctor sessions` gives the same figures after the fact, for every session of the
+project.
+
 ## 5. Release assets
 
 The launcher and `install.sh` expect a release `vX.Y.Z` to carry:

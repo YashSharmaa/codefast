@@ -83,7 +83,7 @@ fn a_prompt_gets_no_card_for_what_the_index_cannot_pin_down() {
     // the card is the command that does it.
     let said = ask("e", "Rename the field read of dev_ops to read_bytes everywhere.");
     assert!(
-        said.stdout.is_empty() || said.context("UserPromptSubmit").contains("rename dev_ops.read NEW_NAME` renames dev_ops.read in one step: the definition at src/io.h:3"),
+        said.stdout.is_empty() || said.context("UserPromptSubmit").contains("rename dev_ops.read read_bytes` does this rename in one step: the definition at src/io.h:3"),
         "{}",
         said.stdout
     );
@@ -384,6 +384,26 @@ fn a_prompt_that_asks_for_a_rename_gets_the_command_that_does_it() {
     // One card, led by the command. The usual card about the symbol is not sent with it.
     assert_eq!(
         said,
-        "codefast: `codefast rename dev_read NEW_NAME` renames dev_read in one step: the definition at src/io.c:4 and every reference the index is sure of (called from 1 site in 1 file). It lists what it leaves alone."
+        "codefast: `codefast rename dev_read dev_fetch` does this rename in one step: the definition at src/io.c:4, called from 1 site in 1 file, and every reference the index is sure of. It lists what it leaves alone."
     );
+
+    // Several renames in one request: a command for each, with both names in it, and a member
+    // before the type it belongs to, which is renamed too.
+    let several = in_session(&input, "several").replace(
+        "Rename `dev_read` to `dev_fetch` everywhere, tests included.",
+        "Rename these everywhere: the function `dev_write` to `dev_put`, the struct `dev_ops` to `dev_table`, and its field `read` to `fetch`.",
+    );
+    assert!(several.contains("its field `read`"), "{several}");
+    let said = hook(&home, &repo.dir, "user-prompt-submit", several.as_bytes(), &[]).context("UserPromptSubmit");
+    let lines: Vec<&str> = said.lines().collect();
+    assert_eq!(lines.len(), 4, "{said}");
+    assert_eq!(lines[0], "codefast: each of these renames is one command, which changes the definition and every reference the index is sure of and lists what it leaves alone:");
+    assert!(lines[1].starts_with("`codefast rename dev_ops.read fetch`  (defined at src/io.h:3"), "{said}");
+    assert!(lines[2].starts_with("`codefast rename dev_write dev_put`  (defined at src/io.c:11, called from 1 site in 1 file)"), "{said}");
+    assert!(lines[3].starts_with("`codefast rename dev_ops dev_table`  (defined at src/io.h:2"), "{said}");
+
+    // A request that names no new name is answered as before, with the command to fill in.
+    let open = in_session(&input, "open").replace("Rename `dev_read` to `dev_fetch` everywhere, tests included.", "Rename `dev_read`: it reads from a device, and the name should say so.");
+    let said = hook(&home, &repo.dir, "user-prompt-submit", open.as_bytes(), &[]).context("UserPromptSubmit");
+    assert!(said.starts_with("codefast: `codefast rename dev_read NEW_NAME` renames dev_read in one step"), "{said}");
 }

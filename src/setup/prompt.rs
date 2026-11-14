@@ -30,9 +30,27 @@ pub enum Ask {
     Writers(String),
 }
 
+/// What a prompt says a thing is, in the word before its name: "the function X", "its field Y".
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Sort {
+    Callable,
+    Type,
+    Member,
+}
+
+/// One thing a prompt asks to be renamed, and the name it is to get.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rename {
+    pub what: Mention,
+    pub sort: Option<Sort>,
+    pub new_name: String,
+}
+
 #[derive(Debug, Default, PartialEq)]
 pub struct Mentions {
     pub symbols: Vec<Mention>,
+    /// The renames a prompt asks for, where it says both names: "`Step` to `Action`".
+    pub renames: Vec<Rename>,
     /// Words that look like file paths (`pkg/collection.go`, `collection.go`).
     pub paths: Vec<String>,
     /// The prompt asks for something to be renamed.
@@ -158,6 +176,85 @@ fn phrases(out: &mut Mentions, text: &str) {
         let owner = owner.rsplit(['.', ':']).next().unwrap_or(owner);
         if is_ident(owner) && owner != name {
             push(out, Mention { owner: Some(owner.to_string()), name: name.to_string(), explicit: true, is_type: false });
+        }
+    }
+}
+
+/// A name as a prompt writes it: with the owner it was qualified with (`Collection.Add`,
+/// `plan.Make`, `Set::insert`), or alone.
+fn named(w: &str) -> Option<(Option<String>, String)> {
+    qualified(w).or_else(|| is_ident(w).then(|| (None, w.to_string())))
+}
+
+/// The pairs of a request to rename: "`plan.Make` to `plan.Build`", "Add -> AddEntry", "its
+/// field `Target` to `Name`", and "rename the method Add of *Collection (defined in a.go) to
+/// AddEntry". A pair needs one side that is written as code, because prose has "want to go".
+fn renames(out: &mut Mentions, text: &str) {
+    const CALLABLE: [&str; 6] = ["function", "func", "method", "procedure", "constructor", "getter"];
+    const TYPE: [&str; 7] = ["type", "struct", "class", "interface", "enum", "trait", "union"];
+    const MEMBER: [&str; 5] = ["field", "member", "property", "attribute", "column"];
+    let edge = |c: char| matches!(c, '`' | ',' | '.' | ';' | ':' | '(' | ')' | '"' | '\'' | '*' | '&' | '[' | ']');
+    let toks: Vec<(&str, bool)> = text.split_whitespace().map(|raw| (raw.trim_matches(edge).trim_end_matches("()"), raw.contains('`'))).collect();
+    let sort_before = |i: usize| -> Option<Sort> {
+        let w = toks.get(i.checked_sub(1)?)?.0.to_ascii_lowercase();
+        if CALLABLE.contains(&w.as_str()) {
+            Some(Sort::Callable)
+        } else if TYPE.contains(&w.as_str()) {
+            Some(Sort::Type)
+        } else if MEMBER.contains(&w.as_str()) {
+            Some(Sort::Member)
+        } else {
+            None
+        }
+    };
+    let written_as_code = |w: &str, marked: bool| marked || code_shaped(w) || w.contains("::") || (w.contains('.') && !is_path(w));
+    let push = |out: &mut Mentions, owner: Option<String>, name: String, sort: Option<Sort>, new_name: String| {
+        if name != new_name && out.renames.len() < 6 && !out.renames.iter().any(|r| r.what.name == name && r.what.owner == owner) {
+            out.renames.push(Rename { what: Mention { owner, name, explicit: true, is_type: sort == Some(Sort::Type) }, sort, new_name });
+        }
+    };
+    for i in 1..toks.len().saturating_sub(1) {
+        if !matches!(toks[i].0.to_ascii_lowercase().as_str(), "to" | "->" | "=>" | "\u{2192}" | "into") {
+            continue;
+        }
+        let ((old, old_marked), (new, new_marked)) = (toks[i - 1], toks[i + 1]);
+        // "the field read of dev_ops to read_bytes": what stands before the "to" is the owner,
+        // and the phrase is read below.
+        if i >= 2 && matches!(toks[i - 2].0.to_ascii_lowercase().as_str(), "of" | "on" | "in" | "from") {
+            continue;
+        }
+        let (Some((owner, name)), Some((_, new_name))) = (named(old), named(new)) else { continue };
+        if !written_as_code(old, old_marked) || !(written_as_code(new, new_marked) || new_name.starts_with(char::is_uppercase)) {
+            continue;
+        }
+        if NOT_A_NAME.contains(&new_name.to_ascii_lowercase().as_str()) {
+            continue;
+        }
+        let sort = sort_before(i - 1);
+        // "the type `Step` to `Action`, and its field `Target` to `Name`": the field is the
+        // one of the type named just before.
+        let its = sort == Some(Sort::Member) && owner.is_none() && i >= 3 && toks[i - 3].0.eq_ignore_ascii_case("its");
+        let owner = match (its, out.renames.last()) {
+            (true, Some(prev)) if prev.sort == Some(Sort::Type) => Some(prev.what.name.clone()),
+            _ => owner,
+        };
+        push(out, owner, name, sort, new_name);
+    }
+    if !out.renames.is_empty() {
+        return;
+    }
+    // One thing named in a phrase ("the method Add of *Collection"), and the first name after
+    // a "to" that follows it.
+    let Some(target) = out.symbols.iter().find(|m| m.explicit && m.owner.is_some()).cloned() else { return };
+    let Some(at) = toks.iter().position(|(w, _)| *w == target.name) else { return };
+    for i in at + 1..toks.len().saturating_sub(1) {
+        if !toks[i].0.eq_ignore_ascii_case("to") {
+            continue;
+        }
+        let (new, marked) = toks[i + 1];
+        if is_ident(new) && (marked || code_shaped(new) || new.starts_with(char::is_uppercase)) && !NOT_A_NAME.contains(&new.to_ascii_lowercase().as_str()) {
+            push(out, target.owner.clone(), target.name.clone(), sort_before(at), new.to_string());
+            return;
         }
     }
 }
@@ -452,6 +549,9 @@ pub fn mentions(prompt: &str) -> Mentions {
     for s in sentences(text) {
         sentence(&mut out, s, ask);
     }
+    if out.rename {
+        renames(&mut out, text);
+    }
     // A type that is named only as the owner of a member the prompt is about (`the function
     // parse in class Parser`, `the mnt_ns field of struct mount`) is not a second subject.
     let owners: Vec<String> = out.symbols.iter().filter_map(|m| m.owner.clone()).collect();
@@ -545,6 +645,26 @@ mod tests {
         // A member that is read, or a set that is a noun, is not that question.
         assert_eq!(asks("Which functions read the mnt_ns field of struct mount?"), []);
         assert_eq!(asks("What is the set of flags in struct mount?"), []);
+    }
+
+    #[test]
+    fn the_pairs_of_a_request_to_rename() {
+        let pairs = |p: &str| -> Vec<String> {
+            mentions(p).renames.into_iter().map(|r| format!("{}{}>{} {:?}", r.what.owner.map(|o| o + ".").unwrap_or_default(), r.what.name, r.new_name, r.sort)).collect()
+        };
+        assert_eq!(
+            pairs("Rename, everywhere in the project and in its tests:\n\n- the function `plan.Make` to `plan.Build`\n- the type `plan.Step` to `plan.Action`, and its field `Target` to `Name`\n\nNothing else changes."),
+            ["plan.Make>Build Some(Callable)", "plan.Step>Action Some(Type)", "Step.Target>Name Some(Member)"]
+        );
+        assert_eq!(
+            pairs("Rename the method Add of *Collection (defined in syft/pkg/collection.go) to AddEntry: the definition and every place that calls it."),
+            ["Collection.Add>AddEntry Some(Callable)"]
+        );
+        assert_eq!(pairs("Rename the field read of dev_ops to read_bytes everywhere."), ["dev_ops.read>read_bytes Some(Member)"]);
+        assert_eq!(pairs("rename parse_duration -> parse_span and Set::insert to Set::put"), ["parse_duration>parse_span None", "Set.insert>put None"]);
+        // Prose with a "to" in it names no pair, and neither does a request that is not a rename.
+        assert_eq!(pairs("Rename things so that they are easier to read, and move helpers to utils"), Vec::<String>::new());
+        assert_eq!(pairs("Change `Make` to return an error and convert `Step` to `Action`"), Vec::<String>::new());
     }
 
     #[test]
