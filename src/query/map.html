@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f5; --panel: #ffffff; --fg: #1d1f23; --muted: #5d6470; --border: #dcdcd6;
+  --edge: 60, 66, 80; --ring: #1d1f23; --dim: 0.13; --hover: #eef0f3; --mark: #fff3bf;
+  --c0: #3b6fb6; --c1: #d0632b; --c2: #2f8f5b; --c3: #b8434e; --c4: #7a5bb5;
+  --c5: #8a6a2f; --c6: #c2508f; --c7: #2b8c94; --c8: #6f7d2a; --c9: #8c919a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171b; --panel: #1d2026; --fg: #e6e7ea; --muted: #9aa1ad; --border: #30343c;
+    --edge: 190, 198, 212; --ring: #ffffff; --dim: 0.16; --hover: #272b33; --mark: #4a4220;
+    --c0: #7aa7e8; --c1: #f0915a; --c2: #5cc28a; --c3: #ec7a84; --c4: #ad92e6;
+    --c5: #cfa865; --c6: #e886bd; --c7: #5cc3cb; --c8: #adbd5a; --c9: #8f96a1;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { display: flex; flex-direction: column; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 16px;
+  border-bottom: 1px solid var(--border); background: var(--panel); }
+header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+header .stats { color: var(--muted); font-size: 13px; }
+header .tools { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+input[type=search] { font: inherit; padding: 5px 9px; width: 240px; max-width: 50vw; color: var(--fg);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+button { font: inherit; padding: 5px 10px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+button:hover { background: var(--hover); }
+main { flex: 1; display: flex; min-height: 0; }
+#stage { position: relative; flex: 1; min-width: 0; }
+canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+canvas.dragging { cursor: grabbing; }
+#tip { position: absolute; pointer-events: none; display: none; max-width: 340px; padding: 7px 9px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.15); font-size: 13px; }
+#tip b { display: block; overflow-wrap: anywhere; }
+#tip span { color: var(--muted); }
+#legend { position: absolute; left: 12px; bottom: 12px; display: flex; flex-wrap: wrap; gap: 4px 12px;
+  max-width: calc(100% - 24px); font-size: 12px; color: var(--muted); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; }
+#legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+#note { position: absolute; right: 12px; top: 10px; font-size: 12px; color: var(--muted); text-align: right; }
+aside { width: 380px; max-width: 45vw; overflow: auto; border-left: 1px solid var(--border);
+  background: var(--panel); padding: 14px 16px 24px; }
+aside h2 { font-size: 15px; margin: 0 0 4px; overflow-wrap: anywhere; }
+aside h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  margin: 18px 0 6px; font-weight: 600; }
+aside .sub { color: var(--muted); font-size: 13px; }
+aside ul { list-style: none; margin: 0; padding: 0; }
+aside li { padding: 3px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+aside li:last-child { border-bottom: 0; }
+aside code { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); }
+aside a { color: inherit; text-decoration: underline; text-decoration-color: var(--border); cursor: pointer; }
+aside a:hover { text-decoration-color: currentColor; }
+.n { float: right; color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 8px; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+@media (max-width: 720px) {
+  main { flex-direction: column; }
+  #stage { min-height: 60vh; }
+  aside { width: auto; max-width: none; border-left: 0; border-top: 1px solid var(--border); }
+  input[type=search] { width: 160px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <div class="stats" id="stats"></div>
+  <div class="tools">
+    <input type="search" id="q" placeholder="Filter by name" aria-label="Filter communities by name">
+    <span class="stats" id="matches"></span>
+    <button id="fit" type="button">Fit</button>
+  </div>
+</header>
+<main>
+  <div id="stage">
+    <canvas id="c" aria-label="Communities of the repository and the calls between them"></canvas>
+    <div id="tip"></div>
+    <div id="note"></div>
+    <div id="legend"></div>
+  </div>
+  <aside id="panel"></aside>
+</main>
+<script id="data" type="application/json">/*MAP_DATA*/null</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => Number(n).toLocaleString("en-US");
+const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
+
+// ----- data -----
+const nodes = D.communities.map((c, i) => ({ ...c, i, x: 0, y: 0, vx: 0, vy: 0, r: 6, nb: new Set() }));
+const byId = new Map(nodes.map((n) => [n.id, n]));
+const links = D.links.map(([a, b, w]) => ({ a: byId.get(a), b: byId.get(b), w })).filter((l) => l.a && l.b);
+for (const l of links) { l.a.nb.add(l.b); l.b.nb.add(l.a); }
+const maxDefs = Math.max(1, ...nodes.map((n) => n.definitions));
+const maxW = Math.max(1, ...links.map((l) => l.w));
+// Many links would cover the drawing: each is fainter the more there are.
+const linkAlpha = Math.min(1, Math.sqrt(250 / Math.max(1, links.length)));
+for (const n of nodes) n.r = 5 + 33 * Math.sqrt(n.definitions / maxDefs);
+
+// Colour by top-level directory: the directories with most files get a colour each. When one
+// directory holds most communities, by the first two directories instead.
+const topCount = new Map();
+for (const n of nodes) topCount.set(n.dir, (topCount.get(n.dir) || 0) + 1);
+if (nodes.length && Math.max(...topCount.values()) > 0.6 * nodes.length) for (const n of nodes) n.dir = n.dir2;
+const dirFiles = new Map();
+for (const n of nodes) dirFiles.set(n.dir, (dirFiles.get(n.dir) || 0) + n.files);
+const dirs = [...dirFiles.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map((d) => d[0]);
+const dirSlot = new Map(dirs.map((d, k) => [d, Math.min(k, 9)]));
+let palette = [];
+function readTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  palette = Array.from({ length: 10 }, (_, k) => cs.getPropertyValue("--c" + k).trim());
+  return { fg: cs.getPropertyValue("--fg").trim(), muted: cs.getPropertyValue("--muted").trim(), bg: cs.getPropertyValue("--bg").trim(),
+    edge: cs.getPropertyValue("--edge").trim(), ring: cs.getPropertyValue("--ring").trim(), dim: parseFloat(cs.getPropertyValue("--dim")) };
+}
+let theme = readTheme();
+const colour = (n) => palette[dirSlot.get(n.dir)];
+
+// ----- layout: a small force simulation, run to rest before the first frame -----
+// Linked communities pull together along their links, every pair pushes apart at short range,
+// and gravity holds the whole near the centre. Communities with no drawn link are not part of
+// the simulation: they line up in rows below it, largest first.
+function layout() {
+  const linked = nodes.filter((n) => n.nb.size > 0), loose = nodes.filter((n) => n.nb.size === 0);
+  const N = linked.length;
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  linked.forEach((n, k) => { const rad = 22 * Math.sqrt(k + 0.5); n.x = rad * Math.cos(k * golden); n.y = rad * Math.sin(k * golden); });
+  const iters = N > 150 ? 300 : 450;
+  const range = 260;
+  for (let t = 0; t < iters; t++) {
+    const cool = 1 - t / iters;
+    for (let p = 0; p < N; p++) {
+      const a = linked[p];
+      for (let q = p + 1; q < N; q++) {
+        const b = linked[q];
+        let dx = a.x - b.x, dy = a.y - b.y;
+        let d2 = dx * dx + dy * dy;
+        if (d2 < 0.01) { dx = (p - q) * 0.01 + 0.01; dy = 0.01; d2 = dx * dx + dy * dy; }
+        const minD = a.r + b.r + 10;
+        if (d2 > (range + minD) * (range + minD)) continue;
+        const d = Math.sqrt(d2);
+        let f = 260 * (a.r + b.r) / 24 / d2;
+        if (d < minD) f += 0.6 * (minD - d) / d;
+        a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+      }
+    }
+    for (const l of links) {
+      const dx = l.b.x - l.a.x, dy = l.b.y - l.a.y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 1;
+      const rest = l.a.r + l.b.r + 30;
+      const s = 0.03 * (0.3 + Math.log1p(l.w) / Math.log1p(maxW)) * (d - rest) / d;
+      l.a.vx += dx * s; l.a.vy += dy * s; l.b.vx -= dx * s; l.b.vy -= dy * s;
+    }
+    for (const n of linked) {
+      n.vx -= n.x * 0.02; n.vy -= n.y * 0.02;
+      const v = Math.sqrt(n.vx * n.vx + n.vy * n.vy), cap = 25 * cool + 0.5;
+      if (v > cap) { n.vx *= cap / v; n.vy *= cap / v; }
+      n.x += n.vx; n.y += n.vy; n.vx *= 0.5; n.vy *= 0.5;
+    }
+  }
+  if (!loose.length) return;
+  let x0 = Infinity, x1 = -Infinity, y1 = 0;
+  for (const n of linked) { x0 = Math.min(x0, n.x - n.r); x1 = Math.max(x1, n.x + n.r); y1 = Math.max(y1, n.y + n.r); }
+  if (!linked.length) { x0 = -300; x1 = 300; }
+  const width = Math.max(400, x1 - x0);
+  let x = x0, y = y1 + 70, row = 0;
+  for (const n of loose) {
+    if (x + Math.max(2 * n.r, 120) > x0 + width) { x = x0; y += row + 40; row = 0; }
+    n.x = x + Math.max(n.r, 60); n.y = y + n.r; x += Math.max(2 * n.r + 26, 150); row = Math.max(row, 2 * n.r);
+  }
+}
+layout();
+
+// ----- view -----
+const canvas = $("c"), ctx = canvas.getContext("2d");
+let W = 0, H = 0, dpr = 1;
+const view = { x: 0, y: 0, k: 1 };
+let hover = null, selected = null, query = "", matches = null;
+function resize() {
+  const r = canvas.getBoundingClientRect();
+  dpr = window.devicePixelRatio || 1; W = r.width; H = r.height;
+  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  draw();
+}
+function fit() {
+  if (!nodes.length) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const n of nodes) { x0 = Math.min(x0, n.x - n.r); y0 = Math.min(y0, n.y - n.r); x1 = Math.max(x1, n.x + n.r); y1 = Math.max(y1, n.y + n.r); }
+  const pad = 40;
+  view.k = Math.min((W - 2 * pad) / Math.max(1, x1 - x0), (H - 2 * pad) / Math.max(1, y1 - y0), 2.5);
+  view.x = W / 2 - view.k * (x0 + x1) / 2; view.y = H / 2 - view.k * (y0 + y1) / 2;
+  draw();
+}
+const sx = (x) => view.x + view.k * x, sy = (y) => view.y + view.k * y;
+function visible(n) { return !matches || matches.has(n); }
+function draw() {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const focus = hover || selected;
+  for (const l of links) {
+    const on = focus && (l.a === focus || l.b === focus);
+    const faded = (matches && !(visible(l.a) && visible(l.b))) || (focus && !on);
+    const t = Math.log1p(l.w) / Math.log1p(maxW);
+    ctx.strokeStyle = `rgba(${theme.edge}, ${faded ? 0.04 * linkAlpha : on ? 0.75 : (0.12 + 0.3 * t) * linkAlpha})`;
+    ctx.lineWidth = (0.6 + 4.5 * t) * Math.sqrt(view.k);
+    ctx.beginPath(); ctx.moveTo(sx(l.a.x), sy(l.a.y)); ctx.lineTo(sx(l.b.x), sy(l.b.y)); ctx.stroke();
+  }
+  for (const n of nodes) {
+    const faded = !visible(n) || (focus && n !== focus && !focus.nb.has(n));
+    ctx.globalAlpha = faded ? theme.dim : 1;
+    ctx.fillStyle = colour(n);
+    ctx.beginPath(); ctx.arc(sx(n.x), sy(n.y), Math.max(2, n.r * view.k), 0, 2 * Math.PI); ctx.fill();
+    if (n === selected || n === hover) { ctx.lineWidth = 2; ctx.strokeStyle = theme.ring; ctx.stroke(); }
+  }
+  ctx.globalAlpha = 1;
+  // Labels: the focused community first, then its neighbours or the matches, then the rest by
+  // size. A label that would overlap one already drawn is left out (hover shows it).
+  ctx.font = "12px system-ui, -apple-system, sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  const rank = (n) => (n === focus ? 0 : focus && focus.nb.has(n) ? 1 : matches && matches.has(n) ? 1 : 2);
+  const order = nodes.filter((n) => visible(n) && (!focus || n === focus || focus.nb.has(n))).sort((a, b) => rank(a) - rank(b) || a.i - b.i);
+  const placed = [];
+  for (const n of order) {
+    const label = n.name.length > 40 ? n.name.slice(0, 39) + "…" : n.name;
+    const w = ctx.measureText(label).width, r = Math.max(2, n.r * view.k);
+    const box = { x: sx(n.x) - w / 2 - 2, y: sy(n.y) + r + 2, w: w + 4, h: 16 };
+    if (box.x > W || box.x + box.w < 0 || box.y > H || box.y + box.h < 0) continue;
+    if (n !== focus && placed.some((p) => box.x < p.x + p.w && p.x < box.x + box.w && box.y < p.y + p.h && p.y < box.y + box.h)) continue;
+    placed.push(box);
+    ctx.lineWidth = 3; ctx.strokeStyle = theme.bg; ctx.strokeText(label, sx(n.x), box.y + 1);
+    ctx.fillStyle = theme.fg; ctx.fillText(label, sx(n.x), box.y + 1);
+  }
+}
+function at(px, py) {
+  let best = null, bd = Infinity;
+  for (const n of nodes) {
+    const dx = sx(n.x) - px, dy = sy(n.y) - py, d = Math.sqrt(dx * dx + dy * dy);
+    const r = Math.max(4, n.r * view.k);
+    if (d <= r + 2 && d < bd && visible(n)) { best = n; bd = d; }
+  }
+  return best;
+}
+
+// ----- interaction -----
+const tip = $("tip");
+let drag = null;
+canvas.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener("pointermove", (e) => {
+  const r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  if (drag) {
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) { drag.moved = true; canvas.classList.add("dragging"); }
+    if (drag.moved) { view.x = drag.vx + dx; view.y = drag.vy + dy; tip.style.display = "none"; draw(); return; }
+  }
+  const n = at(px, py);
+  if (n !== hover) { hover = n; draw(); }
+  if (n) {
+    tip.replaceChildren(el("b", n.name), el("span", `${fmt(n.files)} files, ${fmt(n.definitions)} definitions, linked to ${fmt(n.nb.size)} communities`));
+    tip.style.display = "block";
+    const tx = Math.min(px + 14, W - tip.offsetWidth - 8), ty = Math.min(py + 14, H - tip.offsetHeight - 8);
+    tip.style.left = tx + "px"; tip.style.top = ty + "px";
+  } else tip.style.display = "none";
+});
+canvas.addEventListener("pointerup", (e) => {
+  const r = canvas.getBoundingClientRect();
+  if (drag && !drag.moved) { const n = at(e.clientX - r.left, e.clientY - r.top); select(n); }
+  drag = null; canvas.classList.remove("dragging");
+});
+canvas.addEventListener("pointerleave", () => { hover = null; tip.style.display = "none"; draw(); });
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  const k = Math.min(8, Math.max(0.05, view.k * Math.exp(-e.deltaY * 0.0015)));
+  view.x = px - (px - view.x) * k / view.k; view.y = py - (py - view.y) * k / view.k; view.k = k;
+  draw();
+}, { passive: false });
+$("fit").addEventListener("click", fit);
+$("q").addEventListener("input", (e) => {
+  query = e.target.value.trim().toLowerCase();
+  matches = query ? new Set(nodes.filter((n) => n.name.toLowerCase().includes(query))) : null;
+  $("matches").textContent = matches ? `${fmt(matches.size)} of ${fmt(nodes.length)}` : "";
+  if (selected && matches && !matches.has(selected)) select(null); else draw();
+});
+$("q").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && matches && matches.size) select([...matches].sort((a, b) => a.i - b.i)[0]);
+  if (e.key === "Escape") { e.target.value = ""; e.target.dispatchEvent(new Event("input")); }
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && document.activeElement !== $("q")) select(null); });
+window.addEventListener("resize", resize);
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { theme = readTheme(); draw(); legend(); });
+
+// ----- side panel -----
+const panel = $("panel");
+function loc(path, line) { return el("code", `${path}:${line}`); }
+function communityLink(id, name) {
+  const n = byId.get(id);
+  if (!n) return el("span", name);
+  const a = el("a", name); a.addEventListener("click", () => select(n)); return a;
+}
+function section(title, items) {
+  if (!items.length) return [];
+  const ul = el("ul"); for (const li of items) ul.append(li);
+  return [el("h3", title), ul];
+}
+function usedItem(u) {
+  const li = el("li");
+  li.append(el("span", `${fmt(u.files)} files`, "n"), el("div", u.name), loc(u.path, u.line));
+  return li;
+}
+function overview() {
+  const parts = [el("h2", "Overview"), el("div", "Click a community to see its files and its most used definitions. Drag to move, scroll to zoom.", "sub")];
+  parts.push(...section("Hubs, by the files that use them", D.hubs.map(usedItem)));
+  parts.push(...section("Unexpected couplings", D.couplings.map((k) => {
+    const li = el("li");
+    li.append(communityLink(k.from, byId.get(k.from) ? byId.get(k.from).name : "#" + k.from), el("span", " → "), communityLink(k.to, byId.get(k.to) ? byId.get(k.to).name : "#" + k.to));
+    li.append(el("div", `${k.caller.name} calls ${k.callee.name}`), loc(k.caller.path, k.caller.line), el("br"), loc(k.callee.path, k.callee.line));
+    li.append(el("div", k.calls_between === 1 ? "the only call between the two" : `${fmt(k.calls_between)} calls between the two`, "sub"));
+    return li;
+  })));
+  const cyc = D.cycles.map((c) => {
+    const li = el("li");
+    li.append(el("div", `${fmt(c.files)} files import each other`));
+    for (const s of c.steps) { li.append(loc(s.path, s.line), el("br")); }
+    return li;
+  });
+  parts.push(...section(D.cycles_total > D.cycles.length ? `Import cycles (${fmt(D.cycles.length)} largest of ${fmt(D.cycles_total)})` : "Import cycles", cyc));
+  if (!D.cycles_total) parts.push(el("h3", "Import cycles"), el("div", "None.", "sub"));
+  return parts;
+}
+function details(n) {
+  const head = el("h2"); const dot = el("span", null, "dot"); dot.style.background = colour(n); head.append(dot, n.name);
+  const parts = [head, el("div", `${fmt(n.files)} files, ${fmt(n.definitions)} definitions`, "sub")];
+  parts.push(...section("Most used definitions", n.top.map(usedItem)));
+  parts.push(...section("Calls into", n.calls_into.map((c) => { const li = el("li"); li.append(el("span", fmt(c.calls), "n"), communityLink(c.community, c.name)); return li; })));
+  const files = n.paths.map((p) => { const li = el("li"); li.append(el("code", p)); return li; });
+  if (n.files > n.paths.length) files.push(el("li", `and ${fmt(n.files - n.paths.length)} more`, "sub"));
+  parts.push(...section("Files", files));
+  const back = el("a", "← overview"); back.addEventListener("click", () => select(null));
+  return [back, ...parts];
+}
+function select(n) {
+  selected = n || null;
+  panel.replaceChildren(...(selected ? details(selected) : overview()));
+  panel.scrollTop = 0;
+  draw();
+}
+function legend() {
+  const lg = $("legend"); lg.replaceChildren();
+  dirs.slice(0, 9).forEach((d, k) => { const s = el("span"); const i = el("i"); i.style.background = palette[k]; s.append(i, d); lg.append(s); });
+  if (dirs.length > 9) { const s = el("span"); const i = el("i"); i.style.background = palette[9]; s.append(i, `${dirs.length - 9} other directories`); lg.append(s); }
+}
+
+// ----- start -----
+document.title = D.title;
+$("title").textContent = D.title;
+let stats = `${fmt(D.files)} files, ${fmt(D.communities_total)} communities, ${fmt(D.calls)} calls and ${fmt(D.imports)} imports between files`;
+if (D.isolated) stats += `, ${fmt(D.isolated)} isolated files (not drawn)`;
+$("stats").textContent = stats;
+const notes = [];
+if (D.communities_total > nodes.length) notes.push(`Showing the ${fmt(nodes.length)} largest of ${fmt(D.communities_total)} communities.`);
+if (D.links_total > links.length) notes.push(`Showing the ${fmt(links.length)} heaviest of ${fmt(D.links_total)} links.`);
+if (!nodes.length) notes.push("No community to draw.");
+$("note").textContent = notes.join(" ");
+legend();
+select(null);
+resize();
+fit();
+</script>
+</body>
+</html>

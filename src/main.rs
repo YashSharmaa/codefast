@@ -64,6 +64,8 @@ enum Cmd {
     Trace(TraceArgs),
     /// Look inside the project's dependencies: list them, or search one for a symbol or text
     Dep(DepArgs),
+    /// The architecture: the parts the code falls into, what everything goes through, unexpected couplings, import cycles
+    Map(MapArgs),
     /// Build or rebuild the index
     Index(IndexArgs),
     /// Index statistics
@@ -271,6 +273,24 @@ struct DepArgs {
     name: Option<String>,
     /// What to look up inside it: a symbol, a file, or text (omit for an overview)
     query: Vec<String>,
+}
+
+/// Files are grouped into communities by the resolved calls and the imports between them
+/// (Louvain modularity). Each community is named by the directory its files share, with its
+/// most used definitions and the communities it calls into. Then the hubs of the repository,
+/// up to five calls between communities that are rare enough to be unexpected, and groups of
+/// files that import each other in a circle.
+#[derive(Args)]
+struct MapArgs {
+    /// The same overview as JSON
+    #[arg(long, conflicts_with = "html")]
+    json: bool,
+    /// Write the community graph, drawn, to this self-contained HTML file (it loads nothing from the network)
+    #[arg(long, value_name = "FILE")]
+    html: Option<PathBuf>,
+    /// Print how long each step took (to stderr)
+    #[arg(long, short = 'v')]
+    verbose: bool,
 }
 
 #[derive(Args)]
@@ -563,6 +583,25 @@ fn run(cli: Cli) -> Result<()> {
             let n = query::export::export_edges(&ix, &rs, &pf, *dynamic, *loose, &mut w)?;
             eprintln!("{n} edges");
             return Ok(());
+        }
+        Cmd::Map(a) => {
+            let pf = query::PathFilter::new(&common.paths);
+            let m = query::map::compute(&ix, &pf, &query::map::Opts { tests: cli.tests });
+            if a.verbose {
+                eprintln!("{}", query::map::timing_line(&m));
+            }
+            if let Some(file) = &a.html {
+                let name = ix.root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "repository".to_string());
+                let page = query::map::render_html(&m, &format!("{name}: map"));
+                std::fs::write(file, &page).map_err(|e| anyhow::anyhow!("cannot write {}: {e}", file.display()))?;
+                let drawn = m.communities.len().min(query::map::DRAW_MAX);
+                out.push(&format!("wrote {} ({} KB): {} communities drawn of {}", file.display(), page.len().div_ceil(1024), drawn, m.communities.len()));
+            } else if a.json {
+                out = Out::new(0);
+                out.push(&query::map::to_json(&m, budget).to_string());
+            } else {
+                query::map::render_text(&m, &mut out);
+            }
         }
         Cmd::Grep(a) => {
             let opts = query::grep::GrepOpts { ignore_case: a.ignore_case, word: a.word, fixed: a.fixed, files_only: a.files, after: a.after };

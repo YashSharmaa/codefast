@@ -7,6 +7,7 @@ pub mod export;
 pub mod find;
 pub mod grep;
 pub mod locate;
+pub mod map;
 pub mod refs;
 pub mod rename;
 pub mod search;

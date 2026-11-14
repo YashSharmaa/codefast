@@ -15,7 +15,7 @@ fn endpoint(d: &DefV) -> serde_json::Value {
 
 /// Functions a call to `target` reaches: the function itself, or, for a macro, whatever the
 /// macro's body calls (a compiler sees those calls in the function that uses the macro).
-fn expand<'a>(ix: &'a Index, rs: &Resolver<'a>, target: DefId, depth: u32, seen: &mut FxHashSet<DefId>, out: &mut Vec<DefId>) {
+pub(super) fn expand<'a>(ix: &'a Index, rs: &Resolver<'a>, target: DefId, depth: u32, seen: &mut FxHashSet<DefId>, out: &mut Vec<DefId>) {
     if !seen.insert(target) {
         return;
     }
