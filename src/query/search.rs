@@ -9,7 +9,7 @@ use super::{Common, PathFilter, Spec, def_line, parse_spec, targets_for};
 use crate::facts::DefKind;
 use crate::output::{Out, count};
 use crate::resolve::{Class, Resolver, Target};
-use crate::store::{FileId, Index};
+use crate::store::{DefId, FileId, Index};
 use rustc_hash::FxHashSet;
 
 pub struct SearchOpts {
@@ -316,6 +316,76 @@ pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &Se
             out.push(&format!("… {} more (narrow with --path DIR or --kind, or ask for Owner.{})", ents.len() - shown, q));
         }
         return;
+    }
+    // `Owner.name` that nothing is called. Two things it usually is, and each has an exact
+    // answer where "no matches" was a dead end: a member of that owner written a little
+    // differently (`Config.unmarshal` for `Config.Unmarshal`), or the member of a type that
+    // is called something else (`Remote.marshal`, where the type is `RemoteConfig`).
+    if let Spec::Sym { owner: Some(owner), name, kinds } = &spec {
+        let owner_of = |d: &crate::store::DefV| {
+            let q = d.qualified();
+            let o = q.rsplit_once(['.', ':']).map(|(o, _)| o.trim_end_matches(':').to_string()).unwrap_or_default();
+            o.rsplit(['.', ':']).next().unwrap_or("").to_string()
+        };
+        // 1. The same owner, a similar name.
+        let (near, _) = super::find::top_matches(ix, rs, name, common, 40);
+        let mut mine: Vec<DefId> = near.into_iter().filter(|&d| owner_of(&ix.def(d)) == *owner).collect();
+        // Written the same but for its case: that one, whatever else is near.
+        let same: Vec<DefId> = mine.iter().copied().filter(|&d| ix.def(d).name_str().eq_ignore_ascii_case(name)).collect();
+        if same.len() == 1 {
+            mine = same;
+        }
+        if let [d] = mine[..] {
+            let v = ix.def(d);
+            let ents = rs.entities(&ix.defs_named(v.name()));
+            if let Some(main) = ents.iter().find(|t| t.defs.contains(&d)) {
+                out.push(&format!("no `{owner}.{name}`; the one member of {owner} with a similar name is {}:", v.qualified()));
+                card(ix, rs, main, &[], opts, out);
+                return;
+            }
+        }
+        if mine.len() > 1 {
+            out.push(&format!("no `{owner}.{name}`; {} members of {owner} have a similar name:", count(mine.len())));
+            for d in mine.iter().take(10) {
+                out.line(&def_line(&ix.def(*d)));
+            }
+            return;
+        }
+        // 2. The same name, another owner.
+        let bare = Spec::Sym { owner: None, name: name.clone(), kinds: kinds.clone() };
+        let mut named: Vec<Target> = targets_for(ix, rs, &bare, common, &pf).into_iter().filter(|t| !owner_of(&t.primary(ix)).is_empty()).collect();
+        if !named.is_empty() {
+            // One of them on a type whose name holds the name that was asked for, or is held
+            // by it: that is the one that was meant.
+            let asked = owner.to_lowercase();
+            let alike: Vec<usize> = named
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| {
+                    let o = owner_of(&t.primary(ix)).to_lowercase();
+                    o.len() >= 3 && asked.len() >= 3 && (o.contains(&asked) || asked.contains(&o))
+                })
+                .map(|(i, _)| i)
+                .collect();
+            if let [i] = alike[..] {
+                let main = named.remove(i);
+                out.push(&format!("no `{owner}.{name}`; the one `{name}` on a type of a similar name is {}:", main.primary(ix).qualified()));
+                card(ix, rs, &main, &[], opts, out);
+                return;
+            }
+            out.push(&format!("no `{owner}.{name}`; `{name}` is defined on {} other{}:", count(named.len()), if named.len() == 1 { "" } else { "s" }));
+            let mut shown = 0;
+            for t in named.iter().take(10) {
+                if !out.line(&def_line(&t.primary(ix))) {
+                    break;
+                }
+                shown += 1;
+            }
+            if named.len() > shown {
+                out.push(&format!("… {} more (codefast find {name})", count(named.len() - shown)));
+            }
+            return;
+        }
     }
     // No symbol with exactly this name: near matches, then plain text.
     let (near, total) = super::find::top_matches(ix, rs, q, common, 8);

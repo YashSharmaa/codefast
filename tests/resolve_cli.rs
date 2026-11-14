@@ -408,3 +408,50 @@ fn go_table_tests_type_their_cases() {
         has(&bag, site);
     }
 }
+
+#[test]
+fn context_names_the_types_of_a_signature_and_the_tests_two_calls_away() {
+    // A helper deep inside a package is not called by a test. The test calls what the package
+    // offers, and that reaches the helper through one function or two.
+    let code = "package codec\n\ntype span struct {\n\tstart int\n\tend   int\n}\n\n// shift moves a span by an offset.\nfunc shift(s span, by int) span {\n\treturn span{s.start + by, s.end + by}\n}\n\n\
+                func locate(s span) span {\n\treturn shift(s, 4)\n}\n\nfunc Decode(s span) span {\n\treturn locate(s)\n}\n";
+    let test = "package codec\n\nimport \"testing\"\n\nfunc TestDecode(t *testing.T) {\n\tif Decode(span{1, 2}).start != 5 {\n\t\tt.Fatal(\"wrong\")\n\t}\n}\n";
+    let p = Project::new("go-context", &[("codec/segment.go", code), ("codec/segment_test.go", test)]);
+    let shift = p.ask(&["context", "shift"]);
+    // What goes in and what comes out, as the repository defines it, once.
+    has(&shift, "its signature names:\ncodec/segment.go:3-6 span\n3\ttype span struct {");
+    assert_eq!(shift.matches("codec/segment.go:3-6 span").count(), 1, "{shift}");
+    has(&shift, "called from (1 site):\n  codec/segment.go:14 locate: return shift(s, 4)");
+    has(&shift, "tests that reach it (1):\n  codec/segment_test.go:6 TestDecode  (through locate and Decode)");
+    has(&shift, "run: go test ./codec/ -run '^(TestDecode)$'");
+    // One call away is said as before, and a test that calls it is not said to go through anything.
+    has(&p.ask(&["context", "locate"]), "codec/segment_test.go:6 TestDecode  (through Decode)");
+    has(&p.ask(&["context", "Decode"]), "tests that reach it (1):\n  codec/segment_test.go:6 TestDecode\n");
+}
+
+#[test]
+fn a_member_asked_for_on_the_wrong_owner_is_found_where_it_is() {
+    // An agent that has to write `Branch.marshal` asks for the method next door to copy from,
+    // and guesses the name of the type. "No matches" sends it back to grep.
+    let src = "package config\n\ntype Branch struct{ Name string }\n\nfunc (b *Branch) marshal() string {\n\treturn b.Name\n}\n\n\
+               type RemoteConfig struct{ Name string }\n\nfunc (c *RemoteConfig) marshal() string {\n\treturn \"remote \" + c.Name\n}\n\n\
+               func (c *RemoteConfig) Validate() error {\n\treturn nil\n}\n\ntype URL struct{ Name string }\n\nfunc (u *URL) marshal() string {\n\treturn u.Name\n}\n";
+    let p = Project::new("go-wrong-owner", &[("config/config.go", src)]);
+    // The type is called something a little longer: the method, with its body.
+    let remote = p.ask(&["search", "Remote.marshal"]);
+    has(&remote, "no `Remote.marshal`; the one `marshal` on a type of a similar name is RemoteConfig.marshal:");
+    has(&remote, "return \"remote \" + c.Name");
+    // No type of a similar name: every type that has the member, with its place.
+    let other = p.ask(&["search", "Submodule.marshal"]);
+    has(&other, "no `Submodule.marshal`; `marshal` is defined on 3 others:");
+    for at in ["config/config.go:5 func (b *Branch) marshal() string", "config/config.go:11 func (c *RemoteConfig) marshal() string", "config/config.go:21 func (u *URL) marshal() string"] {
+        has(&other, at);
+    }
+    // The right owner, and the name in another case.
+    let cased = p.ask(&["search", "RemoteConfig.validate"]);
+    has(&cased, "no `RemoteConfig.validate`; the one member of RemoteConfig with a similar name is RemoteConfig.Validate:");
+    // What exists is answered as before.
+    let exact = p.ask(&["search", "RemoteConfig.marshal"]);
+    has(&exact, "config/config.go:11-13 RemoteConfig.marshal");
+    lacks(&exact, "no `");
+}
