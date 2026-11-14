@@ -535,6 +535,12 @@ impl Place {
         };
         let root = root.canonicalize().ok()?;
         let index_dir = build::index_dir(&root);
+        // A hook is at work here: `search` reads this, and leaves the source out of its
+        // answer to an open question in a session that the hooks speak to. Where the index
+        // directory is to be left as it is, this is not written either.
+        if refresh_allowed() {
+            crate::recent::hooked(&index_dir);
+        }
         Some(Place { root, explicit, index_dir })
     }
 

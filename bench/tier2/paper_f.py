@@ -289,6 +289,9 @@ def execute(a, t, arm, binary, run_dir):
         cmd += ["--mcp-config", str(cfg)]
     elif arm != "baseline":
         index = ROOT / "target/bench-index" / ("lfl-" + Path(tree).name)
+        # This arm is the MCP server and no hooks. A session of the plugin that used the same
+        # index a moment ago (live.py, family F) leaves a mark that would say otherwise.
+        (index / "hooked").unlink(missing_ok=True)
         cfg = run_dir / "mcp.json"
         cfg.write_text(json.dumps({"mcpServers": {"codefast": {"type": "stdio", "command": str(binary), "args": ["mcp", "--root", tree],
                                                                  "env": {"CODEFAST_INDEX_DIR": str(index), "CODEFAST_ROOT": tree, "CODEFAST_THREADS": "2"}}}}))

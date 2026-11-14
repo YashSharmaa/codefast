@@ -560,6 +560,29 @@ fn a_text_that_stands_in_the_code_is_answered_with_its_places() {
     }
 }
 
+/// A sentence that names something defined here, or a name with the word for what is wanted of
+/// it, is a question about that thing: its answer is given, not files ranked by the words.
+#[test]
+fn a_sentence_about_a_name_is_answered_about_the_name() {
+    let repo = Repo::new("sentences");
+    let mut s = Session::in_repo(&repo);
+
+    for q in ["where is dev_write called in the copy loop", "dev_write callers", "what does copy_all do with dev_read"] {
+        let r = s.call("search", json!({"queries": [q]}));
+        let t = text(&r);
+        assert!(t.contains("src/io.c:") && !t.contains("candidate files"), "{q}: {t}");
+    }
+    let r = s.call("search", json!({"queries": ["what does copy_all do with dev_read"]}));
+    assert!(text(&r).contains("src/main.c:3") && text(&r).contains("src/io.c:4"), "both names: {}", text(&r));
+
+    // A name that nothing here has is a guess, and a list of terms is not a sentence: both are
+    // still open questions.
+    for q in ["why does dev_flush fail in the copy loop", "dev_write bytes count"] {
+        let r = s.call("search", json!({"queries": [q]}));
+        assert!(text(&r).contains("candidate files"), "{q}: {}", text(&r));
+    }
+}
+
 /// What models put into one query besides a question: several names at once, and a piece of
 /// code. Neither is a text to rank files by.
 #[test]

@@ -277,6 +277,7 @@ pub fn is_free_text(ix: &Index, rs: &Resolver, query: &str, common: &Common) -> 
         && code_fragment(ix, q).is_none()
         && written_at(ix, q).is_none()
         && !stands_as_typed(ix, q, common)
+        && named_in_a_sentence(ix, q).is_none()
 }
 
 /// A message of the program, quoted in a short query: the one place in the code where that
@@ -380,6 +381,54 @@ fn several_symbols<'a>(ix: &Index, q: &'a str) -> Option<Vec<&'a str>> {
     words.iter().all(named).then_some(words)
 }
 
+/// Words that make a query a sentence about something and not a list of terms, and the words
+/// for what is wanted of a name.
+const SENTENCE_WORDS: &[&str] = &[
+    "the", "a", "an", "in", "of", "to", "for", "from", "with", "by", "at", "through", "into", "via", "on", "when", "where", "who", "what", "which", "how", "why", "is",
+    "are", "does", "do", "that", "its", "not", "no", "calls", "call", "callers", "caller", "called", "uses", "usages", "used", "references", "definition", "defined",
+];
+
+/// `where io_uring invokes io_fsync through its opcode table`, `blk_rq_map_user_iov callers`:
+/// a sentence, or a name with the word for what is wanted of it, that names one to three
+/// things defined here. That is a question about those things, and their answer (the
+/// definition, the body, who calls it) is the answer. Ranking files by the words of the
+/// sentence finds the same place and prints thousands of tokens of its neighbours with it.
+/// Returns the names, and the paths the sentence gives.
+fn named_in_a_sentence(ix: &Index, q: &str) -> Option<(Vec<String>, Vec<String>)> {
+    let words: Vec<&str> = q.split_whitespace().collect();
+    if !(2..=12).contains(&words.len()) {
+        return None;
+    }
+    let (mut sentence, mut names, mut paths) = (false, Vec::<String>::new(), Vec::<String>::new());
+    for raw in words {
+        let w = raw.trim_matches(|c: char| matches!(c, '(' | ')' | '*' | '&' | ',' | ':' | ';' | '?' | '!' | '"' | '\'' | '`'));
+        if w.is_empty() {
+            continue;
+        }
+        let shaped = super::locate::is_code_like(w);
+        if !shaped && SENTENCE_WORDS.contains(&w.to_ascii_lowercase().as_str()) {
+            sentence = true;
+        } else if w.contains('/') || (w.contains('.') && ix.name_id(w.as_bytes()).is_none() && super::resolve_file(ix, w).is_some()) {
+            paths.push(w.to_string());
+        } else if shaped && w.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | ':' | '$')) {
+            let name = w.replace("::", ".");
+            let defined = match name.rsplit_once('.') {
+                Some(_) => owner_has(ix, &name),
+                None => !ix.defs_named(name.as_bytes()).is_empty(),
+            };
+            // A word shaped like a name that names nothing here is a guess, and a guess is
+            // helped by the ranking.
+            if !defined {
+                return None;
+            }
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    (sentence && (1..=3).contains(&names.len())).then_some((names, paths))
+}
+
 /// `pp->flags |= NV_ADMA_ATAPI_SETUP_COMPLETE`, `host->n_ports`: a piece of code, which is
 /// looked for as it is written (with any spacing) and not ranked as words. Returns the pattern,
 /// and the files a word of the query names, to look in.
@@ -449,6 +498,9 @@ fn fair_cap(sizes: &[usize], pool: usize) -> usize {
     usize::MAX
 }
 
+/// How long after a hook of the plugin ran a repository counts as having its hooks at work.
+const HOOKS_AT_WORK: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// The answers to the queries of one call, and the bound on all of it in tokens.
 ///
 /// Each query gets its answer. A call that asks three things and is told one of them is a call
@@ -490,7 +542,13 @@ pub fn search_all(
     // nothing was said about size. Measured: sessions that localise kernel bugs name no budget
     // in any of 703 calls, and sessions that ask one question about the code name one in half
     // of theirs and then want the place, not eight functions.
-    let opts = &SearchOpts { source: opts.source && (!named || budget == 0), ..*opts };
+    //
+    // The same holds where the hooks of the plugin are at work in the repository: that session
+    // has been handed its card before it asked, and was measured with the ranking (0.3.0).
+    // With source in the answer its kernel questions cost 1.13 of that. The source is for the
+    // session that has the tools and nothing else, which is where it was measured to help.
+    let pushed = crate::recent::was_hooked(&crate::build::index_dir(&ix.root), HOOKS_AT_WORK);
+    let opts = &SearchOpts { source: opts.source && (budget == 0 || (!named && !pushed)), ..*opts };
     let render = |part: &Option<&str>, room: usize| -> String {
         let mut one = Out::new(room);
         match (part, &open[..]) {
@@ -603,6 +661,20 @@ pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &Se
                 out.push(text.trim_end());
                 return;
             }
+        }
+        // A sentence about one to three things defined here: each of them is answered.
+        if let Some((names, paths)) = named_in_a_sentence(ix, q) {
+            let mut narrowed = common.clone();
+            narrowed.paths.extend(paths);
+            for (i, name) in names.iter().enumerate() {
+                let mut one = Out::new(if out.budget() == 0 { 0 } else { (out.remaining() / (names.len() - i)).max(150) });
+                search(ix, rs, name, &narrowed, opts, &mut one);
+                if i > 0 {
+                    out.push("");
+                }
+                out.push(one.finish().trim_end());
+            }
+            return;
         }
         // An open question is answered with the code of the candidates where there is room
         // for it, and with the ranking alone where the caller named the size of the answer.

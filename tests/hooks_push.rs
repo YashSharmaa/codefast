@@ -312,6 +312,25 @@ fn an_edit_that_adds_a_parameter_is_told_which_calls_no_longer_fit() {
     assert_eq!(out, "1 changed file checked: nothing they removed or re-signatured is still used elsewhere\n");
 }
 
+/// Where the hooks of the plugin are at work, a session has been handed its card, and an open
+/// question gets the ranking. Where they are not, the source of the candidates comes with it.
+/// `locate` gives the source either way: it was asked for by name.
+#[test]
+fn an_open_question_gets_source_where_no_hook_is_at_work() {
+    let (repo, home) = committed("push-or-pull");
+    let question = "the copy stops after a short write to the device";
+    let (_, out, _) = run(&home, &repo.dir, &["search", question], &[], None);
+    assert!(out.contains("The source of the functions that make the first"), "no hook has run: {out}");
+
+    let started = hook(&home, &repo.dir, "session-start", payload("claude-session-start", &repo.dir, &home).as_bytes(), &[]).context("SessionStart");
+    assert!(started.starts_with("codefast has an index"), "{started}");
+    let (_, out, _) = run(&home, &repo.dir, &["search", question], &[], None);
+    assert!(out.contains("candidate files; top") && !out.contains("The source of the functions"), "a hook has run: {out}");
+
+    let (_, out, _) = run(&home, &repo.dir, &["locate", question], &[], None);
+    assert!(out.contains("The source of the functions that make the first"), "{out}");
+}
+
 #[test]
 fn after_a_compaction_the_session_is_told_what_it_changed() {
     let (repo, home) = committed("compact");
