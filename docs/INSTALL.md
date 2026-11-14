@@ -842,10 +842,10 @@ thing to do about it. A finding under 1% of the total is left out.
 | Finding | What it counts |
 |---|---|
 | the start | the context of the first request of each stretch between compactions, read again by every later request of the stretch (`doctor context` shows what it holds) |
-| cold restarts | a request that read under 20% of the previous context from the cache, by cause: a model switch, more than an hour idle, more than five minutes idle, other |
+| cold restarts | a request that read under 20% of the previous context from the cache, by cause: a model switch, more than an hour idle, more than five minutes idle, other. Where Claude Code recorded its own reason for the miss, `--session` prints it next to the cause, and the report says when the two differ for more than a quarter of the restarts |
 | compactions | manual and automatic ones, the conversation size at each, and the manual ones under 100k tokens. The cost is an estimate |
 | thinking | thinking tokens as a share of the output, where the transcript records them |
-| carried context | the context above 200k tokens (`--carry N`) read again by each request, set against what compacting at that size would have cost (an estimate) |
+| carried context | the context above 200k tokens (`--carry N`) read again by each request. Against it, an estimate of compacting at that size: the context drops to what the session's compactions left (25k without one, at most half the threshold) and grows again, which counts the compactions and the reads they save |
 | repeated reads | a file read again within a stretch that came back word for word as before |
 
 It also lists the tools whose results weighed most (Bash by the program it ran, MCP tools by
