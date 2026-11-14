@@ -212,11 +212,13 @@ fn the_numbers_of_two_sessions() {
     assert_eq!((cause("idle_five_minutes")["count"].as_u64(), cause("other")["count"].as_u64()), (Some(0), Some(0)));
     assert_eq!(r["model_switches"], 1);
 
-    // The early manual compaction, and its estimate.
+    // The early manual compaction: 41,000 tokens read and a summary of 28 bytes written by a
+    // request the transcript does not have, and what was left sent as new by the next one.
     let manual = &r["compactions"]["manual"];
     assert_eq!((manual["count"].as_u64(), manual["early"].as_u64()), (Some(1), Some(1)), "{manual:#}");
-    assert_eq!(manual["pre_tokens"], json!([41_000]));
-    near(&manual["weighted_estimate"], 0.1 * 41_000.0 + 1.25 * 6_000.0);
+    assert_eq!((manual["pre_tokens"].clone(), manual["post_tokens"].clone()), (json!([41_000]), json!([6_010])));
+    assert_eq!((manual["summary_tokens"].clone(), manual["resent_tokens"].clone()), (json!([8]), json!([6_010])));
+    near(&manual["weighted_estimate"], 0.1 * 41_000.0 + 5.0 * 8.0 + 1.25 * 6_000.0 + 10.0);
     assert_eq!(r["compactions"]["auto"]["count"], 0);
 
     // Three stretches: the first session's two either side of the compaction, the second's one.
@@ -258,7 +260,9 @@ fn the_report_reads_as_findings_by_cost() {
     assert!(text.contains("Cold restarts: 2 requests sent the conversation again at the price of new input: 1 model switch (46k, 1 after a model fallback), 1 idle for more than an hour (46k)."), "{text}");
     assert!(text.contains("Come back within the cache lifetime or start fresh. Finish a job on one model.\n"), "{text}");
     assert!(
-        text.contains("Manual compactions: 1, at 41k tokens, 1 of them early (under 100k). Each read the conversation and wrote a summary (an estimate).\n"),
+        text.contains(
+            "Manual compactions: 1, at 41k tokens, 1 of them early (under 100k). Each read the conversation, wrote a summary, and had the next request send what was left as new (an estimate).\n"
+        ),
         "{text}"
     );
     assert!(text.contains("`/clear` when a job is done instead of a compaction.\n"), "{text}");
@@ -380,39 +384,48 @@ fn days_and_other_projects() {
 fn a_large_conversation_carried_for_long() {
     let sb = Sandbox::new("sessions-carry");
     let root = project(&sb, "long");
-    // Ten requests, each reading the one before from the cache, from 150k to 600k tokens.
-    let mut lines = Vec::new();
-    let mut before = 0u64;
+    // A start of 25k, ten requests from 150k to 600k tokens, each reading the one before from
+    // the cache, and twenty more at 600k.
+    let mut lines = vec![assistant("s", "claude-opus-5", 0, usage(0, 0, 25_000, 10, 0), json!([]), &root)];
+    let mut before = 25_000u64;
     for i in 0..10u64 {
         let context = 150_000 + 50_000 * i;
-        lines.push(assistant(&format!("c{i}"), "claude-opus-5", i as i64, usage(0, before, context - before, 10, 0), json!([]), &root));
+        lines.push(assistant(&format!("c{i}"), "claude-opus-5", 1 + i as i64, usage(0, before, context - before, 10, 0), json!([]), &root));
         before = context;
+    }
+    for i in 0..20 {
+        lines.push(assistant(&format!("h{i}"), "claude-opus-5", 11 + i, usage(0, 600_000, 0, 10, 0), json!([]), &root));
     }
     jsonl(&transcripts(&sb, &root).join(format!("{FIRST}.jsonl")), &lines);
     let r = report(&sb, &root, &[]);
     let c = &r["carried_context"];
+    // Seven lengths are tried. Compacting at 300k would have gained the most (835k). The report
+    // speaks of the longest that gains four fifths as much: 500k, with one compaction.
+    let tried: Vec<(u64, u64)> =
+        c["lengths_tried"].as_array().unwrap().iter().map(|w| (w["threshold"].as_u64().unwrap() / 1000, w["compactions_instead"].as_u64().unwrap())).collect();
+    assert_eq!(tried, [(150, 7), (200, 4), (300, 2), (400, 1), (500, 1), (600, 0), (800, 0)], "{c:#}");
     assert_eq!(
-        (c["threshold"].as_u64(), c["requests_above"].as_u64(), c["requests"].as_u64(), c["peak_context"].as_u64()),
-        (Some(200_000), Some(8), Some(10), Some(600_000)),
+        (c["threshold"].as_u64(), c["requests_above"].as_u64(), c["requests"].as_u64(), c["peak_context"].as_u64(), c["spoken_of"].as_bool()),
+        (Some(500_000), Some(22), Some(31), Some(600_000), Some(true)),
         "{c:#}"
     );
-    // 50k + 100k + ... + 400k above the threshold, read again at 0.1.
-    near(&c["weighted"], 0.1 * 1_800_000.0);
-    // Compacting at 200k down to the 25k of a session without compactions: the context would
-    // repeat every 175k, so 250k to 600k become 75k, 125k, 175k, 50k, 100k, 150k, 25k, 75k,
-    // with a compaction at 250k, 400k and 550k. The reads saved are a tenth of what is left out.
-    let saved = 0.1 * (175_000.0 * 3.0 + 350_000.0 * 3.0 + 525_000.0 * 2.0);
-    assert_eq!(c["compactions_instead"], 3);
-    near(&c["saved_reads_estimate"], saved);
-    near(&c["compactions_weighted_estimate"], 3.0 * (0.1 * 200_000.0 + 1.25 * 25_000.0));
-    near(&c["difference_estimate"], saved - 153_750.0);
-    assert!(r["findings"].as_array().unwrap().iter().any(|f| f["finding"] == "carried_context"), "{r:#}");
+    // 50k and 100k above it and twenty times 100k, read again at 0.1.
+    near(&c["weighted"], 0.1 * (150_000.0 + 20.0 * 100_000.0));
+    // Compacting at 500k down to 75k (the start and the 50k a compaction usually has sent
+    // again): 550k and 600k become 125k and 175k. 500k read, a summary of 6k written and 50k
+    // sent as new, against 425k less to read for 22 requests.
+    assert_eq!(c["compactions_instead"], 1);
+    near(&c["compactions_weighted_estimate"], 0.1 * 500_000.0 + 5.0 * 6_000.0 + 1.25 * 50_000.0);
+    near(&c["saved_reads_estimate"], 0.1 * 425_000.0 * 22.0);
+    near(&c["difference_estimate"], 935_000.0 - 142_500.0);
+    near(&c["lengths_tried"][2]["difference_estimate"], 835_000.0);
+    assert_eq!(r["findings"][0]["finding"], "carried_context", "{r:#}");
+    near(&r["findings"][0]["weighted"], 792_500.0);
     let text = run(&sb, &root, &[]);
-    assert!(
-        text.contains("Carried context: 8 of 10 requests (80%) carried more than 200k tokens, at most 600k. Reading the part above 200k again cost 180k.\n"),
-        "{text}"
-    );
-    assert!(text.contains("Compacting at 200k instead: 3 compactions, about 154k, so about 109k less (an estimate).\n"), "{text}");
+    assert!(text.contains("Carried context: 22 of 31 requests (71%) carried more than 500k tokens, at most 600k.\n"), "{text}");
+    assert!(text.contains("Compacting at 500k instead: 1 more compaction for about 14"), "{text}");
+    assert!(text.contains(", and about 935k less to pay for after them, so about 79"), "{text}");
+    assert!(text.contains("At 300k: 2 more compactions, about 835k less in all.\n"), "{text}");
     assert!(
         text.contains("Start a fresh session at a natural break, or compact earlier, when the context stays far above what the next step needs.\n"),
         "{text}"
@@ -420,9 +433,14 @@ fn a_large_conversation_carried_for_long() {
     assert!(text.contains("Output and thinking are the counts the transcript recorded."), "{text}");
     // A model the price table does not name is weighed by the defaults, and the report says so.
     assert!(text.contains("claude-opus-5: a cache read 0.1, a cache write 1.25 (2 for one hour), output 5. "), "{text}");
-    // Above the peak there is nothing to say.
+    // `--carry` sets the length, and above the peak there is nothing to say.
+    let r = report(&sb, &root, &["--carry", "200000"]);
+    let c = &r["carried_context"];
+    assert_eq!((c["threshold"].as_u64(), c["requests_above"].as_u64(), c["compactions_instead"].as_u64()), (Some(200_000), Some(28), Some(4)), "{c:#}");
+    assert_eq!(c["lengths_tried"].as_array().map(Vec::len), Some(1));
     let r = report(&sb, &root, &["--carry", "700000"]);
     assert_eq!((r["carried_context"]["requests_above"].as_u64(), r["carried_context"]["weighted"].as_u64()), (Some(0), Some(0)));
+    assert_eq!((r["carried_context"]["threshold"].as_u64(), r["carried_context"]["spoken_of"].as_bool()), (Some(700_000), Some(false)));
     assert!(!r["findings"].as_array().unwrap().iter().any(|f| f["finding"] == "carried_context"), "{r:#}");
     assert!(!run(&sb, &root, &["--carry", "700000"]).contains("Carried context"));
     // The small sessions of the other tests stay below it as well.
@@ -579,7 +597,9 @@ fn a_codex_session_in_numbers() {
     // The compaction, said twice, is one boundary, sized by the requests either side of it.
     let c = &r["compactions"]["auto"];
     assert_eq!((c["count"].as_u64(), c["pre_tokens"].clone()), (Some(1), json!([33_000])), "{c:#}");
-    near(&c["weighted_estimate"], 0.1 * 33_000.0 + 1.25 * 8_000.0);
+    // 33,000 tokens read, a summary of 7 bytes written, and 8,000 sent as new after it.
+    near(&c["weighted_estimate"], 0.1 * 33_000.0 + 5.0 * 2.0 + 1.25 * 8_000.0);
+    assert_eq!((c["post_tokens"].clone(), c["summary_tokens"].clone(), c["resent_tokens"].clone()), (json!([8_000]), json!([2]), json!([8_000])));
     assert_eq!(r["start"]["first_context_tokens"], json!([30_000, 8_000]));
     // Thinking is the reasoning tokens, as a part of the output.
     let t = &r["thinking"];
@@ -614,20 +634,30 @@ fn a_codex_session_in_numbers() {
 fn codex_carried_context() {
     let sb = Sandbox::new("sessions-codex-carry");
     let root = project(&sb, "cxlong");
-    let mut lines = vec![meta(&root), model(0, "gpt-6")];
-    let (mut before, mut total) = (0u64, 0u64);
+    // The same session as the Claude Code one: a start of 25k, a climb from 150k to 600k, and
+    // twenty requests at 600k.
+    let mut lines = vec![meta(&root), model(0, "gpt-6"), tokens(0, 25_000, 0, 25_000, 10, 0, 25_010)];
+    let (mut before, mut total) = (25_000u64, 25_010u64);
     for i in 0..10u64 {
         let context = 150_000 + 50_000 * i;
         total += context + 10;
-        lines.push(tokens(i as i64, context, before, context - before, 10, 0, total));
+        lines.push(tokens(1 + i as i64, context, before, context - before, 10, 0, total));
         before = context;
+    }
+    for i in 0..20 {
+        total += 600_010;
+        lines.push(tokens(11 + i, 600_000, 600_000, 0, 10, 0, total));
     }
     jsonl(&rollout_path(&sb, ROLLOUT), &lines);
     let c = of(&sb, &root, &[], "Codex")["carried_context"].clone();
-    assert_eq!((c["requests_above"].as_u64(), c["peak_context"].as_u64(), c["compactions_instead"].as_u64()), (Some(8), Some(600_000), Some(3)), "{c:#}");
-    near(&c["weighted"], 180_000.0);
-    near(&c["saved_reads_estimate"], 262_500.0);
-    assert!(run(&sb, &root, &[]).contains("Compacting at 200k instead: 3 compactions, about 154k, so about 109k less (an estimate).\n"));
+    assert_eq!(
+        (c["threshold"].as_u64(), c["requests_above"].as_u64(), c["peak_context"].as_u64(), c["compactions_instead"].as_u64()),
+        (Some(500_000), Some(22), Some(600_000), Some(1)),
+        "{c:#}"
+    );
+    near(&c["weighted"], 215_000.0);
+    near(&c["saved_reads_estimate"], 935_000.0);
+    assert!(run(&sb, &root, &[]).contains("Compacting at 500k instead: 1 more compaction for about 14"));
 }
 
 #[test]
@@ -690,28 +720,31 @@ fn cache_reads_follow_the_model() {
 fn haiku_steps_up_over_a_prompt_of_100k() {
     let sb = Sandbox::new("sessions-haiku");
     let root = project(&sb, "haiku");
-    // 60k, 80k, exactly 100k (still the lower price), then 120k and 140k at five times.
-    growing(&sb, &root, FIRST, "claude-haiku-5-5", &[60_000, 80_000, 100_000, 120_000, 140_000]);
+    // 20k, 60k, 80k, exactly 100k (still the lower price), then 120k and 140k at five times.
+    growing(&sb, &root, FIRST, "claude-haiku-5-5", &[20_000, 60_000, 80_000, 100_000, 120_000, 140_000]);
     let r = report(&sb, &root, &[]);
     let at = |read: f64, write: f64| 0.1 * read + 1.25 * write + 5.0 * 100.0;
-    let lower = [at(0.0, 60_000.0), at(60_000.0, 20_000.0), at(80_000.0, 20_000.0), at(100_000.0, 20_000.0), at(120_000.0, 20_000.0)];
-    near(&r["total_weighted"], lower[..3].iter().sum::<f64>() + 5.0 * (lower[3] + lower[4]));
+    let below: f64 = [at(0.0, 20_000.0), at(20_000.0, 40_000.0), at(60_000.0, 20_000.0), at(80_000.0, 20_000.0)].iter().sum();
+    let over = [at(100_000.0, 20_000.0), at(120_000.0, 20_000.0)];
+    near(&r["total_weighted"], below + 5.0 * (over[0] + over[1]));
     // The step: the two requests over 100k, what they paid and what they would have paid.
     let step = &r["price_step"];
     assert_eq!((step["requests"].as_u64(), step["over_tokens"].as_u64()), (Some(2), Some(100_000)), "{step:#}");
-    near(&step["weighted"], 5.0 * (lower[3] + lower[4]));
-    near(&step["weighted_at_lower_price"], lower[3] + lower[4]);
-    near(&step["step_weighted"], 4.0 * (lower[3] + lower[4]));
+    near(&step["weighted"], 5.0 * (over[0] + over[1]));
+    near(&step["weighted_at_lower_price"], over[0] + over[1]);
+    near(&step["step_weighted"], 4.0 * (over[0] + over[1]));
     assert_eq!(r["findings"][0]["finding"], "price_step", "{r:#}");
-    // Carried context is measured from the step, at the price each request paid.
-    let c = &r["carried_context"];
-    assert_eq!((c["thresholds"].clone(), c["requests_above"].as_u64()), (json!([100_000]), Some(2)), "{c:#}");
+    // An earlier compaction is tried at the step, with this finding and not as carried context.
+    assert_eq!((r["carried_context"]["spoken_of"].as_bool(), r["carried_context"]["lengths_tried"].as_array().map(Vec::len)), (Some(false), Some(0)));
+    let c = &step["compacting_at_the_step"];
+    assert_eq!((c["threshold"].as_u64(), c["requests"].as_u64(), c["requests_above"].as_u64()), (Some(100_000), Some(6), Some(2)), "{c:#}");
     near(&c["weighted"], 5.0 * 0.1 * (20_000.0 + 40_000.0));
-    // Compacted at 100k down to 25k, the two would have carried 45k and 65k, below the step:
-    // one compaction at the lower price, and the reads saved at the price each length pays.
-    assert_eq!(c["compactions_instead"], 1);
-    near(&c["compactions_weighted_estimate"], 0.1 * 100_000.0 + 1.25 * 25_000.0);
-    near(&c["saved_reads_estimate"], 0.1 * (5.0 * 120_000.0 - 45_000.0) + 0.1 * (5.0 * 140_000.0 - 65_000.0));
+    // Compacted at 100k down to 70k (the start and the 50k a compaction usually has sent
+    // again), the two would have carried 90k and 80k, below the step: two compactions at the
+    // lower price. What they save is each request at the lower price, with less to read.
+    assert_eq!(c["compactions_instead"], 2);
+    near(&c["compactions_weighted_estimate"], 2.0 * (0.1 * 100_000.0 + 5.0 * 6_000.0 + 1.25 * 50_000.0));
+    near(&c["saved_reads_estimate"], (5.0 * over[0] - (over[0] - 0.1 * 30_000.0)) + (5.0 * over[1] - (over[1] - 0.1 * 60_000.0)));
     assert_eq!(r["weights"]["claude-haiku-5-5"]["tier"], json!({"over_tokens": 100_000, "times": 5.0}));
 
     let text = run(&sb, &root, &[]);
@@ -725,13 +758,17 @@ fn haiku_steps_up_over_a_prompt_of_100k() {
         text.contains("Keep a conversation with this model under 100k tokens, by starting a fresh session or compacting before it gets there.\n"),
         "{text}"
     );
-    assert!(text.contains("Carried context: 2 of 5 requests (40%) carried more than 100k tokens, at most 140k."), "{text}");
-    assert!(text.contains("Compacting at 100k instead: 1 compaction, about 41k, so about 78k less (an estimate).\n"), "{text}");
+    assert!(!text.contains("Carried context"), "{text}");
+    assert!(
+        text.contains("Compacting at 100k instead: 2 more compactions for about 205k, and about 301k less to pay for after them, so about 96k less in all (an estimate).\n"),
+        "{text}"
+    );
     assert!(
         text.contains("claude-haiku-5-5: a cache read 0.1, a cache write 1.25 (2 for one hour), output 5, and 5 times each over a prompt of 100k tokens"),
         "{text}"
     );
     // `--carry` given is the threshold whatever the model.
     let given = report(&sb, &root, &["--carry", "200000"]);
-    assert_eq!((given["carried_context"]["thresholds"].clone(), given["carried_context"]["requests_above"].as_u64()), (json!([200_000]), Some(0)));
+    assert_eq!((given["carried_context"]["threshold"].as_u64(), given["carried_context"]["requests_above"].as_u64()), (Some(200_000), Some(0)));
+    assert_eq!(given["price_step"]["compacting_at_the_step"], Value::Null);
 }

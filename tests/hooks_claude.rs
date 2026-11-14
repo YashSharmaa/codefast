@@ -333,10 +333,15 @@ fn rfc3339(secs: i64) -> String {
 /// The transcript the prompt payload names, ending in a request that carried `context` tokens
 /// `minutes` ago and wrote to the one-hour or the five-minute cache.
 fn transcript(home: &std::path::Path, context: u64, minutes: i64, one_hour: bool) {
+    transcript_of(home, "claude-sonnet-5", context, minutes, one_hour)
+}
+
+/// The same for a conversation on `model`.
+fn transcript_of(home: &std::path::Path, model: &str, context: u64, minutes: i64, one_hour: bool) {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
     let (long, short) = if one_hour { (900, 0) } else { (0, 900) };
     let line = |id: &str, ctx: u64, at: i64| {
-        serde_json::json!({"type": "assistant", "isSidechain": false, "timestamp": rfc3339(at), "message": {"id": id, "model": "claude-sonnet-5", "usage": {
+        serde_json::json!({"type": "assistant", "isSidechain": false, "timestamp": rfc3339(at), "message": {"id": id, "model": model, "usage": {
             "input_tokens": 2, "cache_read_input_tokens": ctx - 902, "cache_creation_input_tokens": 900, "output_tokens": 0,
             "cache_creation": {"ephemeral_1h_input_tokens": long, "ephemeral_5m_input_tokens": short}}}})
         .to_string()
@@ -369,7 +374,9 @@ fn the_owner_of_a_very_long_conversation_is_told_what_each_request_carries() {
     transcript(&home, 430_000, 1, true);
     let (said, for_model) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude));
     assert!(said.starts_with("codefast: this conversation is 430k tokens long, and every request reads all of it again"), "{said}");
-    assert!(said.contains("what 9k tokens of output cost") && said.contains("`/compact`") && said.contains("doctor sessions`"), "{said}");
+    // A cache read of this model is a tenth of its input price and a fiftieth of its output price.
+    assert!(said.contains("with claude-sonnet-5 that alone costs what 9k tokens of output cost, each time."), "{said}");
+    assert!(said.contains("`/compact` pays for itself in about 5 requests") && said.contains("`/clear`") && said.contains("doctor sessions`"), "{said}");
     assert!(!for_model, "nothing of it is context for the model");
     hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude).assert_quiet("said once for this size");
     transcript(&home, 470_000, 1, true);
@@ -393,7 +400,68 @@ fn the_owner_of_a_very_long_conversation_is_told_what_each_request_carries() {
     transcript(&home, 150_000, 1, true);
     hook(&home, &repo.dir, "user-prompt-submit", fresh("short").as_bytes(), &claude).assert_quiet("150k tokens are not worth a word");
     let (said, _) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", fresh("lower").as_bytes(), &[("CLAUDECODE", "1"), ("CODEFAST_CARRY", "100000")]));
-    assert!(said.contains("150k tokens long"), "the threshold can be set: {said}");
+    assert!(said.contains("150k tokens long") && said.contains("in about 20 requests"), "the threshold can be set: {said}");
+}
+
+/// What carrying a conversation costs follows the model: where a cache read is cheaper, a
+/// conversation is spoken of later, and the figures are that model's.
+#[test]
+fn the_note_about_a_long_conversation_follows_the_prices_of_its_model() {
+    let (repo, home) = indexed("carried-by-model");
+    let claude = [("CLAUDECODE", "1")];
+    let plain = payload("claude-user-prompt", &repo.dir, &home).replace("dev_read returns -1 for a device that is open. Find out why and fix it.", "go on");
+    let ask = |id: &str| hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, id).as_bytes(), &claude);
+    // A cache read at 0.05: a compaction pays for itself within ten requests from 370k.
+    transcript_of(&home, "claude-opus-5-5", 300_000, 1, true);
+    ask("opus-short").assert_quiet("300k tokens on Opus 5.5");
+    transcript_of(&home, "claude-opus-5-5", 430_000, 1, true);
+    let (said, _) = to_user(&ask("opus"));
+    assert!(said.contains("with claude-opus-5-5 that alone costs what 4k tokens of output cost") && said.contains("in about 9 requests"), "{said}");
+    // At 0.025, from 660k.
+    transcript_of(&home, "claude-fable-5-2", 600_000, 1, true);
+    ask("fable-short").assert_quiet("600k tokens on Fable 5.2");
+    transcript_of(&home, "claude-fable-5-2", 720_000, 1, true);
+    let (said, _) = to_user(&ask("fable"));
+    assert!(said.contains("720k tokens long") && said.contains("with claude-fable-5-2 that alone costs what 4k tokens of output cost") && said.contains("in about 10 requests"), "{said}");
+    // A session that writes to the five-minute cache pays less to send what a compaction
+    // leaves: from 190k at the default prices.
+    transcript(&home, 200_000, 1, false);
+    let (said, _) = to_user(&ask("five-minutes"));
+    assert!(said.contains("200k tokens long"), "{said}");
+}
+
+/// The price of Claude Haiku 5.5 steps up for a prompt over 100,000 tokens: the person is told
+/// on the way there, and again when the conversation is over it.
+#[test]
+fn the_owner_is_told_where_the_price_of_the_model_steps_up() {
+    let (repo, home) = indexed("step");
+    let claude = [("CLAUDECODE", "1")];
+    let plain = payload("claude-user-prompt", &repo.dir, &home).replace("dev_read returns -1 for a device that is open. Find out why and fix it.", "go on");
+    let ask = || hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude);
+    transcript_of(&home, "claude-haiku-5-5", 70_000, 1, true);
+    ask().assert_quiet("70k tokens are not near it");
+    transcript_of(&home, "claude-haiku-5-5", 85_000, 1, true);
+    let (said, for_model) = to_user(&ask());
+    assert_eq!(
+        said,
+        "codefast: this conversation is 85k tokens long, and with claude-haiku-5-5 a request whose prompt is over 100k tokens pays 5 times the price for every token of it. `/compact` before it gets there, or `/clear` where the next job does not need the conversation, keeps the next requests at the lower price."
+    );
+    assert!(!for_model);
+    transcript_of(&home, "claude-haiku-5-5", 95_000, 1, true);
+    ask().assert_quiet("said once on the way there");
+    transcript_of(&home, "claude-haiku-5-5", 120_000, 1, true);
+    let (said, _) = to_user(&ask());
+    assert_eq!(
+        said,
+        "codefast: this conversation is 120k tokens long, and with claude-haiku-5-5 a request whose prompt is over 100k tokens pays 5 times the price for every token of it: every request does now. `/compact` brings it back under, and so does `/clear` where the next job does not need the conversation."
+    );
+    transcript_of(&home, "claude-haiku-5-5", 150_000, 1, true);
+    ask().assert_quiet("said once over it");
+    transcript_of(&home, "claude-haiku-5-5", 210_000, 1, true);
+    let (said, _) = to_user(&ask());
+    assert!(said.contains("210k tokens long"), "and again a hundred thousand tokens on: {said}");
+    // The note about carrying is for models without such a step.
+    assert!(!said.contains("pays for itself"), "{said}");
 }
 
 /// Past the life of its prompt cache, a conversation is sent again at the price of new input.
@@ -404,7 +472,7 @@ fn the_owner_is_told_when_the_prompt_cache_has_run_out() {
     let plain = payload("claude-user-prompt", &repo.dir, &home).replace("dev_read returns -1 for a device that is open. Find out why and fix it.", "go on");
     transcript(&home, 150_000, 70, true);
     let (said, for_model) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude));
-    assert!(said.starts_with("codefast: this conversation was idle for 1 hour 10 minutes, longer than its prompt cache lives. This request sends its 150k tokens again as new input, about 20 times"), "{said}");
+    assert!(said.starts_with("codefast: this conversation was idle for 1 hour 10 minutes, longer than its prompt cache lives. This request sends its 150k tokens again as new input, with claude-sonnet-5 about 20 times what a warm request pays for them."), "{said}");
     assert!(said.contains("`/clear`") && !for_model, "{said}");
     hook(&home, &repo.dir, "user-prompt-submit", plain.as_bytes(), &claude).assert_quiet("once for this gap");
 
@@ -417,6 +485,13 @@ fn the_owner_is_told_when_the_prompt_cache_has_run_out() {
     hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "warm").as_bytes(), &claude).assert_quiet("the cache still holds");
     transcript(&home, 40_000, 300, true);
     hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "small").as_bytes(), &claude).assert_quiet("a small conversation");
+    // Where a cache read is cheaper, sending the conversation again is dearer next to it.
+    transcript_of(&home, "claude-opus-5-5", 150_000, 70, true);
+    let (said, _) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "opus").as_bytes(), &claude));
+    assert!(said.contains("with claude-opus-5-5 about 40 times"), "{said}");
+    transcript_of(&home, "claude-fable-5-2", 150_000, 70, true);
+    let (said, _) = to_user(&hook(&home, &repo.dir, "user-prompt-submit", in_session(&plain, "fable").as_bytes(), &claude));
+    assert!(said.contains("with claude-fable-5-2 about 80 times"), "{said}");
 
     // On resuming, the harness says what it knows, and the person is told before typing.
     let mut resume: serde_json::Value = serde_json::from_str(&payload("claude-session-start", &repo.dir, &home)).unwrap();
@@ -427,6 +502,11 @@ fn the_owner_is_told_when_the_prompt_cache_has_run_out() {
     let (said, for_model) = to_user(&hook(&home, &repo.dir, "session-start", in_session(&resume.to_string(), "resumed").as_bytes(), &claude));
     assert!(said.starts_with("codefast: this conversation is 300k tokens and its prompt cache has run out (idle for 2 hours). The first request sends all of it again as new input"), "{said}");
     assert!(for_model, "the session's own note goes to the model as before");
+    // The model the session resumes on prices it, and the harness's own figure is passed on.
+    resume["model"] = serde_json::json!("claude-fable-5-2");
+    resume["estimated_cache_write_usd"] = serde_json::json!(4.8);
+    let (said, _) = to_user(&hook(&home, &repo.dir, "session-start", in_session(&resume.to_string(), "resumed-fable").as_bytes(), &claude));
+    assert!(said.contains("as new input, with claude-fable-5-2 about 80 times what a warm request pays for them (the harness puts it at $4.80)."), "{said}");
     resume["prompt_cache_likely_expired"] = serde_json::json!(false);
     let (said, _) = to_user(&hook(&home, &repo.dir, "session-start", in_session(&resume.to_string(), "resumed-warm").as_bytes(), &claude));
     assert!(!said.contains("prompt cache"), "a warm cache is not spoken of: {said}");

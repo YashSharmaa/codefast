@@ -20,10 +20,12 @@
 //! definitions the uncommitted changes added, removed and altered: what the session did so far,
 //! in a few lines, at the moment its own record of it was summarised away.
 //!
-//! Two notes are for the person at the keyboard and never reach the model (Claude Code's
+//! Three notes are for the person at the keyboard and never reach the model (Claude Code's
 //! `systemMessage`): that a conversation has grown so long that every request pays a good deal
-//! to read it again, and that a conversation's prompt cache has run out, so that the next
-//! request sends all of it again as new input. Each is said once per occasion, and
+//! to read it again, that a conversation's prompt cache has run out, so that the next request
+//! sends all of it again as new input, and that a conversation is at the length where the price
+//! of its model steps up. The figures in them are those of the model the conversation runs on
+//! (`doctor sessions` has the table). Each is said once per occasion, and
 //! `CODEFAST_COST_NOTES=off` turns them off.
 //!
 //! The payload is the harness's hook input (Claude Code and Codex share the shape; Cursor and
@@ -43,9 +45,9 @@
 //! # Environment
 //!
 //! `CODEFAST_HOOKS=off` (or `0`, `false`, `no`) turns all three events off.
-//! `CODEFAST_COST_NOTES=off` keeps the hooks and drops the two notes to the person, and
-//! `CODEFAST_CARRY` is the size in tokens from which a long conversation is spoken of
-//! (default 200000).
+//! `CODEFAST_COST_NOTES=off` keeps the hooks and drops the notes to the person, and
+//! `CODEFAST_CARRY` is the size in tokens from which a long conversation is spoken of (default:
+//! where a compaction would pay for itself within ten requests at the prices of the model).
 //! `CODEFAST_HOOK_BUDGET_MS` is how long `post-tool-use` may wait for the caller summary
 //! (default 50; the definition line goes out either way). `--root`, `CODEFAST_ROOT`,
 //! `CODEFAST_INDEX_DIR` and `CODEFAST_NO_REFRESH` mean what they mean for every other command:
@@ -133,11 +135,13 @@ const RECAP_TOKENS: usize = 350;
 
 /// A conversation smaller than this is not worth a word about what resending it costs.
 const COLD_NOTE_FROM: u64 = 60_000;
-/// A conversation above this many tokens is carried at a cost worth telling its owner
-/// (`CODEFAST_CARRY` sets another figure). The same threshold as `doctor sessions`.
-const CARRY_NOTE_FROM: u64 = super::sessions::CARRY;
-/// The note comes back each time the conversation has grown by this much more.
+/// The note about a long conversation comes back each time it has grown by this much more.
+/// Where it first comes is `doctor sessions`' threshold for the model of the conversation
+/// (`CODEFAST_CARRY` sets another length).
 const CARRY_NOTE_STEP: u64 = 100_000;
+/// A conversation that has come this near to the length where the price of its model steps up
+/// is told so before it gets there.
+const STEP_NOTE_NEAR: f64 = 0.8;
 /// How long a prompt cache lives after the last request, with what the harness takes to send
 /// the next one left off: the one-hour cache and the five-minute cache.
 const CACHE_HOUR: Duration = Duration::from_secs(55 * 60);
@@ -264,7 +268,7 @@ fn value_end(b: &[u8], i: usize) -> Option<usize> {
 }
 
 const WANTED: &[&str] =
-    &["session_id", "conversation_id", "agent_id", "cwd", "workspace_roots", "hook_event_name", "tool_name", "tool_input", "tool_response", "tool_output", "cursor_version", "prompt", "source", "transcript_path", "context_tokens", "prompt_cache_likely_expired", "seconds_since_last_response"];
+    &["session_id", "conversation_id", "agent_id", "cwd", "workspace_roots", "hook_event_name", "tool_name", "tool_input", "tool_response", "tool_output", "cursor_version", "prompt", "source", "transcript_path", "context_tokens", "prompt_cache_likely_expired", "seconds_since_last_response", "estimated_cache_write_usd", "model"];
 
 /// The wanted members of the payload's top-level object, as raw JSON text. Everything else is
 /// stepped over without being parsed. `None` unless the input is one JSON object and nothing
@@ -351,6 +355,11 @@ struct Payload {
     /// On resuming a conversation, what the harness says of it: its size in tokens, whether
     /// its prompt cache has probably expired, and the seconds since its last reply.
     resumed: (Option<u64>, Option<bool>, Option<u64>),
+    /// And what the harness itself puts the first request of a resumed conversation at, in
+    /// dollars, when its cache has run out.
+    cold_usd: Option<f64>,
+    /// The model the session starts on (`SessionStart`), where the harness says.
+    model: Option<String>,
     /// Cursor's hook protocol: flat, snake-case output.
     cursor: bool,
 }
@@ -388,6 +397,8 @@ impl Payload {
                 "context_tokens" => p.resumed.0 = raw.trim().parse().ok(),
                 "prompt_cache_likely_expired" => p.resumed.1 = raw.trim().parse().ok(),
                 "seconds_since_last_response" => p.resumed.2 = raw.trim().parse::<f64>().ok().map(|x| x.max(0.0) as u64),
+                "estimated_cache_write_usd" => p.cold_usd = raw.trim().parse::<f64>().ok().filter(|x| x.is_finite() && *x > 0.0),
+                "model" => p.model = string(raw),
                 "cursor_version" => p.cursor = true,
                 _ => {}
             }
@@ -927,8 +938,9 @@ fn cost_notes_off() -> bool {
     std::env::var("CODEFAST_COST_NOTES").is_ok_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "0" | "false" | "no"))
 }
 
-fn carry_from() -> u64 {
-    std::env::var("CODEFAST_CARRY").ok().and_then(|v| v.trim().parse().ok()).filter(|n| *n > 0).unwrap_or(CARRY_NOTE_FROM)
+/// `CODEFAST_CARRY`: the length from which a long conversation is spoken of, when it is set.
+fn carry_given() -> Option<u64> {
+    std::env::var("CODEFAST_CARRY").ok().and_then(|v| v.trim().parse().ok()).filter(|n| *n > 0)
 }
 
 fn idle_text(secs: u64) -> String {
@@ -940,27 +952,61 @@ fn idle_text(secs: u64) -> String {
     }
 }
 
+/// `with claude-opus-5-5 ` where the model is known, for a figure that is that model's own.
+fn with_model(model: &str) -> String {
+    if model.is_empty() { String::new() } else { format!("with {model} ") }
+}
+
 /// What a conversation of `context` tokens costs to send again once its cache is gone, next to
-/// what it costs warm: a cache write against a cache read.
-fn cold_note(context: u64, idle_secs: u64, one_hour: bool, resumed: bool) -> String {
-    let times = if one_hour { super::sessions::CACHE_WRITE_1H } else { super::sessions::CACHE_WRITE_5M } / super::sessions::CACHE_READ;
+/// what it costs warm: a cache write against a cache read, at the prices of `model`. `usd`: the
+/// harness's own figure for it.
+fn cold_note(model: &str, context: u64, idle_secs: u64, one_hour: bool, resumed: bool, usd: Option<f64>) -> String {
+    let w = super::sessions::weights(model);
+    let times = if one_hour { w.write_1h } else { w.write_5m } / w.cache_read;
     let size = super::sessions::short(context as f64);
     let lead = if resumed {
         format!("this conversation is {size} tokens and its prompt cache has run out (idle for {}). The first request sends all of it again", idle_text(idle_secs))
     } else {
         format!("this conversation was idle for {}, longer than its prompt cache lives. This request sends its {size} tokens again", idle_text(idle_secs))
     };
-    format!("codefast: {lead} as new input, about {times:.0} times what a warm request pays for them. Before a job that does not need the whole conversation, `/clear` or a new session costs none of that.")
+    let theirs = usd.filter(|d| *d >= 0.01).map(|d| format!(" (the harness puts it at ${d:.2})")).unwrap_or_default();
+    format!(
+        "codefast: {lead} as new input, {}about {times:.0} times what a warm request pays for them{theirs}. Before a job that does not need the whole conversation, `/clear` or a new session costs none of that.",
+        with_model(model)
+    )
 }
 
 /// Once per stretch of growth, what every request of a very long conversation pays before it
-/// does any work.
-fn carried_note(context: u64, cli: &str) -> String {
+/// does any work, and how soon a compaction would have paid for itself.
+fn carried_note(model: &str, context: u64, one_hour: bool, cli: &str) -> String {
+    let w = super::sessions::weights(model);
+    let resend = if one_hour { w.write_1h } else { w.write_5m };
+    let pays = match super::sessions::Shape::typical(None).pays_after(&w, context, resend) {
+        Some(n) => format!("`/compact` pays for itself in about {} requests", (n.ceil() as u64).max(1)),
+        None => "`/compact` makes the next ones lighter".to_string(),
+    };
     format!(
-        "codefast: this conversation is {} tokens long, and every request reads all of it again before doing any work: that alone costs what {} tokens of output cost, each time. `/compact` costs about one such request and makes the next ones several times lighter. `{cli} doctor sessions` shows where a session's tokens went.",
+        "codefast: this conversation is {} tokens long, and every request reads all of it again before doing any work: {}that alone costs what {} tokens of output cost, each time. {pays}, and `/clear` costs nothing where the next job does not need the conversation. `{cli} doctor sessions` shows where a session's tokens went.",
         super::sessions::short(context as f64),
-        super::sessions::short(context as f64 * super::sessions::CACHE_READ / super::sessions::OUTPUT)
+        with_model(model),
+        super::sessions::short(context as f64 * w.cache_read / w.output)
     )
+}
+
+/// A conversation near or over the length where the price of its model steps up.
+fn step_note(model: &str, context: u64, tier: super::sessions::Tier) -> String {
+    let size = super::sessions::short(context as f64);
+    let over = super::sessions::short(tier.over as f64);
+    let rule = format!("{}a request whose prompt is over {over} tokens pays {:.0} times the price for every token of it", with_model(model), tier.times);
+    if context > tier.over {
+        format!(
+            "codefast: this conversation is {size} tokens long, and {rule}: every request does now. `/compact` brings it back under, and so does `/clear` where the next job does not need the conversation."
+        )
+    } else {
+        format!(
+            "codefast: this conversation is {size} tokens long, and {rule}. `/compact` before it gets there, or `/clear` where the next job does not need the conversation, keeps the next requests at the lower price."
+        )
+    }
 }
 
 /// The note for the person who has just sent a prompt, if the conversation has come to cost
@@ -978,12 +1024,21 @@ fn conversation_note(place: &Place, payload: &Payload, cli: &str) -> Option<Stri
     // a note about a cache that has not run out would be wrong, and a missing note is not.
     let one_hour = last.one_hour.unwrap_or(true);
     if idle >= if one_hour { CACHE_HOUR } else { CACHE_FIVE } && last.context >= COLD_NOTE_FROM {
-        return session.claim(&format!("cold {}", last.at / 60_000)).then(|| cold_note(last.context, idle.as_secs(), one_hour, false));
+        return session.claim(&format!("cold {}", last.at / 60_000)).then(|| cold_note(&last.model, last.context, idle.as_secs(), one_hour, false, None));
     }
-    let from = carry_from();
+    let w = super::sessions::weights(&last.model);
+    if let Some(tier) = w.tier {
+        // Told once on the way there, once over it, and again as it grows.
+        if (last.context as f64) < STEP_NOTE_NEAR * tier.over as f64 {
+            return None;
+        }
+        let stage = if last.context <= tier.over { 0 } else { 1 + (last.context - tier.over) / CARRY_NOTE_STEP };
+        return session.claim(&format!("step {stage}")).then(|| step_note(&last.model, last.context, tier));
+    }
+    let from = carry_given().unwrap_or_else(|| super::sessions::carry_from(&w, if one_hour { w.write_1h } else { w.write_5m }));
     if last.context >= from {
         let step = (last.context - from) / CARRY_NOTE_STEP;
-        return session.claim(&format!("carried {step}")).then(|| carried_note(last.context, cli));
+        return session.claim(&format!("carried {step}")).then(|| carried_note(&last.model, last.context, one_hour, cli));
     }
     None
 }
@@ -994,21 +1049,25 @@ fn resume_note(place: &Place, payload: &Payload) -> Option<String> {
     if std::env::var_os("CLAUDECODE").is_none() || payload.agent.is_some() || cost_notes_off() || !matches!(payload.source.as_deref(), Some("resume" | "fork")) {
         return None;
     }
-    let (context, expired, idle) = match payload.resumed {
-        (Some(c), Some(e), idle) => (c, e, idle.unwrap_or(0)),
+    let last = payload.transcript.as_deref().and_then(|t| super::sessions::last_request(Path::new(t)));
+    let (context, expired, idle) = match (payload.resumed, &last) {
+        ((Some(c), Some(e), idle), _) => (c, e, idle.unwrap_or(0)),
         // An older harness does not say: the transcript does.
-        _ => {
-            let last = super::sessions::last_request(Path::new(payload.transcript.as_deref()?))?;
+        (_, Some(last)) => {
             let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_millis() as i64;
             let idle = Duration::from_millis((now - last.at).max(0) as u64);
             (last.context, idle >= if last.one_hour.unwrap_or(true) { CACHE_HOUR } else { CACHE_FIVE }, idle.as_secs())
         }
+        _ => return None,
     };
     if !expired || context < COLD_NOTE_FROM {
         return None;
     }
+    // The model the session resumes on, where the harness names it as its prices are listed
+    // by, and else the one the conversation ran on.
+    let model = payload.model.clone().filter(|m| m.contains("claude-")).or(last.map(|l| l.model)).or(payload.model.clone()).unwrap_or_default();
     let session = Session::open(place, payload.session.as_deref())?;
-    session.claim(&format!("resumed {}", idle / 60)).then(|| cold_note(context, idle, true, true))
+    session.claim(&format!("resumed {}", idle / 60)).then(|| cold_note(&model, context, idle, true, true, payload.cold_usd))
 }
 
 // ----- user-prompt-submit -----

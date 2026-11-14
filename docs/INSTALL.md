@@ -854,10 +854,10 @@ thing to do about it. A finding under 1% of the total is left out.
 |---|---|
 | the start | the context of the first request of each stretch between compactions, read again by every later request of the stretch (`doctor context` shows what it holds) |
 | cold restarts | a request that read under 20% of the previous context from the cache, by cause: a model switch, more than an hour idle, more than five minutes idle, other. Codex has no one-hour cache to tell apart, so for it the idle cause is five minutes. Where Claude Code recorded its own reason for the miss, `--session` prints it next to the cause, and the report says when the two differ for more than a quarter of the restarts |
-| compactions | manual and automatic ones, the conversation size at each, and the manual ones under 100k tokens. The cost is an estimate. Codex records neither what started a compaction nor its sizes: the context of the requests either side of it stands in for them |
+| compactions | manual and automatic ones, the conversation size at each, and the manual ones under 100k tokens. A compaction costs three things: a request reads the whole conversation, it writes the summary as output, and the first request after it sends what is left as new. The transcript does not record that first request, so its part is an estimate from the size of the summary. What the next request sent is measured. Codex records neither what started a compaction nor its sizes: the context of the requests either side of it stands in for them |
 | thinking | thinking tokens as a share of the output, where the transcript records them. For Codex these are `reasoning_output_tokens`, taken as a part of `output_tokens` |
-| carried context | the context above 200k tokens (`--carry N`, and 100k for a session of Claude Haiku 5.5, where its price steps) read again by each request. Against it, an estimate of compacting at that size: the context drops to what the session's compactions left (25k without one, at most half the threshold) and grows again, which counts the compactions and the reads they save, each read at the price its length pays |
-| price step | for Claude Haiku 5.5: the requests whose prompt was over 100k tokens, what they cost, and what they would have cost at the lower price |
+| carried context | what compacting earlier would have done, tried at seven lengths from 150k to 800k tokens (`--carry N` tries one). At each, the context drops to what the session's own compactions left (its start and 50k tokens without one) and grows again as it did, which counts the compactions more and what each request then costs less. A compaction costs what the session's own did (without one: a summary of 6k tokens and 50k sent as new). The report names the longest length that gains at least four fifths of what the best one gains, since every compaction loses some of the conversation, and the best one beside it. An estimate: it takes the work after a compaction to go as it did |
+| price step | for Claude Haiku 5.5: the requests whose prompt was over 100k tokens, what they cost, and what they would have cost at the lower price. For these sessions an earlier compaction is tried at 100k, and reported here |
 | repeated reads | a file read again within a stretch that came back word for word as before. For Codex: a call with the same tool and arguments that gave back the same output |
 
 It also lists the tools whose results weighed most (Bash and Codex's shell by the program they
@@ -867,17 +867,26 @@ by when a transcript last changed), `--session ID` breaks one session down reque
 same numbers as JSON, one object per harness. Counts that an older harness version did not
 write, such as thinking tokens, are reported as not recorded rather than as zero.
 
-In Claude Code two notes go to you and not to the model, so they cost no tokens. Each is said
-once per occasion, and `CODEFAST_COST_NOTES=off` turns them off:
+In Claude Code three notes go to you and not to the model, so they cost no tokens. Their figures
+are those of the model the conversation runs on. Each is said once per occasion, and
+`CODEFAST_COST_NOTES=off` turns them off:
 
-- When a conversation has passed 200,000 tokens: what every request now pays to read it again,
-  and that `/compact` costs about one such request. It comes back each time the conversation has
-  grown by another 100,000 tokens. `CODEFAST_CARRY=N` sets another threshold.
+- When a conversation is so long that a compaction would pay for itself within ten requests:
+  what every request now pays to read it again, and after how many requests a `/compact` has
+  paid for itself. With the one-hour cache that is from 230,000 tokens at the default prices,
+  from 370,000 on Claude Opus 5.5 and Sonnet 5.5 and from 660,000 on Claude Fable 5.2, where a
+  cache read costs less. It comes back each time the conversation has grown by another 100,000
+  tokens. `CODEFAST_CARRY=N` sets another length.
+- When a conversation on Claude Haiku 5.5 comes within a fifth of 100,000 tokens, and again when
+  it is over: that a request whose prompt is over that length pays five times the price for
+  every token of it.
 - When you come back to a conversation of 60,000 tokens or more after its prompt cache has run
   out (an hour, or five minutes where the transcript shows the five-minute cache), or resume
-  such a conversation: that the next request sends all of it again as new input, at 12 to 20
-  times the price of a warm one, and that `/clear` or a new session avoids it when the next job
-  does not need the history.
+  such a conversation: that the next request sends all of it again as new input. That is 20
+  times the price of a warm request at the default prices, 40 times on Claude Opus 5.5 and
+  Sonnet 5.5 and 80 times on Claude Fable 5.2 (12, 25 and 50 with the five-minute cache). On
+  resuming, the harness's own estimate in dollars is passed on where it gives one. `/clear` or a
+  new session avoids it when the next job does not need the history.
 
 `codefast doctor sessions` gives the same figures after the fact, for every session of the
 project.
