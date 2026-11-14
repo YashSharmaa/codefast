@@ -609,7 +609,26 @@ fn codex_group(name: &str, args: &Value) -> String {
     if let Some((server, _)) = name.strip_prefix("mcp__").unwrap_or(name).split_once("__") {
         return format!("MCP {server}");
     }
+    // The `exec` tool is given a line of script that runs one of the tools above:
+    // `text(await tools.exec_command({cmd:"rg -n foo src"}))`. What ran is the command in it.
+    if name == "exec"
+        && let Some(script) = args["input"].as_str()
+        && let Some(word) = scripted_command(script)
+    {
+        return format!("shell {word}");
+    }
     name.to_string()
+}
+
+/// The program a line of script hands to a shell tool, where the line is one such call with a
+/// literal command: `tools.exec_command({cmd:"sed -n '1,40p' a.go"})` gives `sed`.
+fn scripted_command(script: &str) -> Option<String> {
+    let call = SHELLS.iter().filter_map(|t| script.find(&format!("tools.{t}(")).map(|i| &script[i..])).next()?;
+    let at = ["cmd:", "command:", "\"cmd\":", "\"command\":"].iter().filter_map(|k| call.find(k).map(|i| i + k.len())).min()?;
+    let rest = call[at..].trim_start().trim_start_matches('[').trim_start();
+    let quote = rest.chars().next().filter(|c| matches!(c, '"' | '\'' | '`'))?;
+    let word = first_word(rest[1..].split(quote).next()?);
+    (!word.is_empty()).then_some(word)
 }
 
 /// The text a Codex tool output puts into the conversation: a string, a list of parts, or an
@@ -2081,6 +2100,9 @@ mod tests {
         assert_eq!(codex_group("local_shell_call", &json!({"command": ["git", "status"]})), "shell git");
         assert_eq!(codex_group("mcp__codefast__context", &Value::Null), "MCP codefast");
         assert_eq!(codex_group("apply_patch", &Value::Null), "apply_patch");
+        assert_eq!(codex_group("exec", &json!({"input": "text(await tools.exec_command({cmd:\"rg -n 'Add\\(' syft\"}))"})), "shell rg");
+        assert_eq!(codex_group("exec", &json!({"input": "const r = await tools.shell({command: ['bash', '-lc', 'x']}); text(r)"})), "shell bash");
+        assert_eq!(codex_group("exec", &json!({"input": "text(1 + 1)"})), "exec");
         assert_eq!(codex_output(&json!({"output": "abc", "metadata": {}})), "abc");
         assert_eq!(codex_output(&json!([{"type": "input_text", "text": "a"}, {"type": "input_text", "text": "b"}])), "a\nb");
         let c = Codex { home: PathBuf::new() };
