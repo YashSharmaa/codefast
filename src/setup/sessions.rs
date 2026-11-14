@@ -2426,7 +2426,13 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
                     if s.kind == Kind::Codex { "counted as output, at 5 times the weight of input" } else { "billed as output at 5 times the input price" }
                 ),
             );
-            push(false, "Lower effort for routine work.");
+            push(
+                false,
+                match s.kind {
+                    Kind::ClaudeCode => "Lower effort for routine work: `/effort low` for a session, `effort` in an agent's definition for that agent.",
+                    Kind::Codex => "Lower effort for routine work.",
+                },
+            );
         }
         "manual_compactions" | "automatic_compactions" => {
             let manual = key == "manual_compactions";
