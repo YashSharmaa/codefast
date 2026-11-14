@@ -132,40 +132,49 @@ into a session, and it is computed from calls the index has resolved.
 
 Most of what a long session costs is not the work. It is the conversation sent again with every
 request, and a few habits nobody shows you: coming back after the prompt cache has expired,
-switching models in the middle of a job, carrying a conversation of half a million tokens,
-thinking that is billed as output. `codefast doctor sessions` reads the transcripts your harness
-keeps on your machine and puts numbers on each, with the one thing to do about it. Nothing is run,
-nothing leaves the machine, and no model is called.
+switching models in the middle of a job, carrying a conversation of half a million tokens, a
+sub-agent that waits ten minutes on a build, thinking that is billed as output. `codefast doctor
+sessions` reads the transcripts your harness keeps on your machine and puts numbers on each, with
+the one thing to do about it. It prices every request as its own model does, tries an earlier
+compaction at several lengths on your own sessions, and reads every sub-agent as the conversation
+it is. Nothing is run, nothing leaves the machine, and no model is called.
 
 <details>
 <summary>What the report looks like</summary>
 
 ```text
-Claude Code sessions of this project in the last 14 days: 1 session, 44 main-thread requests, 3.8M weighted tokens.
-  main thread    3.7M  cache reads 1.2M (32%), cache writes 2.3M (61%), uncached input 440 (<1%), output 187k (5%)
-  sub-agents      61k  12 requests (2%)
+Claude Code sessions of this project in the last 14 days: 1 session, 172 main-thread requests, 7.5M weighted tokens.
+  main thread    7.1M  cache reads 2.8M (37%), cache writes 3.5M (47%), output 805k (11%)
+  sub-agents     411k  26 requests (5%), 2 agents with transcripts of their own
 
-Where it went, largest first, as a share of the 3.8M in all:
-    1.4M  37%  Cold restarts: 2 requests sent the conversation again at the price of new input:
-               1 model switch (707k), 1 idle for more than an hour (707k).
+Where it went, largest first, as a share of the 7.5M in all:
+    2.2M  29%  Cold restarts: 3 requests sent the conversation again at the price of new input:
+               2 model switches (1.6M), 1 idle for more than an hour (528k).
                Come back within the cache lifetime or start fresh. Finish a job on one model.
-    678k  18%  Carried context: 30 of 44 requests (68%) carried more than 200k tokens, at most 617k.
-               Start a fresh session at a natural break, or compact earlier.
-    161k   4%  Repeated reads: 25 reads gave back a file word for word as an earlier read did.
-    128k   3%  Thinking: 26k of 41k output tokens (62%), billed as output at 5 times the input price.
-    124k   3%  The start, 21k tokens, was read again from the cache by 42 requests.
+    1.2M  15%  Carried context: 95 of 172 requests (55%) carried more than 300k tokens, at most 640k.
+               Compacting at 300k instead: 2 more compactions for about 290k, and about 1.4M less
+               to pay for after them, so about 1.2M less in all (an estimate).
+               `/autocompact 300k` moves it there.
+    537k   7%  Thinking: 107k of 179k output tokens (60%), billed as output at 5 times the input price.
+    180k   2%  The start, 21k tokens, was read again from the cache by 171 requests.
                `codefast doctor context` shows what the start holds and what can be switched off.
+     80k   1%  Cold restarts in sub-agents: 1 request of sub-agents sent the agent's conversation
+               again at the price of new input: 1 idle for more than five minutes (80k).
+               A sub-agent's prompt cache lasts five minutes here: one that waits longer on a
+               command pays for its whole conversation again when it comes back.
 ```
 
-A weighted token is one uncached input token of the request's own model: a cache read weighs 0.1,
-a cache write 1.25, an output token 5. The example is a made-up project.
+A weighted token is one uncached input token of the request's own model, with each kind of token
+weighed as that model's price list weighs it: here a cache read 0.05, a cache write 2 and an
+output token 5. The example is a made-up project, and some lines are shortened.
 
 </details>
 
-In Claude Code the hooks also say it at the moment it matters, to you and not to the model: when a
-conversation has passed 200,000 tokens, what every request now pays to read it again, and when you
-come back to a conversation whose prompt cache has run out, that the next request sends all of it
-again as new input.
+In Claude Code the hooks also say it at the moment it matters, to you and not to the model: what
+every request pays to read a long conversation again and how soon a `/compact` would pay for
+itself, that the next request sends everything again because the prompt cache has run out, and
+that a conversation on Claude Haiku 5.5 is about to pass the 100,000 tokens above which that model
+charges five times as much. The figures are those of the model the conversation runs on.
 
 `codefast doctor context` is the other half: what your plugins, skills, MCP servers and
 instruction files add to every request, and the setting that switches each off for this project.
