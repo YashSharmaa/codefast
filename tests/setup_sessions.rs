@@ -386,17 +386,21 @@ fn a_large_conversation_carried_for_long() {
     );
     // 50k + 100k + ... + 400k above the threshold, read again at 0.1.
     near(&c["weighted"], 0.1 * 1_800_000.0);
-    // The context crossed 200k once: one compaction at 200k, leaving the 25k of a session without one.
-    assert_eq!(c["compactions_instead"], 1);
-    near(&c["weighted_instead_estimate"], 0.1 * 200_000.0 + 1.25 * 25_000.0);
-    near(&c["difference_estimate"], 180_000.0 - 51_250.0);
+    // Compacting at 200k down to the 25k of a session without compactions: the context would
+    // repeat every 175k, so 250k to 600k become 75k, 125k, 175k, 50k, 100k, 150k, 25k, 75k,
+    // with a compaction at 250k, 400k and 550k. The reads saved are a tenth of what is left out.
+    let saved = 0.1 * (175_000.0 * 3.0 + 350_000.0 * 3.0 + 525_000.0 * 2.0);
+    assert_eq!(c["compactions_instead"], 3);
+    near(&c["saved_reads_estimate"], saved);
+    near(&c["compactions_weighted_estimate"], 3.0 * (0.1 * 200_000.0 + 1.25 * 25_000.0));
+    near(&c["difference_estimate"], saved - 153_750.0);
     assert!(r["findings"].as_array().unwrap().iter().any(|f| f["finding"] == "carried_context"), "{r:#}");
     let text = run(&sb, &root, &[]);
     assert!(
         text.contains("Carried context: 8 of 10 requests (80%) carried more than 200k tokens, at most 600k. Reading the part above 200k again cost 180k.\n"),
         "{text}"
     );
-    assert!(text.contains("Compacting at 200k instead would have taken 1 compaction at about 51k, 129k less (an estimate).\n"), "{text}");
+    assert!(text.contains("Compacting at 200k instead: 3 compactions, about 154k, so about 109k less (an estimate).\n"), "{text}");
     assert!(
         text.contains("Start a fresh session at a natural break, or compact earlier, when the context stays far above what the next step needs.\n"),
         "{text}"

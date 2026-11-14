@@ -677,11 +677,25 @@ pub struct Carry {
     pub peak: u64,
     /// `0.1 *` the context above the threshold, summed over the requests.
     pub cost: f64,
-    /// How often the context crossed the threshold upward within a stretch: the compactions
-    /// that keeping it at the threshold would have taken, by this count.
-    pub compactions: usize,
+    /// The compactions that keeping the context at the threshold would have taken, by
+    /// [`sawtooth`].
+    pub compactions: u64,
     /// What those compactions would have cost (an estimate).
     pub instead: f64,
+    /// The reads they would have saved: `0.1 *` the context each request would not have
+    /// carried (an estimate).
+    pub saved: f64,
+}
+
+/// Compacting at `threshold` as a sawtooth: once a stretch has passed the threshold, each
+/// compaction brings the context down to `post`, and it grows again as it did. For a context
+/// `c`: the context the request would have had, and how many compactions it took to get there.
+pub fn sawtooth(c: u64, threshold: u64, post: u64) -> (u64, u64) {
+    let period = threshold.saturating_sub(post).max(1);
+    if c <= post {
+        return (c, 0);
+    }
+    (post + (c - post) % period, (c - post) / period)
 }
 
 /// The median of what the compactions of a session left, or [`POST_TOKENS`] without one.
@@ -812,10 +826,10 @@ impl Stats {
         let mut open: Vec<(ToolResult, usize, bool)> = Vec::new();
         let mut reads: HashSet<(String, u64)> = HashSet::new();
         let threshold = self.carry.threshold;
-        let post = median_post(t.events.iter().filter_map(|e| if let Event::Compaction { post, .. } = e { *post } else { None }).collect());
-        // The last known context of the stretch, to see the threshold crossed.
-        let mut last: Option<u64> = None;
-        let mut crossings = 0usize;
+        // What a compaction leaves, never more than half the threshold.
+        let post = median_post(t.events.iter().filter_map(|e| if let Event::Compaction { post, .. } = e { *post } else { None }).collect()).min(threshold / 2);
+        // Whether the stretch has passed the threshold, and the compactions counted in it.
+        let (mut reached, mut wraps) = (false, 0u64);
         for e in &t.events {
             match e {
                 Event::Request(r) if r.sidechain => self.sub_request(r),
@@ -832,11 +846,17 @@ impl Stats {
                             if c > threshold {
                                 self.carry.above += 1;
                                 self.carry.cost += CACHE_READ * (c - threshold) as f64;
-                                if last.is_none_or(|l| l <= threshold) {
-                                    crossings += 1;
-                                }
+                                reached = true;
                             }
-                            last = Some(c);
+                            if reached {
+                                let (would, n) = sawtooth(c, threshold, post);
+                                if n > wraps {
+                                    self.carry.compactions += n - wraps;
+                                    self.carry.instead += (n - wraps) as f64 * compaction_at(threshold, post);
+                                    wraps = n;
+                                }
+                                self.carry.saved += CACHE_READ * c.saturating_sub(would) as f64;
+                            }
                         }
                     }
                     first_at = first_at.or(r.at);
@@ -868,7 +888,7 @@ impl Stats {
                 }
                 Event::Compaction { at, trigger, pre, post } => {
                     self.close(&t.id, first, k, &mut open);
-                    (first, k, last) = (None, 0, None);
+                    (first, k, reached, wraps) = (None, 0, false, 0);
                     reads.clear();
                     compacted = true;
                     self.compactions.push(Compaction {
@@ -888,8 +908,6 @@ impl Stats {
             }
         }
         self.close(&t.id, first, k, &mut open);
-        self.carry.compactions += crossings;
-        self.carry.instead += crossings as f64 * compaction_at(threshold, post);
         for r in &t.subagents {
             self.sub_request(r);
         }
@@ -1073,18 +1091,14 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
                     short(c.cost)
                 ),
             );
-            let diff = c.cost - c.instead;
-            let verdict = if diff >= 0.0 { format!("{} less", short(diff)) } else { format!("{} more", short(-diff)) };
-            push(
-                false,
-                &format!(
-                    "Compacting at {t} instead would have taken {} compaction{} at about {}, {verdict} (an estimate).",
-                    c.compactions,
-                    if c.compactions == 1 { "" } else { "s" },
-                    short(c.instead)
-                ),
-            );
-            push(false, "Start a fresh session at a natural break, or compact earlier, when the context stays far above what the next step needs.");
+            let gain = c.saved - c.instead;
+            let n = format!("{} compaction{}, about {}", c.compactions, if c.compactions == 1 { "" } else { "s" }, short(c.instead));
+            if gain > 0.0 {
+                push(false, &format!("Compacting at {t} instead: {n}, so about {} less (an estimate).", short(gain)));
+                push(false, "Start a fresh session at a natural break, or compact earlier, when the context stays far above what the next step needs.");
+            } else {
+                push(false, &format!("Compacting at {t} instead: {n}, which would not have paid (an estimate)."));
+            }
         }
         "repeated_reads" => {
             let bytes: u64 = s.repeats.iter().map(|r| r.bytes).sum();
@@ -1289,8 +1303,9 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
             "weighted": round(s.carry.cost),
             "share": ratio(s.carry.cost, total),
             "compactions_instead": s.carry.compactions,
-            "weighted_instead_estimate": round(s.carry.instead),
-            "difference_estimate": (s.carry.cost - s.carry.instead).round() + 0.0,
+            "compactions_weighted_estimate": round(s.carry.instead),
+            "saved_reads_estimate": round(s.carry.saved),
+            "difference_estimate": (s.carry.saved - s.carry.instead).round() + 0.0,
         },
         "unknown_context_requests": s.unknown_context,
         "findings": s.findings().iter().map(|(k, c)| json!({"finding": k, "weighted": round(*c), "share": ratio(*c, total)})).collect::<Vec<_>>(),
@@ -1409,6 +1424,7 @@ fn all_projects(source: &dyn Transcripts, ctx: &Ctx, o: &Options) -> Result<Stri
         sum.carry.cost += s.carry.cost;
         sum.carry.compactions += s.carry.compactions;
         sum.carry.instead += s.carry.instead;
+        sum.carry.saved += s.carry.saved;
     }
     let largest = |s: &Stats| s.findings().first().map(|(k, c)| format!(". Largest: {} ({})", k.replace('_', " "), share(*c, s.total()))).unwrap_or_default();
     if o.json {
@@ -1588,10 +1604,34 @@ mod tests {
         let mut s = Stats::new(CARRY);
         s.add(&t);
         let c = s.carry;
-        assert_eq!((c.requests, c.above, c.peak, c.compactions), (10, 8, 600_000, 1));
+        // Compacted at 200k down to 25k, the context repeats every 175k: requests of 250k to
+        // 600k would have carried 75k, 125k, 175k, 50k, 100k, 150k, 25k and 75k. It wraps at
+        // 250k, 400k and 550k.
+        let would = [75, 125, 175, 50, 100, 150, 25, 75];
+        for (i, w) in would.iter().enumerate() {
+            assert_eq!(sawtooth(250_000 + 50_000 * i as u64, 200_000, 25_000).0, w * 1000);
+        }
+        assert_eq!(sawtooth(150_000, 200_000, 25_000), (150_000, 0));
+        let saved: u64 = would.iter().enumerate().map(|(i, w)| 250_000 + 50_000 * i as u64 - w * 1000).sum();
+        assert_eq!(saved, 2_625_000);
+        assert_eq!((c.requests, c.above, c.peak, c.compactions), (10, 8, 600_000, 3));
         assert!((c.cost - 0.1 * 50_000.0 * 36.0).abs() < 1e-6);
-        assert!((c.instead - (20_000.0 + 1.25 * 25_000.0)).abs() < 1e-6);
+        assert!((c.saved - 0.1 * saved as f64).abs() < 1e-6);
+        assert!((c.instead - 3.0 * (20_000.0 + 1.25 * 25_000.0)).abs() < 1e-6);
         assert!(s.cold.is_empty());
+        // A compaction that left a lot, more than half the threshold: compacting at 450k
+        // brings the context down to 225k only, and would not have paid.
+        let mut big = vec![Event::Compaction { at: None, trigger: "auto".into(), pre: Some(500_000), post: Some(300_000) }];
+        big.extend(t.events.iter().cloned());
+        let mut b = Stats::new(450_000);
+        b.add(&Transcript { id: "b".into(), events: big, ..Default::default() });
+        assert_eq!((b.carry.above, b.carry.compactions), (3, 1));
+        assert!((b.carry.saved - 0.1 * 3.0 * 225_000.0).abs() < 1e-6);
+        assert!((b.carry.instead - (45_000.0 + 1.25 * 225_000.0)).abs() < 1e-6);
+        let mut out = String::new();
+        finding(&mut out, &b, "carried_context", b.carry.cost, &Ctx::new(Path::new("/")), false);
+        assert!(out.contains("Compacting at 450k instead: 1 compaction, about 326k, which would not have paid (an estimate).\n"), "{out}");
+        assert!(!out.contains("Start a fresh session"), "{out}");
         let mut low = Stats::new(700_000);
         low.add(&t);
         assert_eq!((low.carry.above, low.carry.cost), (0, 0.0));
