@@ -31,6 +31,7 @@ Reach for it before `grep` + reading files whenever the question is about a symb
 | After an edit: what still uses something the edit removed, renamed or gave another signature | `codefast check` |
 | What the uncommitted changes added, removed and altered, by definition | `codefast changed` |
 | Rename a function, method, type or field at its definition and at every reference the index is sure of | `codefast rename Set.Add Insert` (`--dry-run` shows the plan) |
+| How the repository is put together: its parts, what everything goes through, unexpected couplings, import cycles | `codefast map` (`-p DIR` for one part, `--html map.html` draws it for people) |
 
 Several targets can go in one call: `codefast show foo bar baz`. So can several questions:
 `codefast search "why does the copy stop early" dev_write dev_read` answers each name, and the

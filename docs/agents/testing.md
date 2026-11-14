@@ -10,6 +10,7 @@
 | hooks (`src/setup/hook.rs`, `hooks/`) | `cargo test --test hooks_claude --test hooks_codex --test hooks_hostile --test hooks_manifests --test hooks_push` |
 | the check after an edit (`src/query/changed.rs`) | `cargo test --test hooks_push`, then `codefast check --false-alarms` in two or three large repositories: it must stay silent on working code |
 | the rename command (`src/query/rename.rs`) | `cargo test --test rename_cli`, then `python3 bench/tier2/rename_offline.py` (eleven chosen tasks) and `python3 bench/tier2/rename_sample.py` (a random sample of types, fields and methods): after the one command the compiler may only complain about lines the command listed |
+| the map (`src/query/map.rs`, `src/query/map.html`) | `cargo test --test map_cli` and `cargo test --lib query::map`, then `codefast map` and `codefast map --html FILE` in two or three real repositories, the page in a light and a dark colour scheme |
 | the context audit (`src/setup/audit.rs`) | `cargo test --test doctor_context`, then compare `codefast doctor context` with `/context` in a real session |
 | the session report (`src/setup/sessions.rs`) | `cargo test --test setup_sessions`, then `codefast doctor sessions` in a project with real sessions |
 | setup or doctor (`src/setup/`) | `cargo test --test setup_cli --test setup_doctor --test setup_harnesses --test setup_native` |
