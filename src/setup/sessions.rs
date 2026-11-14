@@ -1867,10 +1867,12 @@ impl Stats {
 
 // ----- the report -----
 
-/// Weighted tokens, short: `18.4M`, `52k`, `730`.
+/// Weighted tokens, short: `3.89B`, `18.4M`, `52k`, `730`.
 pub fn short(x: f64) -> String {
     let x = if x > 0.0 { x } else { 0.0 };
-    if x >= 999_500.0 {
+    if x >= 999_950_000.0 {
+        format!("{:.2}B", x / 1e9)
+    } else if x >= 999_500.0 {
         format!("{:.1}M", x / 1e6)
     } else if x >= 999.5 {
         format!("{:.0}k", x / 1e3)
@@ -3058,6 +3060,7 @@ mod tests {
         assert_eq!(group("mcp__codefast__context", &Value::Null).0, "MCP codefast");
         assert_eq!(group("Bash", &json!({"command": "ls -la"})).0, "Bash ls");
         assert_eq!((short(18_400_000.0), short(52_300.0), short(730.0)), ("18.4M".to_string(), "52k".to_string(), "730".to_string()));
+        assert_eq!((short(3_886_800_000.0), short(999_940_000.0), short(999_960_000.0)), ("3.89B".to_string(), "999.9M".to_string(), "1.00B".to_string()));
         assert_eq!((share(1.0, 400.0), share(0.0, 5.0), share(1.0, 0.0)), ("<1%".to_string(), "0%".to_string(), "0%".to_string()));
     }
 }
