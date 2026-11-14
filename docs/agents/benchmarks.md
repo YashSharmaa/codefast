@@ -16,6 +16,7 @@ export CODEFAST_BIN=$PWD/target/release/codefast
 | The same on tasks no build has been looked at on | `uv run --with tiktoken python -I bench/tier2/live.py run --tag H --held K2,C,N,E,R,D,I,L,W,W2 --arms control,plugin --reps 2 --jobs 2` | the same, plus the go-git checkout and its oracle |
 | How much of a kernel question's verified answer the prompt card already holds, with no model | `uv run --with tiktoken python -I bench/tier2/card_k.py` | the kernel checkout. It builds an index of its own for the binary |
 | Which prompts of which family a change to the hooks reaches, with no model | `python3 -I bench/tier2/card_diff.py --old OLD_BINARY --new NEW_BINARY --show` | the task files the `make_*_tasks.py` builders write |
+| The hooks, the MCP server and the command line inside Codex, with no model | `python3 -I bench/codex/wiring.py` | `codex` on `PATH`. It runs in a sandbox home against a local stand-in for the model |
 
 What a bug fix can save at best: the `oracle` arm of `live.py` tells a session the file and
 function of the real fix before it starts, for nothing (0.95 of the control from the issue text

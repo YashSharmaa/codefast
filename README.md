@@ -536,8 +536,9 @@ hand are small, and the five languages added in 0.2.0 are the youngest.
   compiler can. It is also cautious: on go-git, which it had not seen, it refused two of ten
   methods that could safely be renamed, and left alone the lines on which two different
   methods of the same name are called.
-* The hooks were measured in Claude Code only. The Codex hooks pass their tests against recorded
-  payloads and have not been measured in live sessions.
+* Live sessions were run in Claude Code only. In Codex every hook was fired by codex-cli 0.164.0
+  itself and its text was in the next request, which `bench/codex/wiring.py` checks with a
+  stand-in for the model. What a model in Codex does with the cards has not been measured.
 
 ## Contributing
 

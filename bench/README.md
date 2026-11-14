@@ -11,6 +11,7 @@ language model except the two agent experiments in `tier2`, which are clearly ma
 | `oracles/` | Call graphs produced by real compilers and type checkers for redis (C), gitleaks and syft (Go) and zod (TypeScript) |
 | `tier1/` | Localisation without a model: task text in, ranked files and functions out |
 | `tier2/` | Agent experiments: real headless sessions with and without the plugin (`live.py`), and an earlier pilot with sub-agents |
+| `codex/` | The plugin inside Codex, checked with the real `codex` binary and a stand-in for the model |
 | `scripts/datasets/` | Loaders for the third party datasets, and the script that materialises a source tree at a given commit |
 | `scripts/oracles/` | The programs that built the call graph oracles, and the scorer |
 | `scripts/competitors/` | Index and query wrappers for other tools, run in a sandbox |
@@ -125,6 +126,27 @@ uv run bench/tier2/live.py run --tag H --held K,N,E,R,D,I,L --arms control,plugi
 checked, what is measured, and why the tables report a cost priced from the size of every
 request instead of the billed cost. `--resume` continues a batch that was interrupted, and a
 batch stops by itself when the login's usage window passes `--limit-stop`.
+
+## Inside Codex, without a model (`codex`)
+
+Whether the plugin works in Codex is a question about Codex, not about a model: does it fire
+the hooks, does their text reach the model, do the tools answer inside its sandbox. So it is
+checked with the real `codex` binary and no model. `wiring.py` makes a sandbox home under
+`target/codex-wiring`, runs `codefast setup codex --hooks --apply` there, and runs `codex exec`
+against `mock_model.py`, a local server that answers from a script and keeps every request
+Codex sends. Nothing leaves the machine and your own `~/.codex` is not read.
+
+```
+python3 -I bench/codex/wiring.py --codefast target/release/codefast --out bench/results/codex-wiring.json
+python3 -I bench/codex/wiring.py --model gpt-5       # another model entry: Codex offers its tools differently
+```
+
+It prints one line per check and the bytes of a request that are the plugin's. With
+codex-cli 0.164.0 and codefast 0.3.0 all 14 checks hold: the four hook events fire and their
+text is in the next request, the MCP tools and the command line answer in the read-only
+sandbox, and a session in a repository without an index gets one. What a model in Codex does
+with the cards is not measured by this, and has not been measured: the sessions of
+`tier2/live.py` are Claude Code sessions.
 
 ## The rename command, judged by the compiler (`tier2/rename_*.py`)
 
