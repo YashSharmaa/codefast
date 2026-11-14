@@ -264,6 +264,60 @@
    "W2-10",
    "W2-11",
    "W2-12"
+  ],
+  "K2": [
+   "K-F1-04",
+   "K-F1-08",
+   "K-F2-04",
+   "K-F2-08",
+   "K-F3-04",
+   "K-F3-08",
+   "K-F4-04",
+   "K-F4-08",
+   "K-F5-04",
+   "K-F5-08",
+   "K-F6-04",
+   "K-F6-08",
+   "K-F7-04",
+   "K-F7-08",
+   "K-F8-04",
+   "K-F8-08",
+   "K-F9-04",
+   "K-F9-08"
+  ],
+  "C": [
+   "C-gogit-Repository-fetchAndUpdateReferences",
+   "C-gogit-fn-scanCommitter",
+   "C-gogit-Decoder-Decode",
+   "C-gogit-UploadHaves-Encode",
+   "C-gogit-Remote-checkForceWithLease",
+   "C-gogit-Writer-createIndex",
+   "C-gogit-idxfileEntryIter-Next",
+   "C-gogit-Storage-SetObjectFormat",
+   "C-gogit-fn-streamPackfile",
+   "C-gogit-FetchOutput-Encode",
+   "C-gogit-Config-marshalProtocol",
+   "C-gogit-Worktree-submodulesWithConfig"
   ]
- }
+ },
+ "kernel_questions_held_out_2": [
+  "F1-04",
+  "F1-08",
+  "F2-04",
+  "F2-08",
+  "F3-04",
+  "F3-08",
+  "F4-04",
+  "F4-08",
+  "F5-04",
+  "F5-08",
+  "F6-04",
+  "F6-08",
+  "F7-04",
+  "F7-08",
+  "F8-04",
+  "F8-08",
+  "F9-04",
+  "F9-08"
+ ]
 }

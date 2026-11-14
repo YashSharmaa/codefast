@@ -14,6 +14,8 @@ export CODEFAST_BIN=$PWD/target/release/codefast
 | Localisation without a model | `uv run bench/tier1/run_locate.py --dataset locbench --loader-args "--subset ripwire-r4-60"` | `bench/scripts/datasets/fetch_datasets.sh` |
 | Real sessions, with and without the plugin | `uv run bench/tier2/live.py run --tag T --n 13 --arms control,plugin --jobs 2`, then `score --tag T` | Claude Code and `CLAUDE_CONFIG_DIR` set to the login to use. This spends model usage |
 | The same on tasks no build has been looked at on | `uv run bench/tier2/live.py run --tag H --held K,N,E,R,D,I,L --arms control,plugin --reps 2 --jobs 2` | the same, plus the go-git checkout and its oracle |
+| How much of a kernel question's verified answer the prompt card already holds, with no model | `uv run --with tiktoken python -I bench/tier2/card_k.py` | the kernel checkout. It builds an index of its own for the binary |
+| Which prompts of which family a change to the hooks reaches, with no model | `python3 -I bench/tier2/card_diff.py --old OLD_BINARY --new NEW_BINARY --show` | the task files the `make_*_tasks.py` builders write |
 
 What a bug fix can save at best: the `oracle` arm of `live.py` tells a session the file and
 function of the real fix before it starts, for nothing (0.95 of the control from the issue text
@@ -61,5 +63,15 @@ Rules for numbers:
   tasks are run once a build is final and are what the README reports. Once a held-out session
   has been read, its task counts as a development task for every later build
   (`bench/tier2/LIVE.md`).
-- A change to what the hooks say is judged on real sessions, not on how the text reads.
+- A change to what the hooks say is judged on real sessions, not on how the text reads. Before
+  a session is spent on it, `card_diff.py` says which prompts it reaches: a change meant for
+  one kind of question should leave the prompts of every other family exactly as they were.
+- A new family is measured on a second repository before its figure goes into the README.
+  Eight code-writing tasks of one repository said 0.95 of the control. Twelve of a second,
+  built the same way, said 1.08, and the README had carried the first figure for some hours.
+- An index is tied to the version of the program that wrote it, and a hook that finds another
+  version's index says nothing until the index has been rebuilt. Two builds never share an
+  index directory while sessions run: the comparison would be with a build that has no hooks.
+  `live.py` rebuilds the shared indexes for its binary when a batch starts, and the offline
+  checks keep one index per version.
 - Report what was measured, including the cases with no gain.
