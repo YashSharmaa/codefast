@@ -78,7 +78,7 @@ func TestCheckAllReadsTheClockOnce(t *testing.T) {
 func TestCheckAllEmpty(t *testing.T) {
 	e, _ := newEngine(t, "policy p * /** 1/1s\n")
 	for _, rs := range [][]engine.Request{nil, {}} {
-		if got := e.CheckAll(rs); got == nil || len(got) != 0 {
+		if got := e.CheckAll(rs); len(got) != 0 {
 			t.Fatalf("CheckAll(%v) = %#v", rs, got)
 		}
 	}

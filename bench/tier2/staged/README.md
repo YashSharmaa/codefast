@@ -34,6 +34,11 @@ tests of that checkpoint pass. The tests of a message fail on the state before i
 faults per message, put into the final reference one at a time, each fail a hidden test. And
 every detail a test relies on is stated in some message.
 
+Two checks were relaxed on 15 November 2026, after the first runs: `Critical` of no steps in
+S-go-1 and `CheckAll` of an empty batch in S-go-2 each had to return an empty slice that is not
+nil, where the message only asks for an empty one. Both now take either, and the runs graded
+before that were graded again.
+
 A run keeps the project as it stands after every reply (`stage-01` to `stage-06` in the run
 directory), and `live.py verify` grades each against its checkpoint.
 

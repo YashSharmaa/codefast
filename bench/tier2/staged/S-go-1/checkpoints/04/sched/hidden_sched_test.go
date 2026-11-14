@@ -128,7 +128,7 @@ func TestCriticalPath(t *testing.T) {
 	if got := sched.Critical(g, steps("x", "o")); !reflect.DeepEqual(got, []string{"x"}) {
 		t.Fatalf("Critical = %q", got)
 	}
-	if got := sched.Critical(g, nil); got == nil || len(got) != 0 {
+	if got := sched.Critical(g, nil); len(got) != 0 {
 		t.Fatalf("Critical(nil) = %#v", got)
 	}
 }

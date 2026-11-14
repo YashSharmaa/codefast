@@ -158,6 +158,27 @@ python3 -I bench/tier2/paper_f.py score rows.jsonl   # every arm next to the bas
 run on when the build was final. The paper's map of one kernel version takes two to fifteen
 minutes to build and 0.4 to 1.2 GB, kept under `bench/tools/_work/hsasc`.
 
+Two families write new code instead of working in a repository that exists. In family G a
+session gets an empty directory and a specification and builds the project
+(`bench/tier2/new/`, ten projects in four languages). In family S it gets one of those
+projects and then five changes to it, message after message in one conversation
+(`bench/tier2/staged/`, six projects). Hidden tests that no session sees grade what was built,
+and `check-new` runs every test set against its reference first.
+
+```
+python3 -I bench/tier2/live.py check-new          # every reference passes its hidden tests
+python3 -I bench/tier2/live.py run --tag G --held G --arms control,plugin --model haiku --reps 2 --jobs 2
+python3 -I bench/tier2/live.py run --tag S --held S --arms control,plugin --model haiku --reps 2 --jobs 2 --max-turns 400 --timeout 3000
+python3 -I bench/tier2/live.py score --tag S --out rows.jsonl
+```
+
+`--held Gdev` and `--held Sdev` are the projects to develop on. The arms of family S also set
+the shape of the conversation and not only the plugin: `control-fresh` and `plugin-fresh` give
+every message a session of its own in the same directory, and `control-ac` and `plugin-ac`
+(`-ac125` for a window of 125,000) lower the window at which the harness compacts the
+conversation to 100,000 tokens, which is where Claude Haiku 5.5 starts to cost five times as
+much a token.
+
 `tier2/LIVE.md` is the protocol: the arms, the five kinds of task and how each answer is
 checked, what is measured, and why the tables report a cost priced from the size of every
 request instead of the billed cost. `--resume` continues a batch that was interrupted, and a

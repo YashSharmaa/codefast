@@ -937,7 +937,7 @@ def parse(path):
     sizes = []  # per request of the main thread: (tokens of prompt, tokens of output)
     early = 0  # characters hooks added before the first request
     r: dict[str, Any] = dict(requests=0, sub_requests=0, tools={}, cmds=[], cf_cli=0, cf_mcp=0, hooks={}, hook_bytes=0, result_chars={}, init={}, limits={}, final=None, usage={}, cost=0.0, turns=0, denials=0,
-                             thinking=None, touched=[])
+                             thinking=None, touched=[], compactions=0)
     seen, names = set(), {}
     earlier, earlier_cost = dict(input=0, cache_read=0, cache_write=0, output=0), 0.0
     for e in ev:
@@ -957,6 +957,8 @@ def parse(path):
                 r["hook_bytes"] += len(ctx)
                 if not sizes:
                     early += len(ctx)
+        elif t == "system" and s == "compact_boundary":
+            r["compactions"] += 1
         elif t == "rate_limit_event":
             info = e.get("rate_limit_info", {})
             for w, v in (info.get("unifiedWindows") or {}).items():
@@ -1147,6 +1149,12 @@ def rows_of(tag):
         row["thinking"] = r["thinking"]
         if res["family"] in ("G", "S"):
             row["tests_passed"], row["tests"] = res.get("tests_passed"), res.get("tests")
+            # The shape of the conversation: how long it got, how often the harness compacted
+            # it, and how many requests had a prompt over 100,000 tokens, where the price of
+            # Claude Haiku 5.5 steps up.
+            row["peak"] = max((size[0] for size in r["sizes"]), default=0)
+            row["over_100k"] = sum(1 for size in r["sizes"] if size[0] > 100_000)
+            row["compactions"] = r["compactions"]
             # The hidden tests and the reference live in this repository: a session that went
             # looking for them is not a session that built the project.
             if any("tier2/new" in t or "tier2/staged" in t for t in r["touched"]):
