@@ -21,10 +21,13 @@ Usage: codefast doctor [--json]
                                   this project (plugins, skills, sub-agents, instruction files),
                                   what each costs, and how to switch off for this project only
                                   the parts nothing in it matches
+       codefast doctor sessions   where the tokens of this project's sessions went, read from
+                                  the harness's transcripts on this machine, and which habits
+                                  cost the most (`codefast doctor sessions --help`)
 ";
 
 /// `YYYY-MM-DD HH:MM:SS UTC` for seconds since the epoch.
-fn utc(secs: u64) -> String {
+pub(super) fn utc(secs: u64) -> String {
     let (days, rem) = ((secs / 86400) as i64, secs % 86400);
     // Civil date from a day count (Howard Hinnant's algorithm).
     let z = days + 719_468;
@@ -347,6 +350,9 @@ fn text(ctx: &Ctx, r: &Value) -> String {
 pub(super) fn run(root: &Path, args: &[String]) -> Result<String> {
     if args.first().map(String::as_str) == Some("context") {
         return Ok(super::audit::run(root, &args[1..]));
+    }
+    if args.first().map(String::as_str) == Some("sessions") {
+        return super::sessions::run(root, &args[1..]);
     }
     let mut as_json = false;
     for arg in args {

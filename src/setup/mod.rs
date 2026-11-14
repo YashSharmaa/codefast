@@ -14,6 +14,7 @@ mod harness;
 mod hook;
 mod json_edit;
 mod prompt;
+mod sessions;
 mod shell;
 
 use anyhow::{Result, bail};

@@ -324,8 +324,14 @@ fn fit(profile: &BTreeSet<String>, name: &str, text: &str) -> Option<String> {
 
 // ----- Claude Code -----
 
-fn claude_dir(ctx: &Ctx) -> PathBuf {
+pub(super) fn claude_dir(ctx: &Ctx) -> PathBuf {
     env_path("CLAUDE_CONFIG_DIR").unwrap_or_else(|| ctx.home(".claude"))
+}
+
+/// The name of a project's directory under `projects/` of the configuration directory: its
+/// absolute path with every character other than a letter or a digit replaced by `-`.
+pub(super) fn project_slug(root: &Path) -> String {
+    root.to_string_lossy().chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect()
 }
 
 /// `enabledPlugins` as the user, project and local settings leave it (the later file wins).
@@ -506,8 +512,7 @@ pub fn claude_code(ctx: &Ctx) -> Audit {
         });
     }
     // The index of the automatic memory of this project.
-    let slug: String = ctx.root.to_string_lossy().chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
-    let memory = cfg.join("projects").join(slug).join("memory/MEMORY.md");
+    let memory = cfg.join("projects").join(project_slug(&ctx.root)).join("memory/MEMORY.md");
     if let Ok(text) = std::fs::read_to_string(&memory) {
         let mut head: String = text.lines().take(MEMORY_LINES).collect::<Vec<_>>().join("\n");
         head.truncate(head.len().min(MEMORY_BYTES));
