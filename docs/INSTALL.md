@@ -828,32 +828,38 @@ stand-in for the model: `bench/codex/wiring.py`).
 
 ### Where the tokens of past sessions went
 
-`codefast doctor sessions` reads the transcripts Claude Code keeps on this machine
-(`$CLAUDE_CONFIG_DIR/projects/`, `~/.claude/projects/` when the variable is unset) and reports
-where the tokens of this project's sessions went and which habits cost the most. Nothing is run
-or changed, nothing leaves the machine, and no model is called.
+`codefast doctor sessions` reads the transcripts Claude Code and Codex keep on this machine and
+reports where the tokens of this project's sessions went and which habits cost the most, one
+report per harness that has sessions here, Claude Code first. Nothing is run or changed, nothing
+leaves the machine, and no model is called.
+
+| Harness | Where | Which sessions are the project's |
+|---|---|---|
+| Claude Code | `$CLAUDE_CONFIG_DIR/projects/`, `~/.claude/projects/` when the variable is unset | those in the directory named after the project's path |
+| Codex | `$CODEX_HOME/sessions/`, `~/.codex/sessions/` when the variable is unset | those whose `session_meta` names the project's directory, or a directory inside it, as `cwd` |
 
 Every figure is in weighted tokens: one uncached input token of the request's own model. A cache
 read weighs 0.1, a cache write 1.25 (2 for the one-hour cache), an output token 5. Dollars are not
-printed, since prices differ by model and change. The report gives the split of the main thread
+printed, since prices differ by model and change. Codex sessions are weighed by the same
+convention, although Codex providers price differently. The report gives the split of the main thread
 and the sub-agents' total, then each finding with its cost and share, largest first, and the one
 thing to do about it. A finding under 1% of the total is left out.
 
 | Finding | What it counts |
 |---|---|
 | the start | the context of the first request of each stretch between compactions, read again by every later request of the stretch (`doctor context` shows what it holds) |
-| cold restarts | a request that read under 20% of the previous context from the cache, by cause: a model switch, more than an hour idle, more than five minutes idle, other. Where Claude Code recorded its own reason for the miss, `--session` prints it next to the cause, and the report says when the two differ for more than a quarter of the restarts |
-| compactions | manual and automatic ones, the conversation size at each, and the manual ones under 100k tokens. The cost is an estimate |
-| thinking | thinking tokens as a share of the output, where the transcript records them |
+| cold restarts | a request that read under 20% of the previous context from the cache, by cause: a model switch, more than an hour idle, more than five minutes idle, other. Codex has no one-hour cache to tell apart, so for it the idle cause is five minutes. Where Claude Code recorded its own reason for the miss, `--session` prints it next to the cause, and the report says when the two differ for more than a quarter of the restarts |
+| compactions | manual and automatic ones, the conversation size at each, and the manual ones under 100k tokens. The cost is an estimate. Codex records neither what started a compaction nor its sizes: the context of the requests either side of it stands in for them |
+| thinking | thinking tokens as a share of the output, where the transcript records them. For Codex these are `reasoning_output_tokens`, taken as a part of `output_tokens` |
 | carried context | the context above 200k tokens (`--carry N`) read again by each request. Against it, an estimate of compacting at that size: the context drops to what the session's compactions left (25k without one, at most half the threshold) and grows again, which counts the compactions and the reads they save |
-| repeated reads | a file read again within a stretch that came back word for word as before |
+| repeated reads | a file read again within a stretch that came back word for word as before. For Codex: a call with the same tool and arguments that gave back the same output |
 
-It also lists the tools whose results weighed most (Bash by the program it ran, MCP tools by
-server) and the three heaviest single results. `--days N` sets the window (default 14 days,
+It also lists the tools whose results weighed most (Bash and Codex's shell by the program they
+ran, MCP tools by server) and the three heaviest single results. `--days N` sets the window (default 14 days,
 by when a transcript last changed), `--session ID` breaks one session down request by request,
-`--all` gives one line per project and the totals, and `--json` prints the same numbers as JSON.
-Counts that an older harness version did not write, such as thinking tokens, are reported as
-not recorded rather than as zero. Codex is not read yet.
+`--all` gives one line per project and harness and a total per harness, and `--json` prints the
+same numbers as JSON, one object per harness. Counts that an older harness version did not
+write, such as thinking tokens, are reported as not recorded rather than as zero.
 
 In Claude Code two notes go to you and not to the model, so they cost no tokens. Each is said
 once per occasion, and `CODEFAST_COST_NOTES=off` turns them off:
