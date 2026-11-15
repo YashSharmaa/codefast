@@ -185,6 +185,89 @@ compiler error outside the lines the command itself had listed, and 42 more were
 (`bench/results/rename-offline-go-git.jsonl`, `rename-sample*.jsonl`).
 
 
+### Sessions that write new code
+
+Every family above works in a repository that exists. Two families do not. In the first a session
+gets an empty directory and a specification and builds the project: ten projects of 350 to 700
+lines in Python, Go, Rust and TypeScript, four to develop on and six held out
+(`bench/tier2/new/`). In the second it gets one of those projects and then five changes to it,
+message after message in one conversation: six projects, two to develop on and four held out
+(`bench/tier2/staged/`). Hidden tests that no session sees grade what was built, 354 of them over
+the ten projects and 569 over the conversations measured here. Haiku 5.5 in Claude Code 2.1.323,
+two runs a project and arm unless a row says otherwise.
+
+| What a session does | Projects | Requests, without and with | Cost with codefast | Dollars | Hidden tests passed, without and with | Measured |
+|---|---:|---|---:|---:|---|---|
+| **Builds a project from nothing**, held out | 6 | 9.2 and 9.8 | **1.03** | 1.17 | 210.5 and 210.5 of 211 | 15 Nov 2026 |
+| The same held-out projects, the build of 15 Nov 2026 | 6 | 9.2 and 9.4 | **0.98** | 0.95 | 210.5 and 211 of 211 | 15 Nov 2026 |
+| The same, the projects to develop on | 4 | 9.6 and 10.8 | **1.05** | 1.05 | 143 and 143 of 143 | 14 and 15 Nov 2026 |
+| **Builds a project and changes it five times**, held out | 4 | 45.1 and 46.6 | **1.08** | 1.13 | 375.5 and 375.5 of 376 | 15 Nov 2026 |
+| The same held-out projects, the build of 15 Nov 2026 and its own control | 4 | 47.6 and 51.9 | **0.96** | 0.95 | 375 and 376 of 376 | 15 Nov 2026 |
+| The same, the projects to develop on | 2 | 38.0 and 38.6 | **1.00** | 0.98 | 193 and 193 of 193 | 15 Nov 2026 |
+
+The plugin saves nothing here, and in a new project it could not: there is no code to look
+anything up in. What it costs such a session was looked at closely on 15 November 2026, because
+the held-out conversations of the first batch came out 1.08 of their control. The same control run
+twice differs by 8% at eight conversations an arm, so that figure says little by itself. The
+transcripts said more. The hooks had put 3,516 bytes into each conversation: cards about files the
+session had written itself, and notes that a member was missing which the same request went on to
+write (17 members in 8 conversations, none of them still missing when its request ended). The
+build of 15 November leaves both out and, in a directory without code, loads no tool and no
+instructions up front. It puts 63 bytes from hooks into a conversation, adds 224 tokens to the
+first request where the build before added 734, and measured 0.96 of the control that ran with it,
+1.00 against all 16 control runs (0.92 to 1.08).
+
+One caveat on the new projects: the control of the row for the build of 15 November ran the night
+before. At 07:36 that morning a global instruction file of the test machine grew by about 365
+tokens, which every later session carries with each request, so that row compares the plugin's arm
+with 365 tokens a request that are not the plugin's.
+
+A current model also leaves little around the writing to take away: Haiku 5.5 builds one of these
+projects in 7 to 11 requests and Sonnet 5.5 in 3, where the model of a year ago took 50 to 76
+(`bench/tier2/LIVE.md` has the three side by side, and what the hooks said word for word).
+
+#### The shape of the conversation
+
+What moves the bill of a development conversation is how it is cut, and with this model for one
+reason: Claude Haiku 5.5 charges five times as much for every token of a request whose prompt is
+over 100,000 tokens. The same six messages, without the plugin:
+
+| Shape | Projects | Requests | Compactions | Requests over 100,000 tokens | Dollars, against one conversation | Billed tokens, against one conversation | Hidden tests passed | Measured |
+|---|---:|---:|---:|---:|---:|---:|---|---|
+| One conversation, held out | 4 | 45.1 | 0 | 27.9 | 1.00 | 1.00 | 375.5 of 376 | 15 Nov 2026 |
+| Compacted under the price step (`/autocompact 125k`), held out | 4 | 58.0 | 3.4 | 0.0 | **0.39** | 1.19 | 373.5 of 376 | 15 Nov 2026 |
+| The same with the plugin, whose hook gives the request back after a compaction, held out | 4 | 56.6 | 3.1 | 0.0 | **0.36** | 1.16 | 375.5 of 376 | 15 Nov 2026 |
+| One conversation, the projects to develop on | 2 | 38.0 | 0 | 18.5 | 1.00 | 1.00 | 193 of 193 | 15 Nov 2026 |
+| A window of 100,000, to develop on | 2 | 50.0 | 3.5 | 0.0 | **0.51** | 1.27 | 193 of 193 | 15 Nov 2026 |
+| A window of 125,000, to develop on | 2 | 45.0 | 1.8 | 0.0 | **0.46** | 1.15 | 193 of 193 | 15 Nov 2026 |
+| A session for each message, to develop on | 2 | 62.8 | 0 | 0.0 | **0.45** | 1.11 | 193 of 193 | 15 Nov 2026 |
+
+What this says. Compacted under the price step, the same six messages cost 0.39 of the dollars on
+the held-out projects (0.46 on the two the setting was found on), and a session for each message
+0.45 on those two. Each shape costs more tokens than the one conversation, 1.19 of its billed
+tokens on the held-out projects, because a session that has lost its conversation reads its way
+back in and writes more. So the saving is the price step and nothing else: on a model that charges
+the same at every length these shapes cost more at this size, not less. That is why `codefast
+doctor sessions` prices a session by its own model before it says anything about its shape, and
+why its advice differs by model.
+
+A compaction also has a cost that no token count shows. Its summary shortens the request in
+progress: over 41 compactions the summaries kept 68% of the strings a request had in backticks and
+never the request as it was written. On the held-out projects the compacted conversations passed
+373.5 of 376 hidden tests where the one conversation passed 375.5, and two of the lost tests were
+traced to a rule that a summary left out. The hook after a compaction gives the last request back
+word for word. With it the compacted conversations passed 375.5, at 0.36 of the dollars of the one
+conversation. Over all compacted conversations that were run, 4 of 24 lost a hidden test without
+the request given back and 1 of 12 with it, which is the direction the mechanism predicts and too
+few to prove it.
+
+Effort is the other setting that moves such a bill. At `low`, Haiku 5.5 built the four projects to
+develop on for 0.82 of the dollars with every hidden test passed (143 of 143), and ran the
+compacted conversations of the two projects to develop on for 0.73, where one conversation in four
+lost nine hidden tests before any compaction. Both were measured after the instruction file above
+had grown, against controls from before, so the saving is understated by those 365 tokens a
+request.
+
 ### In Codex
 
 Measured on 14 November 2026.

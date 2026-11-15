@@ -152,17 +152,18 @@ Where it went, largest first, as a share of the 7.5M in all:
     2.2M  29%  Cold restarts: 3 requests sent the conversation again at the price of new input:
                2 model switches (1.6M), 1 idle for more than an hour (528k).
                Come back within the cache lifetime or start fresh. Finish a job on one model.
-    1.2M  15%  Carried context: 95 of 172 requests (55%) carried more than 300k tokens, at most 640k.
-               Compacting at 300k instead: 2 more compactions for about 290k, and about 1.4M less
-               to pay for after them, so about 1.2M less in all (an estimate).
-               `/autocompact 300k` moves it there.
+    1.6M  21%  Carried context: 123 of 172 requests (72%) carried more than 200k tokens, at most 640k.
+               Compacting at 200k instead: 3 more compactions for about 261k, and about 1.8M less
+               to pay for after them, so about 1.6M less in all (an estimate).
+               `/autocompact 233k` moves it there.
     537k   7%  Thinking: 107k of 179k output tokens (60%), billed as output at 5 times the input price.
     180k   2%  The start, 21k tokens, was read again from the cache by 171 requests.
                `codefast doctor context` shows what the start holds and what can be switched off.
      80k   1%  Cold restarts in sub-agents: 1 request of sub-agents sent the agent's conversation
                again at the price of new input: 1 idle for more than five minutes (80k).
-               A sub-agent's prompt cache lasts five minutes here: one that waits longer on a
-               command pays for its whole conversation again when it comes back.
+               A sub-agent's prompt cache lasts five minutes here, counted from when a request is
+               sent: 1 followed a tool call that took longer than that.
+               A long command costs less run in the background with a look every few minutes.
 ```
 
 A weighted token is one uncached input token of the request's own model, with each kind of token
@@ -175,10 +176,11 @@ In Claude Code the hooks also say it at the moment it matters, to you and not to
 every request pays to read a long conversation again and how soon a `/compact` would pay for
 itself, that the next request sends everything again because the prompt cache has run out, and
 that a conversation on Claude Haiku 5.5 is about to pass the 100,000 tokens above which that model
-charges five times as much. The figures are those of the model the conversation runs on. One of
-these facts goes to the model too, because only the model can act on it: that a command, or its
-own reply, took longer than the prompt cache lives, which for a sub-agent is five minutes, and
-that the next long one costs less in parts.
+charges five times as much. Once a week you are told in one line what the sessions of the last
+seven days mostly cost. The figures are those of the model the conversation runs on. One of these
+facts goes to the model too, because only the model can act on it: that a command, or its own
+reply, took longer than the prompt cache lives, which for a sub-agent is five minutes, and that
+the next long one costs less in parts.
 
 `codefast doctor context` is the other half: what your plugins, skills, MCP servers and
 instruction files add to every request, and the setting that switches each off for this project.
@@ -189,7 +191,7 @@ instruction files add to every request, and the setting that switches each off f
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/results-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/results-light.svg">
-    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Finding things: who calls this method 0.30, four such questions in one session 0.15, the same question in TypeScript 0.53, what does this function call 0.56, where does this error come from 0.63, rename a Go method everywhere 0.51, a question about the Linux kernel 0.71. Locating a bug report: which files is this kernel bug in 0.77, the same question for Python projects 0.84. Writing and fixing code: write a function that was taken out 1.03, fix a bug with the failing tests given 0.93, fix a bug from the issue text alone 0.92." src="docs/assets/results-light.svg" width="880">
+    <img alt="Bar chart of what a Claude Code session with the codefast plugin costs as a share of the same session without it, on tasks held out until the build was final. Finding things: who calls this method 0.30, four such questions in one session 0.15, the same question in TypeScript 0.53, what does this function call 0.56, where does this error come from 0.63, rename a Go method everywhere 0.51, a question about the Linux kernel 0.71. Locating a bug report: which files is this kernel bug in 0.77, the same question for Python projects 0.84. Writing and fixing code: write a function that was taken out 1.03, fix a bug with the failing tests given 0.93, fix a bug from the issue text alone 0.92, build a project from nothing 0.98, a conversation that builds and changes one 1.00." src="docs/assets/results-light.svg" width="880">
   </picture>
 </p>
 
@@ -202,6 +204,9 @@ the protocols, the full tables and what was tried and not kept. The raw rows are
 | **Claude Code sessions that find things**<br>7 kinds of held-out task, Haiku 5.5 | A session with the plugin costs **0.15 to 0.71** of the same session without it, with answers as right (the chart) | 3 to 18 tasks a kind. Cost is priced per request: a cached token 0.1, a new one 1.25, an output token 5 | 13 and 14 Nov 2026 |
 | **Claude Code sessions that locate a bug report**<br>48 kernel reports, 40 issues of Python projects | **0.77** and **0.84** of the control | Cheaper, and the file is not found more often: 0.73 against 0.77 on the kernel | 14 Nov 2026 |
 | **Claude Code sessions that write or fix code**<br>20 functions to write, 15 bugs to fix | **1.03**, **0.93** and **0.92** of the control | No saving. None of the three can be told from 1.00 | 13 and 14 Nov 2026 |
+| **Claude Code sessions that build a project from nothing**<br>6 held-out projects in four languages, Haiku 5.5 | **0.98** of the control, with the hidden tests passed as often (211 and 210.5 of 211). All 10 projects with the build before 15 Nov: 1.03 | No saving, and none to expect: a project that does not exist has nothing to index. The plugin adds 224 tokens to the start of such a session (734 before 15 Nov). Two runs a project and arm, the control from the night before | 15 Nov 2026 |
+| **A development conversation**<br>a project and five changes to it in six messages, 4 held-out projects, Haiku 5.5 | **1.00** of the control with the plugin (0.92 to 1.08, 8 runs against 16), every hidden test passed (376 of 376) | No saving: the session wrote the code it is asked about. The same control run twice differs by 8%, so read this as no difference. The build before 15 Nov measured 1.08: its hooks commented on code that was still being written (3,516 bytes a conversation, now 63) | 15 Nov 2026 |
+| **The shape of that conversation**<br>what `doctor sessions` and the notes point at, 4 held-out projects | Compacted under the model's price step (`/autocompact 125k`): **0.39** of the dollars. With the plugin, whose hook gives the request back after each compaction: **0.36**, and the hidden tests of the one conversation (375.5 of 376, against 373.5 without the hook) | Claude Haiku 5.5 only, which charges five times as much for a request over 100,000 tokens. In tokens the shape costs more (1.19 of the one conversation), so without that step it does not pay at this size. 8 conversations a shape | 15 Nov 2026 |
 | **The same tasks with Sonnet 5.5** | A caller question 0.29, four in one session 0.23, an error traced 0.70, a rename 0.74 | One run per task and arm | 13 Nov 2026 |
 | **Codex sessions**<br>54 held-out question tasks, gpt-6.1-sol | **0.81** of the control (0.76 to 0.85 at 95%), every answer right in both arms | Question tasks only. Codex never called the MCP server: the saving came from the prompt card and the command line | 14 Nov 2026 |
 | **agent-context-bench**, published<br>26 graded questions on apache/superset | Lookups **1.00** and hard tasks **0.98**, where the best published arm has 1.00 and 0.94, at the lowest cost of a task | One repository. The other arms are their published figures | 14 Nov 2026 |
@@ -213,8 +218,13 @@ the protocols, the full tables and what was tried and not kept. The raw rows are
 
 **What this says.** Where the work is finding things, a session costs a third to two thirds of
 what it did, and the longer it runs the more it saves, because what an agent reads early is sent
-again with every later request. Where the work is the model's own, writing a function or fixing a
-bug, the plugin costs nothing and saves nothing so far. That is what is being built next.
+again with every later request. Where the work is the model's own, writing a function, fixing a
+bug or building a project, the plugin costs nothing and saves nothing: there is nothing to look up
+in code that is being written. What moves the bill of such a session is its shape, how long the
+conversation gets and where it is cut, and that is what `codefast doctor sessions` measures on
+your own sessions and what the hooks say at the moment it matters. On Claude Haiku 5.5 the setting
+they point at took a held-out development conversation to 0.36 of its dollars with the same hidden
+tests passed.
 
 ## Requirements
 
@@ -250,7 +260,11 @@ configuration. Vue, Svelte and Astro components are read too. C is the most matu
   counted and not tied to its target (`codefast refs NAME --loose` lists those).
 - **It does not run builds.** Code generated at build time is not indexed, and macros that paste
   tokens can hide a definition.
-- **Writing and fixing code is not cheaper yet.** See the table above.
+- **The plugin does not make writing code cheaper.** Where there is nothing to look up it adds 224
+  tokens to the first request of a session that starts in an empty directory, and about 800 in a
+  repository with code, where one tool and a paragraph of instructions are loaded from the start.
+  It changes nothing else. What changes the bill of such a session is its shape, which `doctor
+  sessions` measures.
 - **The live figures are from two harnesses, and most of them from one small model.** Single tasks
   vary by a factor of two between runs.
 

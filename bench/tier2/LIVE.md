@@ -92,6 +92,29 @@ hour, and it is the same formula for every arm.
 
 ## The runs behind the tables in the README
 
+**New projects and development conversations, 14 and 15 November 2026**
+(`bench/results/live-new-project.jsonl` and `bench/results/live-conversation.jsonl`, Haiku 5.5,
+two runs per task and arm, builds of the main branch after 0.3.1). The `tag` field says which
+batch a run is from, and an arm that ran a later build or another setting has a name of its
+own, so that its runs are never averaged with the runs they are compared to:
+
+* New projects: `g1` (the four to develop on, control and plugin), `g2` (the six held out,
+  both arms), `g3` (the six held out with the build of 15 November, arm `plugin-b`, no control
+  of its own) and `ge-low` (the four to develop on at `--effort low`, arm `control-low`).
+* Conversations to develop on: `s1` and `s1n` (control and plugin), `s1f` (a session for each
+  message), `sac` and `sac125` (windows of 100,000 and 125,000), `skeep` (the window of 125,000
+  with transcripts kept, arm `plugin-ac125-keep`) and `se-low` (that window at `--effort low`,
+  arm `control-ac125-low`).
+* Held-out conversations: `s2` (control and plugin, the build of the morning of 15 November),
+  `s2ac` (the window of 125,000, arms `control-ac125` and `plugin-ac125-keep`) and `s2n` (the
+  build after the hooks stopped commenting on code that is being written, arms `control-b`
+  and `plugin-b`, run in pairs).
+
+The sections "Building a project from nothing" and "A development conversation" below read
+them. Three hidden tests asked for more than their specification says (a nil slice against an
+empty one twice, leading spaces once). They were relaxed on 15 November and every run graded
+again: `bench/tier2/new/README.md` and `bench/tier2/staged/README.md` say which.
+
 **TypeScript, version 0.2.6** (`bench/results/live-heldout-haiku.jsonl`, tag `nz1`): the same
 kind of question on zod, a repository no session had used, two runs per task and arm. A session
 costs 0.53 of the control and is cheaper in 8 of 8 pairs, with the answers as good. Four of the
@@ -1157,6 +1180,334 @@ The prompt card of version 0.2.2 was settled by three small experiments on devel
    harness's edit tool expects. Six bug-fix tasks: 4.2 requests before and 4.3 after, 0.97 and
    then 0.95 of the control. The body is worth its tokens when the prompt is a question about
    the function, and not when the prompt is a bug to fix.
+
+<!-- new-code sections: generated, see the kit -->
+## Building a project from nothing
+
+Every family above works in a repository that exists. This one starts with an empty directory
+and a specification (`bench/tier2/new/`, family G of `live.py`). Ten projects of 350 to 700
+lines in their reference implementations: three in Python, three in Go, two in Rust and two in
+TypeScript, standard library only, four to develop on and six held out. A session builds the
+project and writes tests of its own. Afterwards 28 to 39 hidden tests, written against the
+interface the specification gives, grade what it built. Each test set passes on a reference
+implementation and fails on every one of 8 to 14 small faults put into that reference.
+
+### What such a session is, with three models
+
+Two of the projects to develop on, no plugin, one run each (measured on 14 November 2026). A
+weighted token is one uncached input token of the model that ran: a cache read weighs 0.1, a
+cache write 1.25, an output token 5.
+
+| Model | Requests | Hidden tests passed | Weighted tokens | Reading the conversation again | Writing to the cache | What the model writes | Of that, thinking |
+|---|---|---|---|---|---|---|---|
+| Haiku 4.5 at low effort | 50 and 76 | 38 of 39 and 32 of 38 | 437,507 and 684,515 | 52% and 61% | 17% and 14% | 31% and 26% | 5% and 4% |
+| Haiku 5.5 | 11 and 8 | 39 of 39 and 37 of 38 | 262,672 and 416,605 | 15% and 10% | 26% and 24% | 59% and 66% | 23% and 42% |
+| Sonnet 5.5 | 3 and 3 | 39 of 39 and 36 of 38 | 64,847 and 97,680 | 7% and 5% | 35% and 31% | 57% and 64% | 6% and 15% |
+
+- **The model of a year ago** makes one tool call per request: a request for every file it
+  writes, then rounds of running the tests and editing, and then it tries the finished program
+  by hand, one case per request, for twenty requests more. Half to three fifths of its tokens
+  are the conversation read again. This is the session that the published work on what follows
+  an edit shortens (FlowPlan, arXiv 2611.13241, with this model at this effort: 0.32 to 0.47 of
+  the tokens).
+- **Haiku 5.5** writes every source file in one request and every test file in the next, fixes
+  what its tests show, and ends when they pass. Reading the conversation again is a tenth to a
+  seventh of the cost. Three fifths is what the model writes: the code, the tests and its
+  thinking, which is a quarter to two fifths of the whole session by itself.
+- **Sonnet 5.5** reads the specification, writes the project with its tests in one shell
+  command, and is done in three requests.
+
+So with a current model there is nothing around the writing for a tool to take away: the
+session is the writing. Writing is also dearer than its size suggests. These sessions paid one
+output token for every 1.7 to 2.0 bytes of the files they wrote. A file leaves the model
+inside a tool call, as a JSON string with every tab, newline and quote escaped.
+
+### With the plugin
+
+Every project twice in each arm with Haiku 5.5. The four projects to develop on were measured
+on 14 and 15 November 2026, the six held-out ones on 15 November. Tests passed are the mean of a
+project's two runs, summed over the projects.
+
+| Projects | Runs an arm | Requests, control and plugin | Warm tokens, plugin against control | Dollars | Hidden tests passed, control and plugin | Runs that passed every test |
+|---|---|---|---|---|---|---|
+| 4 to develop on | 8 | 9.6 and 10.8 | 1.05 | 1.05 | 143 of 143 and 143 of 143 | 8 and 8 |
+| 6 held out | 12 | 9.2 and 9.8 | 1.03 | 1.17 | 210.5 of 211 and 210.5 of 211 | 11 and 11 |
+| all 10 | 20 | 9.4 and 10.2 | 1.03 | 1.13 | 353.5 of 354 and 353.5 of 354 | 19 and 19 |
+| 6 held out, the build of 15 November, control of the night before | 12 | 9.2 and 9.4 | 0.98 | 0.95 | 210.5 of 211 and 211 of 211 | 11 and 12 |
+
+The plugin neither saves nor costs here, and it could not save: a project that does not exist
+has nothing to index. No hook says anything in a directory without code. Of the ten projects,
+four were cheaper with the plugin and six dearer, from 0.79 to 1.18 a project, which is what
+two runs of a task differ by without any plugin.
+
+What the plugin adds to such a session is its start. Measured in pairs of sessions started
+together in an empty directory (15 November 2026, the size of the first request): 726 to 734
+tokens with the build of that morning, 213 to 224 with the build of the same day that says
+nothing about itself where there is no code. Before, the server marked one tool to be loaded
+from the start and sent a paragraph of instructions, and both went with every request while
+the session wrote its first files. Now a tool is loaded when it is asked for.
+
+The last row of the table needs one caveat. Its control ran the night before, and at 07:36 on
+15 November a global instruction file of the test machine (`~/.claude/CLAUDE.md`, which the
+harness loads for every project under the home directory) grew by about 365 tokens. Every
+session after that carries them with each request, in whatever arm. So that row compares the
+plugin's arm, with 365 tokens a request that are not the plugin's, against a control without
+them. It was found because the first request of the new build looked 583 tokens larger than
+the control's where pairs started together show 213 to 224.
+
+The dollars of the first three rows are another matter, and they are about the model. The
+TypeScript project of the held-out six (G-ts-2) is large enough for the conversation to pass
+100,000 tokens while the model is still fixing what its own tests found, and from there Claude
+Haiku 5.5 charges five times as much for every token of a request. The control ran 3 and 7
+requests over that length and the plugin arm of the first batch 5 and 9. Those few requests
+are 28% and 39% of what all twelve runs of an arm cost. Without that one project the other
+nine come to 1.00 in tokens and 1.01 in dollars.
+
+### What thinking costs and buys
+
+Thinking is output, and a quarter to two fifths of what one of these builds costs. The harness
+has a setting for it (`/effort`, `--effort`, `effortLevel`), and Haiku 5.5 runs at `medium`
+when nothing is set. The four projects to develop on, without the plugin, at `low` (15
+November 2026):
+
+| Effort | Projects | Runs | Requests | Thinking tokens | Output tokens | Dollars a project | Against the model's own level | Hidden tests passed | Runs that passed every test |
+|---|---|---|---|---|---|---|---|---|---|
+| the model's own level (medium) | 4 | 8 | 9.6 | 19,193 | 36,995 | 0.033 | 1.00 | 143 of 143 | 8 of 8 |
+| low | 4 | 8 | 7.8 | 16,833 | 30,087 | 0.027 | 0.82 | 143 of 143 | 8 of 8 |
+
+Every hidden test passed at both levels, in all sixteen runs, and the lower level cost 0.82
+of the dollars: fewer requests and a fifth less written. (These runs came after the
+instruction file above had grown and their control from before, so the saving is understated
+by those 365 tokens a request.)
+
+A build from a precise specification is the kindest case for it. In the development
+conversations, in the window of 125,000 on the two projects to develop on, `low` cost 0.73 of
+the dollars of the same shape at `medium` (0.090 against 0.123 a conversation), and one of
+the four conversations lost 9 of its 96 hidden tests, in the second and third message and
+before its first compaction. At `medium` that shape passed every test in all four. Four
+conversations are few, and the direction is the expected one: less thinking is cheaper and
+gets a change with several rules wrong more often. So `codefast doctor sessions` shows what
+thinking cost a session and names the setting, and leaves the level to the person.
+
+## A development conversation
+
+A project is not built in one message. The staged family (`bench/tier2/staged/`, family S) asks
+for one of the projects above and then, message after message in the same conversation, for
+five changes to it: a feature that needs several modules to change, a new module wired into the
+old ones, a change of behaviour that was specified before, a change across the whole project,
+and a bug report that pins down something the specification left open. Six projects, two to
+develop on and four held out, 85 to 98 hidden tests of the final state each, and a test set for
+every state on the way.
+
+`live.py` sends the next message when the reply to the last has ended (`claude -p` with
+`--input-format stream-json`), keeps the project as it stands after every reply, and grades
+each state.
+
+### With the plugin
+
+| Projects | Runs, control and plugin | Requests, control and plugin | Warm tokens, plugin against control | Dollars | Hidden tests passed, control and plugin |
+|---|---|---|---|---|---|
+| 2 to develop on | 4 and 8 | 38.0 and 38.6 | 1.00 | 0.98 | 193 of 193 and 193 of 193 |
+| 4 held out | 8 and 8 | 45.1 and 46.6 | 1.08 | 1.13 | 375.5 of 376 and 375.5 of 376 |
+| all 6 | 12 and 16 | 42.8 and 44.0 | 1.06 | 1.10 | 568.5 of 569 and 568.5 of 569 |
+| 4 held out, the build after the change | 8 and 8 | 47.6 and 51.9 | 0.96 | 0.95 | 375 of 376 and 376 of 376 |
+
+There is nothing to save here either, for the reason of the family before: the session wrote
+every line it is asked about. On the two projects to develop on the arms are level. On the
+four held-out ones the plugin arm of the first batch cost 8% more in tokens and 13% more in
+dollars. Nothing the plugin does should cost a conversation that much, so its transcripts were
+read: that is the next section, and the row for the build after the change is what came of it.
+
+### What the hooks said in these conversations, and what was changed
+
+In a conversation that builds its project the hooks have little to add: the session wrote
+every file it is asked about. They spoke all the same. In the eight held-out conversations of
+the plugin arm (15 November 2026, the build of that morning) they put 28,126 bytes in front of
+the model, about 900 tokens a conversation:
+
+| What a hook said | Times | Bytes |
+|---|---|---|
+| For a prompt: where a symbol it names is defined, its body, who calls it | 34 notes, 61 cards and 2 for a quoted message | 23,825 |
+| After an edit: a member that nothing in the repository defines | 13 notes, 17 members | 3,264 |
+| A rename command | 2 | 411 |
+| An outline hint before a whole-file read | 2 | 324 |
+| A note after a search | 2 | 302 |
+
+All 63 cards were about a file the conversation had written in full a few requests before,
+with the write tool or from a here document in the shell.
+
+The 17 members that "nothing defines" were read one by one in the transcripts. Thirteen were
+written by a later edit of the same request: a session sends several edits in one request, a
+call first and the method it calls next, and the hook after the first edit runs before the
+second has landed. One was written by the next request. One was a leftover use that the same
+request removed. Two were `message` on a class that extends the built-in `Error`. Not one of
+the 17 was still missing when the request that caused the note had ended. The session remarked
+on 12 of the 13 notes ("the hook's index is stale again"), and twice it spent a request on a
+search to make sure.
+
+The same holds for every plugin run recorded before the change, in all families: 2,782 runs,
+76 such notes naming 101 members, and 100 of the 101 were members of a type defined in the
+very file being edited. The one exception was a field of a type the conversation had written
+itself. A member of a type the session had not touched, which is the mistake the check was
+built for, did not occur once.
+
+What was changed (commits `0f170fd`, `87eec56` and `c80fc48`, 15 November 2026):
+
+- A member that does not exist, of a type whose file the conversation has changed, is held
+  back. It is said when the conversation runs something (its tests, a build, the program) and
+  the member is still missing, or with the next prompt when it stopped without running
+  anything. A member of a type the conversation has not touched is said at once, as before.
+- Nothing is said about a class whose header names a base the repository does not define, nor
+  about members every object of the language has. With every definition of django, superset,
+  vscode and elasticsearch treated as just written (2.47 million member uses), the check spoke
+  1,488 times before and 29 times after.
+- No card, search note or outline hint about a file the conversation wrote in full, with the
+  write tool or through the shell from a here document (one whole-file write in five in these
+  conversations). A compaction takes that back.
+- In a directory without code the MCP server marks no tool to be loaded from the start and
+  sends no instructions. A session that begins there is about to write the first files.
+- A probe hook showed what a hook can know (15 November 2026, Claude Code 2.1.323): the hooks
+  of one request's tool calls run one after another before the model reads any of them, and
+  the transcript does not hold that request's calls yet. So a hook cannot tell whether another
+  edit follows, and has to wait for a moment that shows the writing is over.
+
+What the change does to these eight conversations can be said without running a model. Each
+recorded conversation was replayed through the hooks of both builds: its files rebuilt in a
+scratch directory from the recorded writes and edits (526 of 545, the rest touched a file that
+a shell command had changed), and every prompt, read, edit and shell command handed to
+`codefast hook` as the harness had handed it. The build of that morning said 28,505 bytes in
+55 notes, within 2% of what the live runs recorded. The build after the change says 500 bytes
+in 2 notes, and both are the command for the rename one message asks for, which the old build
+had offered for the wrong symbol. No held finding was still standing at any test run.
+
+Then the eight conversations were run again with the new build, and the control with them
+(15 November 2026, tag `s2n`):
+
+| Held-out conversations, plugin against control | Warm tokens | Dollars | Bytes from hooks, a conversation | Tokens added to the first request | Hidden tests passed, plugin |
+|---|---|---|---|---|---|
+| The build of that morning, 8 runs against 8 of the same batch | 1.08 (1.00 to 1.17) | 1.13 | 3,516 | 734 | 375.5 of 376 |
+| The same, against all 16 control runs | 1.04 (0.96 to 1.13) | 1.08 |  | |  |
+| The build after the change, 8 runs against 8 of the same batch | 0.96 (0.88 to 1.06) | 0.95 | 63 | 224 | 376 of 376 |
+| The same, against all 16 control runs | 1.00 (0.92 to 1.08) | 0.99 |  | |  |
+| The control of the second batch against the control of the first | 1.08 (0.96 to 1.20) | 1.09 |  | |  |
+
+The last row is the measure of what such a comparison can show: the same arm, run twice with
+eight conversations each, differs by 8%. A conversation of six messages takes 30 to 65
+requests, and one that happens to need ten more pays for them at the full length of the
+conversation, on this model at five times the price once it is over 100,000 tokens. So neither
+the 1.08 of the morning nor the 0.96 of the new build is a difference from 1.00 that eight
+runs can carry. What the table does show without that noise is in its middle columns: the
+hooks now say 63 bytes in a conversation where they said 3,516, and the plugin adds 224
+tokens to the first request where it added 734 (in a directory without code the server no
+longer announces itself). By those two figures the plugin costs such a conversation about a
+tenth of a percent.
+
+### The shape of the conversation
+
+What does move the bill is how the conversation is cut, and with this model for one reason.
+Claude Haiku 5.5 charges five times as much for every token of a request whose prompt is over
+100,000 tokens. A conversation of six messages gets there: on the two projects to develop on,
+18.5 of its 38 requests had a prompt over that length, and those were four fifths of what it
+cost. Three other shapes of the same six messages, without the plugin:
+
+| Shape | Runs | Requests | Compactions | Requests over 100,000 tokens | Dollars a conversation | Against one conversation | Billed tokens, against one conversation | Hidden tests passed |
+|---|---|---|---|---|---|---|---|---|
+| one conversation | 4 | 38.0 | 0.0 | 18.5 | 0.269 | 1.00 | 1.00 | 193 of 193 |
+| window of 100,000 | 4 | 50.0 | 3.5 | 0.0 | 0.138 | 0.51 | 1.27 | 193 of 193 |
+| window of 125,000 | 4 | 45.0 | 1.8 | 0.0 | 0.123 | 0.46 | 1.15 | 193 of 193 |
+| a session for each message | 4 | 62.8 | 0.0 | 0.0 | 0.122 | 0.45 | 1.11 | 193 of 193 |
+
+- **A smaller window.** `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, which is `/autocompact` in a
+  session, sets the length at which the harness compacts a conversation. The harness compacts
+  33,000 tokens under the window it is given: at 65,000 to 67,000 tokens with a window of
+  100,000, the smallest it takes, and at 86,000 to 91,000 with a window of 125,000. In neither
+  did a request reach 100,000.
+- **A session for each message.** Every message starts a new session in the same directory, as
+  a person does who types `/clear` when a job is done. From the second message on it begins
+  with one sentence that says the project exists and that the code counts.
+
+Both smaller windows and the fresh sessions kept every request under 100,000 tokens and cost
+0.45 to 0.51 of the dollars. They did it with more requests and more tokens:
+a compaction is a request of its own that reads the whole conversation and writes a summary,
+the request after it writes what is left to the cache again, and a fresh session reads the
+project again. In billed tokens each of the three costs 1.11 to 1.27 of the one conversation.
+So this is a saving of the price step and of nothing else. On a model that charges the same
+for every token, none of these shapes pays for a conversation of this size. The window of
+125,000 compacts half as often as the window of 100,000 (1.8 times a conversation against 3.5)
+and is the cheaper of the two.
+
+On the four held-out projects (15 November 2026, 8 conversations a shape) the window of 125,000
+did more than on the two it was found on:
+
+| Shape | Runs | Requests | Compactions | Requests over 100,000 tokens | Dollars a conversation | Against one conversation | Billed tokens, against one conversation | Hidden tests passed |
+|---|---|---|---|---|---|---|---|---|
+| one conversation | 8 | 45.1 | 0.0 | 27.9 | 0.566 | 1.00 | 1.00 | 375.5 of 376 |
+| window of 125,000 | 8 | 58.0 | 3.4 | 0.0 | 0.222 | 0.39 | 1.19 | 373.5 of 376 |
+
+Every lost test was looked up. In one conversation of the Python project the harness compacted
+during the second message, before a line of that message's feature was written. The message
+says of ORDER BY that "a qualified name always means a column of the sources, so it works only
+in a query without aggregation". The summary, 12,232 bytes long, names "ORDER BY qualified
+rules" among the things to test and does not say the rule. The feature was then written from
+the summary, a grouped query with `ORDER BY p.city` was accepted, and two hidden tests failed
+on it, one of them a test of the fifth message. The other three lost tests (one more in that
+conversation and one each in the two conversations of the TypeScript project) were not traced
+to a summary: that project loses a test in two of eight conversations without any compaction.
+
+The plugin arm of the same batch ran the build of that morning with the hook that gives the
+last request back after a compaction: 375.5 of 376 hidden tests, as in one conversation, and
+the one test it lost was a mistake written before the compaction. That is 8 conversations
+against 8 and not a proof, but it is the direction the mechanism predicts.
+
+### What a summary drops, and what the hook gives back
+
+A summary is written by the model from the conversation, and it shortens the request the
+conversation was working on. In the 41 compactions of the conversations to develop on (tags
+`sac` and `sac125`), the summary kept 903 of the 1,335 strings that the request in progress had
+in backticks, 68%, and in none of them the request as it was written. One of those sixteen
+conversations then built a feature wrong: the request said "every other month", the summary
+did not, the session built "every 2 months" from the wrong month, and six hidden tests failed.
+
+The hook after a compaction (`SessionStart` with the source `compact`) reads the last request
+the person typed from the transcript and gives it back word for word, after the list of the
+definitions the uncommitted work has changed. It was checked in live sessions that keep their
+transcript (tags `skeep` and `s2ac`, 15 November 2026): 31 compactions in 12 conversations, and
+after every one of them the request was in front of the model again, in a note of 1,447 to
+5,975 bytes (the median 4,238, of which the request is 3,328).
+
+What it does to the tests, over every compacted conversation that was run:
+
+| Compacted conversations | Conversations | Compactions | Conversations that lost a hidden test | Tests lost |
+|---|---|---|---|---|
+| Without the request given back (control and plugin, windows of 100,000 and 125,000) | 24 | 68 | 4 | 11 |
+| With it (plugin, window of 125,000) | 12 | 31 | 1 | 1 |
+
+Of the eleven tests lost without it, eight were traced to a rule that a summary left out (the
+six above, and two of the held-out Python project that are described with the shapes). The
+one test lost with it is a mistake the session made before its compaction. One in twelve
+against four in twenty-four is not a difference these counts can prove, and the arms differ
+in more than this hook. It is what the mechanism predicts, and nothing was found against it.
+
+### The plugin within each shape
+
+| Shape | Projects | Runs, control and plugin | Warm tokens, plugin against control | Dollars | Hidden tests passed, control and plugin |
+|---|---|---|---|---|---|
+| one conversation | 2 to develop on | 4 and 8 | 1.00 | 0.98 | 193 of 193 and 193 of 193 |
+| one conversation | 4 held out | 8 and 8 | 1.08 | 1.13 | 375.5 of 376 and 375.5 of 376 |
+| window of 100,000 | 2 to develop on | 4 and 4 | 1.03 | 1.03 | 193 of 193 and 193 of 193 |
+| window of 125,000 | 2 to develop on | 4 and 4 | 0.98 | 0.98 | 193 of 193 and 190 of 193 |
+| window of 125,000, request given back | 2 to develop on | 4 and 4 | 0.95 | 1.00 | 193 of 193 and 193 of 193 |
+| window of 125,000, request given back | 4 held out | 8 and 8 | 0.98 | 0.92 | 373.5 of 376 and 375.5 of 376 |
+| a session for each message | 2 to develop on | 4 and 4 | 1.06 | 1.06 | 193 of 193 and 193 of 193 |
+
+Inside the compacted shapes and the fresh sessions the plugin is level with its control,
+within what four or eight runs show: 0.95 to 1.06 in tokens. (The rows of one conversation are
+those of the first table, with the build of that morning.) The row to read is the held-out
+one with the request given back. It is the measurement of the whole setting that
+`codefast doctor sessions` and the note at the price step lead to, a window of 125,000 with
+the plugin's hook after each compaction: 0.36 of the dollars of one conversation without any
+of it (0.204 against 0.566 a conversation), with 375.5 of 376 hidden tests passed in both.
+<!-- end of the new-code sections -->
 
 ## The same questions in Codex
 
