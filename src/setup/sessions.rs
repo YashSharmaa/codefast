@@ -349,6 +349,8 @@ pub struct Request {
     pub looks: bool,
     /// What the first of them is summed under: the tool, `Bash WORD`, `MCP SERVER`.
     pub call: Option<String>,
+    /// The effort level the request ran at, where the transcript records it.
+    pub effort: Option<String>,
 }
 
 /// What a tool gave back, as the conversation carries it.
@@ -832,7 +834,8 @@ fn read_jsonl(path: &Path, sub: bool, t: &mut Transcript) {
                 // with nothing between them in the transcript has only its own time.
                 let answers = if sidechain { None } else { asked.take() };
                 let (sent, after_tool) = (answers.map(|a| a.0).or(at), answers.is_some_and(|a| a.1));
-                t.events.push(Event::Request(Request { model, at, sent, done: at, after_tool, sidechain, usage: u, miss, calls: made.0, looks: made.0 > 0 && made.1, call: made.2 }));
+                let effort = v["effort"].as_str().filter(|e| !e.is_empty() && e.len() <= 16).map(str::to_string);
+                t.events.push(Event::Request(Request { model, at, sent, done: at, after_tool, sidechain, usage: u, miss, calls: made.0, looks: made.0 > 0 && made.1, call: made.2, effort }));
             }
             Some("user") if !sidechain => {
                 let tool = v["message"]["content"].as_array().is_some_and(|blocks| blocks.iter().any(|b| b["type"] == "tool_result"));
@@ -1644,6 +1647,9 @@ pub struct Stats {
     /// Looks that followed one another, main thread and sub-agents alike.
     pub round: RoundTrips,
     pub time: Time,
+    /// By effort level, where the transcript records it: requests, their output tokens, and
+    /// of those the thinking tokens.
+    pub effort: BTreeMap<String, (usize, u64, u64)>,
 }
 
 /// One session in a few numbers.
@@ -1831,6 +1837,12 @@ impl Stats {
             self.thinking.thinking += t;
             self.thinking.output += o;
             self.thinking.weighted += times * w.output * t as f64;
+            if let Some(level) = &r.effort {
+                let e = self.effort.entry(level.clone()).or_default();
+                e.0 += 1;
+                e.1 += o;
+                e.2 += t;
+            }
         }
         if let (Some(tier), true) = (w.tier, times > 1.0) {
             self.step.requests += 1;
@@ -1978,6 +1990,12 @@ impl Stats {
         self.agents.carry.peak = self.agents.carry.peak.max(o.agents.carry.peak);
         for w in &o.agents.carry.windows {
             self.agents.carry.window(w.threshold).merge(w);
+        }
+        for (level, (n, out, think)) in &o.effort {
+            let e = self.effort.entry(level.clone()).or_default();
+            e.0 += n;
+            e.1 += out;
+            e.2 += think;
         }
         self.round.calling += o.round.calling;
         self.round.single += o.round.single;
@@ -2540,6 +2558,20 @@ fn finding(out: &mut String, s: &Stats, key: &str, cost: f64, ctx: &Ctx, detail:
                     if s.kind == Kind::Codex { "counted as output, at 5 times the weight of input" } else { "billed as output at 5 times the input price" }
                 ),
             );
+            // What the levels came to in these sessions themselves: the same person's work, at
+            // the levels they ran it at, which says more than a rule of thumb.
+            let mut levels: Vec<(&String, &(usize, u64, u64))> = s.effort.iter().filter(|(_, e)| e.0 > 0).collect();
+            levels.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+            if levels.len() > 1 || levels.first().is_some_and(|(_, e)| e.0 * 10 >= t.recorded * 9) {
+                let said: Vec<String> = levels
+                    .iter()
+                    .take(5)
+                    .map(|(level, (n, out, think))| {
+                        format!("{level} {} request{}, {} output tokens each ({} thinking)", count(*n), if *n == 1 { "" } else { "s" }, count((*out / *n as u64) as usize), share(*think as f64, *out as f64))
+                    })
+                    .collect();
+                push(false, &format!("By effort: {}.", said.join(", ")));
+            }
             push(
                 false,
                 match s.kind {
@@ -2931,6 +2963,7 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
             "share_of_output": ratio(t.thinking as f64, t.output as f64),
             "weighted": round(s.thinking_cost()),
             "share": ratio(s.thinking_cost(), total),
+            "by_effort": s.effort.iter().map(|(level, (n, out, think))| json!({"effort": level, "requests": n, "output_tokens": out, "thinking_tokens": think})).collect::<Vec<_>>(),
         })
     };
     let mut groups: Vec<(&String, &Group)> = s.groups.iter().collect();

@@ -704,6 +704,32 @@ fn looks_in_a_row_and_where_the_time_went() {
     );
 }
 
+/// Thinking is paid as output, and how much of it there is follows the effort level. The
+/// report says what each level came to in the person's own sessions.
+#[test]
+fn thinking_by_the_effort_level_the_requests_ran_at() {
+    let sb = Sandbox::new("sessions-effort");
+    let root = project(&sb, "effort");
+    let opus = "claude-opus-5-5";
+    let at = |id: &str, minute: i64, level: &str, output: u64, thinking: u64| {
+        let mut line = assistant(id, opus, minute, usage(10, 40_000, 500, output, thinking), json!([{"type": "text", "text": "ok"}]), &root);
+        line["effort"] = json!(level);
+        line
+    };
+    jsonl(
+        &transcripts(&sb, &root).join(format!("{FIRST}.jsonl")),
+        &[at("m1", 0, "max", 2_000, 1_200), at("m2", 1, "max", 1_000, 600), at("m3", 2, "high", 900, 300)],
+    );
+    let r = report(&sb, &root, &[]);
+    assert_eq!(
+        r["thinking"]["by_effort"],
+        json!([{"effort": "high", "requests": 1, "output_tokens": 900, "thinking_tokens": 300}, {"effort": "max", "requests": 2, "output_tokens": 3_000, "thinking_tokens": 1_800}]),
+        "{r:#}"
+    );
+    let text = run(&sb, &root, &[]);
+    assert!(text.contains("By effort: max 2 requests, 1,500 output tokens each (60% thinking), high 1 request, 900 output tokens each (33% thinking).\n"), "{text}");
+}
+
 #[test]
 fn the_harness_reason_for_a_cache_miss() {
     let sb = Sandbox::new("sessions-miss");
