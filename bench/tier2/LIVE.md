@@ -1493,18 +1493,24 @@ Haiku 5.5 with other prices, not sessions of those models.
 ### What a summary drops, and what the hook gives back
 
 A summary is written by the model from the conversation, and it shortens the request the
-conversation was working on. In the 41 compactions of the conversations to develop on (tags
-`sac` and `sac125`), the summary kept 903 of the 1,335 strings that the request in progress had
-in backticks, 68%, and in none of them the request as it was written. One of those sixteen
-conversations then built a feature wrong: the request said "every other month", the summary
-did not, the session built "every 2 months" from the wrong month, and six hidden tests failed.
+conversation was working on. The hook after a compaction (`SessionStart` with the source
+`compact`) reads the last request the person typed from the transcript and gives it back word
+for word, after the list of the definitions the uncommitted work has changed. What that does
+can be counted without a model, over every compaction whose summary the runs recorded (97, in
+all the compacted arms of 15 November 2026). The exact strings of a request are what it has
+in backticks: names, values, messages.
 
-The hook after a compaction (`SessionStart` with the source `compact`) reads the last request
-the person typed from the transcript and gives it back word for word, after the list of the
-definitions the uncommitted work has changed. It was checked in live sessions that keep their
-transcript (tags `skeep` and `s2ac`, 15 November 2026): 31 compactions in 12 conversations, and
-after every one of them the request was in front of the model again, in a note of 1,447 to
-5,975 bytes (the median 4,238, of which the request is 3,328).
+| Compactions | Count | Exact strings of the request in progress | Still in the summary | In front of the model after the compaction | Summaries that quote the request |
+|---|---|---|---|---|---|
+| Without the request given back | 68 | 2,247 | 1,659 (74%) | 1,661 (74%) | 0 |
+| With it (the arms that keep their transcript) | 29 | 986 | 738 (75%) | 986 (100%) | 0 |
+
+A summary keeps three quarters of the exact strings and never the request as it was written.
+One conversation to develop on then built a feature wrong: the request said "every other
+month", the summary did not, the session built "every 2 months" from the wrong month, and six
+hidden tests failed. With the hook the request is in front of the model again after every one
+of the 29 compactions, in a note of 1,447 to 5,975 bytes (the median 4,238, of which the
+request is 3,328).
 
 What it does to the tests, over every compacted conversation that was run:
 

@@ -818,8 +818,9 @@ What they add, each said once per session:
 - After a compaction, the definitions the uncommitted changes added, removed and altered, and
   in Claude Code the last request the person typed, word for word. A summary shortens the
   request a conversation was working on, and what it drops are the exact strings and rules: in
-  41 compactions of benchmark conversations the summary kept 68% of the strings a request had
-  in backticks, and never the request as it was written. The hook reads it from the transcript
+  97 compactions of benchmark conversations the summaries kept 74% of the strings a request
+  had in backticks, and never the request as it was written. With the hook all of them are in
+  front of the model again. The hook reads it from the transcript
   (up to 7,000 bytes of it).
 
 Once a week per project, Claude Code also shows you (not the model) one line when plugins and

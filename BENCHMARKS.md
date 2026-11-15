@@ -252,14 +252,15 @@ doctor sessions` prices a session by its own model before it says anything about
 why its advice differs by model.
 
 A compaction also has a cost that no token count shows. Its summary shortens the request in
-progress: over 41 compactions the summaries kept 68% of the strings a request had in backticks and
-never the request as it was written. On the held-out projects the compacted conversations passed
-373.5 of 376 hidden tests where the one conversation passed 375.5, and two of the lost tests were
-traced to a rule that a summary left out. The hook after a compaction gives the last request back
-word for word. With it the compacted conversations passed 375.5, at 0.36 of the dollars of the one
-conversation. Over all compacted conversations that were run, 4 of 24 lost a hidden test without
-the request given back and 1 of 12 with it, which is the direction the mechanism predicts and too
-few to prove it.
+progress: over the 97 compactions whose summary was recorded, the summaries kept 74% of the
+strings a request had in backticks and never the request as it was written. On the held-out
+projects the compacted conversations passed 373.5 of 376 hidden tests where the one conversation
+passed 375.5, and two of the lost tests were traced to a rule that a summary left out. The hook
+after a compaction gives the last request back word for word, and after each of the 29 compactions
+it was measured on, every one of those strings was in front of the model again. With it the
+compacted conversations passed 375.5, at 0.36 of the dollars of the one conversation. Over all
+compacted conversations that were run, 4 of 24 lost a hidden test without the request given back
+and 1 of 12 with it, which is the direction the mechanism predicts and too few to prove it.
 
 Effort is the other setting that moves such a bill. At `low`, Haiku 5.5 built the four projects to
 develop on for 0.82 of the dollars with every hidden test passed (143 of 143), and ran the
