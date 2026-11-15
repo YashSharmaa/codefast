@@ -242,6 +242,11 @@ fn a_message_quoted_in_a_prompt_is_traced_to_the_line_that_writes_it() {
     write(&repo.path("src/a.c"), "void log_msg(const char *fmt, ...);\nvoid a(void)\n{\n    log_msg(\"buffer was full when the write began\");\n}\n");
     write(&repo.path("src/b.c"), "void log_msg(const char *fmt, ...);\nvoid b(void)\n{\n    log_msg(\"buffer was full when the write began\");\n}\n");
     write(&repo.path("tests/test_open.c"), "void log_msg(const char *fmt, ...);\nint test_open(void)\n{\n    log_msg(\"expected the device to refuse a second open\");\n    return 0;\n}\n");
+    // Three messages of one function that share most of their words, and a short one.
+    write(
+        &repo.path("src/table.c"),
+        "void log_msg(const char *fmt, ...);\n\nint read_table(int n)\n{\n    if (n > 64) {\n        log_msg(\"too many entries in resource directory: %d\", n);\n        return -1;\n    }\n    if (n == 0) {\n        log_msg(\"no entries in resource directory\");\n        return -1;\n    }\n    if (n < 0) {\n        log_msg(\"invalid number of entries in resource directory: %d\", n);\n        return -1;\n    }\n    return n;\n}\n\nint load(int n)\n{\n    if (n == 7) {\n        log_msg(\"temp dir has been cleaned up\");\n    }\n    return read_table(n);\n}\n",
+    );
     let home = scratch("home");
     let (code, out, err) = run(&home, &repo.dir, &["index"], &[], None);
     assert_eq!(code, 0, "codefast index: {out}{err}");
@@ -261,6 +266,18 @@ fn a_message_quoted_in_a_prompt_is_traced_to_the_line_that_writes_it() {
     ask("b", "It printed \"buffer was full when the write began\" and stopped.").assert_quiet("a message two files write");
     ask("c", "The log says \"expected the device to refuse a second open\".").assert_quiet("a message of a test");
     ask("d", "Please make the device ready for reading and tell me when the tests pass again.").assert_quiet("words that no string literal holds");
+    // A message set in on a line of its own is quoted too, and it is looked for as it stands:
+    // the line that writes it, not the line of a neighbour that shares most of its words.
+    let exact = ask("e", "A run of the program ended with this error:\n\n    no entries in resource directory\n\nWhich function creates this error?").context("UserPromptSubmit");
+    assert!(exact.starts_with("codefast: this text of the prompt is written at src/table.c:10, in read_table (src/table.c:3-18):\n10\tlog_msg(\"no entries in resource directory\");\n"), "{exact}");
+    assert!(!exact.contains("too many entries") && !exact.contains("src/table.c:6"), "{exact}");
+    // A short message of small words has no phrase that counts as evidence, and stands whole.
+    let short = ask("f", "A run of the program ended with this error:\n\n    temp dir has been cleaned up\n\nWhich function creates this error?").context("UserPromptSubmit");
+    assert!(short.starts_with("codefast: this text of the prompt is written at src/table.c:23, in load (src/table.c:20-26):\n23\tlog_msg(\"temp dir has been cleaned up\");"), "{short}");
+    // The command line says the same.
+    let (code, out, err) = run(&home, &repo.dir, &["search", "no entries in resource directory"], &[], None);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.starts_with("this text is written at src/table.c:10, in read_table:\n"), "{out}");
 }
 
 #[test]

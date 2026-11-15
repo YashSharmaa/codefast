@@ -374,11 +374,75 @@ pub struct Origin {
     pub phrases: usize,
 }
 
+/// The one place where the whole query stands in a string literal of the code: a message
+/// too short, or too full of small words, for the phrases of it to count as evidence alone.
+pub fn written_whole(ix: &Index, q: &str) -> Option<(FileId, u32)> {
+    let q = q.trim().trim_matches(|c| matches!(c, '"' | '\'' | '`'));
+    let words: Vec<&str> = q.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|w| w.len() >= 3).collect();
+    if q.len() < 12 || words.len() < 3 {
+        return None;
+    }
+    // The files that have its rarest word are the only ones that can have all of it.
+    let rarest = words.iter().filter_map(|w| ix.name_id(w.as_bytes()).map(|n| (ix.popularity(n), n))).min_by_key(|x| x.0)?;
+    let finder = memchr::memmem::Finder::new(q.as_bytes());
+    let mut found: Option<(FileId, u32)> = None;
+    for (f, _) in ix.postings(rarest.1).take(400) {
+        let rec = ix.file(f);
+        if !ix.is_live(f) || rec.flags & (fflag::TEST | fflag::DOC | fflag::GENERATED | fflag::VENDOR) != 0 {
+            continue;
+        }
+        let Some(src) = ix.source(f) else { continue };
+        let Some(pos) = finder.find(&src) else { continue };
+        let start = memchr::memrchr(b'\n', &src[..pos]).map(|i| i + 1).unwrap_or(0);
+        // Inside a literal: a quote opens before it on its line.
+        if !src[start..pos].iter().any(|c| matches!(c, b'"' | b'\'' | b'`')) {
+            continue;
+        }
+        if found.is_some() {
+            return None; // written in two files: no one place
+        }
+        found = Some((f, 1 + memchr::memchr_iter(b'\n', &src[..pos]).count() as u32));
+    }
+    found
+}
+
+/// What a text quotes whole: a line set in on its own (a message pasted as a block), and what
+/// stands between a pair of quotes or backticks on one line. Long enough to be a message, and
+/// a handful at most.
+fn quoted_whole(text: &str) -> Vec<&str> {
+    let mut out: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        if (line.starts_with("    ") || line.starts_with('\t')) && !line.trim().is_empty() {
+            out.push(line.trim());
+        }
+        for q in ['"', '`'] {
+            if line.matches(q).count() % 2 == 0 {
+                out.extend(line.split(q).skip(1).step_by(2).map(str::trim));
+            }
+        }
+    }
+    out.retain(|m| (12..=200).contains(&m.len()) && m.split_whitespace().count() >= 3);
+    out.dedup();
+    out.truncate(6);
+    out
+}
+
 /// Where the messages a text quotes are written, best first. Only what leaves no doubt: words
 /// in a row, inside a string literal of source code (not a test, not documentation, not
 /// generated or vendored code), that no other file has. Four words in a row, or three that
 /// make a phrase of some length. The search stops when `until` has passed.
 pub fn origins(ix: &Index, text: &str, max_reads: usize, until: Option<std::time::Instant>) -> Vec<Origin> {
+    // First what the text quotes whole, looked for as it stands: that is the line that writes
+    // it, where the phrases of a message also meet on the lines of its neighbours.
+    let mut whole: Vec<Origin> = Vec::new();
+    for message in quoted_whole(text) {
+        if until.is_some_and(|t| std::time::Instant::now() >= t) {
+            break;
+        }
+        if let Some((file, line)) = written_whole(ix, message).filter(|at| !whole.iter().any(|o| (o.file, o.line) == *at)) {
+            whole.push(Origin { file, line, phrases: usize::MAX });
+        }
+    }
     let mut at: FxHashMap<(FileId, u32), (usize, bool, usize)> = FxHashMap::default();
     for h in phrase_hits_within(ix, text, max_reads, until) {
         let flags = ix.file(h.file).flags;
@@ -393,7 +457,11 @@ pub fn origins(ix: &Index, text: &str, max_reads: usize, until: Option<std::time
     let mut out: Vec<Origin> =
         at.into_iter().filter(|(_, (n, alone, longest))| *alone && (*n >= 2 || *longest >= 20)).map(|((file, line), (phrases, _, _))| Origin { file, line, phrases }).collect();
     out.sort_by(|a, b| b.phrases.cmp(&a.phrases).then_with(|| ix.path(a.file).cmp(ix.path(b.file))).then_with(|| a.line.cmp(&b.line)));
-    out
+    // A message that was found whole has its line: the lines its phrases meet on in the same
+    // function are its neighbours, and are not said beside it.
+    out.retain(|o| !whole.iter().any(|w| w.file == o.file && ix.def_at(w.file, w.line).is_some_and(|d| d.rec.line <= o.line && o.line <= d.rec.end_line)));
+    whole.extend(out);
+    whole
 }
 
 fn phrase_hits_within(ix: &Index, text: &str, max_reads: usize, until: Option<std::time::Instant>) -> Vec<PhraseHit> {

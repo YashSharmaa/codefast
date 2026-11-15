@@ -287,44 +287,15 @@ fn written_at(ix: &Index, q: &str) -> Option<(FileId, u32, DefId)> {
     if q.len() > MESSAGE_BYTES {
         return None;
     }
-    let (file, line) = match super::locate::origins(ix, q, 600, None).into_iter().next() {
-        Some(o) => (o.file, o.line),
-        None => whole_text(ix, q)?,
+    // The text as it stands, where it stands whole in one place: the phrases of a message
+    // also meet on the lines of its neighbours ("too many entries in resource directory" for
+    // "no entries in resource directory"), and the longer of them would win.
+    let (file, line) = match super::locate::written_whole(ix, q) {
+        Some(at) => at,
+        None => super::locate::origins(ix, q, 600, None).into_iter().next().map(|o| (o.file, o.line))?,
     };
     let def = ix.def_at(file, line)?;
     Some((file, line, def.id))
-}
-
-/// The one place where the whole query stands in a string literal of the code: a message
-/// too short, or too full of small words, for the phrases of it to count as evidence alone.
-fn whole_text(ix: &Index, q: &str) -> Option<(FileId, u32)> {
-    let q = q.trim().trim_matches(|c| matches!(c, '"' | '\'' | '`'));
-    let words: Vec<&str> = q.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|w| w.len() >= 3).collect();
-    if q.len() < 12 || words.len() < 3 {
-        return None;
-    }
-    // The files that have its rarest word are the only ones that can have all of it.
-    let rarest = words.iter().filter_map(|w| ix.name_id(w.as_bytes()).map(|n| (ix.popularity(n), n))).min_by_key(|x| x.0)?;
-    let finder = memchr::memmem::Finder::new(q.as_bytes());
-    let mut found: Option<(FileId, u32)> = None;
-    for (f, _) in ix.postings(rarest.1).take(400) {
-        let rec = ix.file(f);
-        if !ix.is_live(f) || rec.flags & (crate::facts::fflag::TEST | crate::facts::fflag::DOC | crate::facts::fflag::GENERATED | crate::facts::fflag::VENDOR) != 0 {
-            continue;
-        }
-        let Some(src) = ix.source(f) else { continue };
-        let Some(pos) = finder.find(&src) else { continue };
-        let start = memchr::memrchr(b'\n', &src[..pos]).map(|i| i + 1).unwrap_or(0);
-        // Inside a literal: a quote opens before it on its line.
-        if !src[start..pos].iter().any(|c| matches!(c, b'"' | b'\'' | b'`')) {
-            continue;
-        }
-        if found.is_some() {
-            return None; // written in two files: no one place
-        }
-        found = Some((f, 1 + memchr::memchr_iter(b'\n', &src[..pos]).count() as u32));
-    }
-    found
 }
 
 /// A text that stands in the code exactly as it was typed, in whatever number of places: a
