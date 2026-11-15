@@ -47,10 +47,12 @@ pub struct Ran {
 
 /// Run `codefast hook EVENT` in `cwd` with `stdin`. `codefast` is on `PATH`, as it is for an
 /// agent's shell, and the caller summary gets all the time it needs unless `envs` says otherwise.
+/// So do the cards of a prompt and the check after an edit: on a loaded runner the 2.5 seconds a
+/// session gives them are not always enough, and these tests are about what is said.
 pub fn hook(home: &Path, cwd: &Path, event: &str, stdin: &[u8], envs: &[(&str, &str)]) -> Ran {
     let mut c = support::command(home);
     let bin_dir = Path::new(BIN).parent().unwrap();
-    c.env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display())).env("CODEFAST_HOOK_BUDGET_MS", "5000");
+    c.env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display())).env("CODEFAST_HOOK_BUDGET_MS", "5000").env("CODEFAST_SLOW_BUDGET_MS", "30000");
     for (k, v) in envs {
         c.env(k, v);
     }
@@ -79,7 +81,7 @@ pub fn hooks_at_once(home: &Path, cwd: &Path, event: &str, stdin: &[u8], n: usiz
     let mut waiting = Vec::new();
     for _ in 0..n {
         let mut c = support::command(home);
-        c.env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display())).env("CODEFAST_HOOK_BUDGET_MS", "5000");
+        c.env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display())).env("CODEFAST_HOOK_BUDGET_MS", "5000").env("CODEFAST_SLOW_BUDGET_MS", "30000");
         c.current_dir(cwd).args(["hook", event]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         let mut child = c.spawn().expect("spawn codefast hook");
         let (barrier, input) = (barrier.clone(), stdin.to_vec());

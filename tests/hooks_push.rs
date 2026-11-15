@@ -577,6 +577,12 @@ fn a_call_of_a_method_nobody_defines_is_named_with_what_the_type_does_have() {
     let input = payload("claude-post-edit", &repo.dir, &home).replace("src/main.c", "shop/checkout.py");
     let said = hook(&home, &repo.dir, "post-tool-use", input.as_bytes(), &[]).context("PostToolUse");
     assert_eq!(said, "codefast: shop/checkout.py:7 uses Cart.add_item, and nothing in this repository defines `add_item`. Cart (shop/cart.py:1) has: add, items, total.");
+    // With no time left nothing is said, and it is not marked as said either: the next hook
+    // of that conversation says it.
+    let late = in_session(&input, "no-time");
+    hook(&home, &repo.dir, "post-tool-use", late.as_bytes(), &[("CODEFAST_SLOW_BUDGET_MS", "0")]).assert_quiet("a check that got no time");
+    let then = hook(&home, &repo.dir, "post-tool-use", late.as_bytes(), &[]).context("PostToolUse");
+    assert!(then.starts_with("codefast: shop/checkout.py:7 uses Cart.add_item"), "{then}");
     // A class with a base from a library may have any member: nothing is said about it.
     edit(&repo, "shop/cart.py", "class Cart:", "import collections\n\n\nclass Cart(collections.UserList):");
     edit(&repo, "shop/checkout.py", "cart.add_item(n)", "cart.extend_all(n)");

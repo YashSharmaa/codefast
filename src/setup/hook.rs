@@ -58,7 +58,9 @@
 //! `CODEFAST_CARRY` is the size in tokens from which a long conversation is spoken of (default:
 //! where a compaction would pay for itself within twelve requests at the prices of the model).
 //! `CODEFAST_HOOK_BUDGET_MS` is how long `post-tool-use` may wait for the caller summary
-//! (default 50; the definition line goes out either way). `--root`, `CODEFAST_ROOT`,
+//! (default 50; the definition line goes out either way), and `CODEFAST_SLOW_BUDGET_MS` how
+//! long a prompt and the check after an edit may take (default 2500: for a machine so loaded
+//! that they come back empty, and for tests on such a machine). `--root`, `CODEFAST_ROOT`,
 //! `CODEFAST_INDEX_DIR` and `CODEFAST_NO_REFRESH` mean what they mean for every other command:
 //! with the last one set, an existing index is never refreshed behind the scenes.
 //!
@@ -224,6 +226,16 @@ impl Event {
 
 pub(super) fn disabled() -> bool {
     std::env::var("CODEFAST_HOOKS").is_ok_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "0" | "false" | "no" | "disabled"))
+}
+
+/// How long a prompt's cards and the check after an edit may take. A harness waits for a hook,
+/// so the limit is short, and a machine under heavy load can miss it: the variable is for that
+/// machine. It is capped at a minute.
+fn slow_deadline() -> Duration {
+    match std::env::var("CODEFAST_SLOW_BUDGET_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()) {
+        Some(ms) => Duration::from_millis(ms.min(60_000)),
+        None => SLOW_DEADLINE,
+    }
 }
 
 fn usage_deadline() -> Duration {
@@ -715,6 +727,9 @@ fn current(ix: &Index, file: FileId) -> bool {
 
 struct Session {
     file: PathBuf,
+    /// When the hook that opened it stops listening. What is claimed after that would be
+    /// marked as said and reach nobody.
+    until: Option<Instant>,
 }
 
 impl Session {
@@ -736,7 +751,7 @@ impl Session {
                 file
             }
         };
-        Some(Session { file })
+        Some(Session { file, until: None })
     }
 
     /// How long ago the hook after this conversation's last tool call ran, and the mark that
@@ -772,29 +787,50 @@ impl Session {
     ///
     /// False as well when the key cannot be recorded, in which case nothing may be said: a
     /// note that cannot be remembered would be repeated on every call.
+    ///
+    /// False, with nothing recorded, once the hook has run out of time ([`Session::until`]):
+    /// a card that is worked out too late on a loaded machine is not sent, and a key recorded
+    /// for it would keep it from ever being sent.
     fn claim(&self, key: &str) -> bool {
-        if key.is_empty() || key.contains(['\n', '\r', '\t']) {
+        if self.late() {
             return false;
         }
+        let Some(mark) = self.record(key) else { return false };
+        let Ok(text) = std::fs::read_to_string(&self.file) else { return false };
+        text.lines().find(|l| Self::key_of(l) == key).and_then(|l| l.split_once('\t')).is_some_and(|(_, first)| first == mark)
+    }
+
+    /// Append a line for `key`, whatever the time, and give back the mark it carries. This is
+    /// for what the session did (it wrote a file, it was compacted), which is true whether
+    /// or not anything is said about it.
+    fn record(&self, key: &str) -> Option<String> {
+        if key.is_empty() || key.contains(['\n', '\r', '\t']) {
+            return None;
+        }
         if std::fs::metadata(&self.file).is_ok_and(|md| md.len() > SESSION_FILE_MAX) {
-            return false;
+            return None;
         }
         if let Some(dir) = self.file.parent()
             && std::fs::create_dir_all(dir).is_err()
         {
-            return false;
+            return None;
         }
         // Unique among everything that can write here: the process, the moment, the call.
         static CALLS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
         let mark = format!("{:x}.{nanos:x}.{:x}", std::process::id(), CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
-        let appended =
-            std::fs::OpenOptions::new().create(true).append(true).open(&self.file).and_then(|mut f| f.write_all(format!("{key}\t{mark}\n").as_bytes()));
-        if appended.is_err() {
-            return false;
-        }
-        let Ok(text) = std::fs::read_to_string(&self.file) else { return false };
-        text.lines().find(|l| Self::key_of(l) == key).and_then(|l| l.split_once('\t')).is_some_and(|(_, first)| first == mark)
+        std::fs::OpenOptions::new().create(true).append(true).open(&self.file).and_then(|mut f| f.write_all(format!("{key}\t{mark}\n").as_bytes())).ok()?;
+        Some(mark)
+    }
+
+    /// The same session for a hook that listens until `t`.
+    fn until(mut self, t: Instant) -> Session {
+        self.until = Some(t);
+        self
+    }
+
+    fn late(&self) -> bool {
+        self.until.is_some_and(|t| Instant::now() >= t)
     }
 }
 
@@ -832,14 +868,14 @@ impl Session {
 
     fn hold(&self, rel: &str) {
         if !self.holds(rel) {
-            self.claim(&format!("w:{rel}"));
+            self.record(&format!("w:{rel}"));
         }
     }
 
     /// The conversation's context was cut down (a compaction, a `/clear`): it holds nothing.
     fn forget(&self) {
         if !self.keys_since(FORGOT).is_empty() {
-            self.claim(FORGOT);
+            self.record(FORGOT);
         }
     }
 
@@ -851,7 +887,7 @@ impl Session {
     fn mark_edited(&self, rel: &str) {
         let key = format!("e:{rel}");
         if !self.seen(&key) {
-            self.claim(&key);
+            self.record(&key);
         }
     }
 
@@ -859,7 +895,7 @@ impl Session {
     fn keep_for_later(&self, rel: &str) {
         let key = format!("h:{rel}");
         if !self.keys_since(HELD_SAID).iter().any(|k| *k == key) {
-            self.claim(&key);
+            self.record(&key);
         }
     }
 
@@ -870,12 +906,14 @@ impl Session {
         out
     }
 
-    /// The files with held findings, which from now on are held no longer.
+    /// The files with held findings, which from now on are held no longer. None when the hook
+    /// has run out of time: they stay held for the next one.
     fn take_held(&self) -> Vec<String> {
         let out = self.held();
-        if !out.is_empty() {
-            self.claim(HELD_SAID);
+        if out.is_empty() || self.late() {
+            return Vec::new();
         }
+        self.record(HELD_SAID);
         out
     }
 }
@@ -1948,9 +1986,9 @@ fn rename_cards(ix: &Index, rs: &Resolver, session: &Session, found: &prompt::Me
     }
 }
 
-fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id: Option<String>, cli: String, tx: mpsc::Sender<String>) {
+fn prompt_cards(place: Place, found: prompt::Mentions, text: String, session_id: Option<String>, cli: String, until: Instant, tx: mpsc::Sender<String>) {
     let Some(ix) = open_index(&place) else { return };
-    let Some(session) = Session::open(&place, session_id.as_deref()) else { return };
+    let Some(session) = Session::open(&place, session_id.as_deref()).map(|s| s.until(until)) else { return };
     let rs = Resolver::new(&ix);
     let mut docs = crate::query::card::Docs::new(&ix);
     // Names written as code first, tests last: a failing test is where the agent starts
@@ -2107,10 +2145,11 @@ fn prompt_text(place: Place, payload: &Payload, cli: String, started: Instant) -
     let session_id = payload.audience();
     let (tx, rx) = mpsc::channel();
     let quoted = clip_bytes(text, 24 * 1024);
-    std::thread::Builder::new().stack_size(16 << 20).spawn(move || prompt_cards(place, found, quoted, session_id, cli, tx)).ok()?;
+    let until = started + slow_deadline();
+    std::thread::Builder::new().stack_size(16 << 20).spawn(move || prompt_cards(place, found, quoted, session_id, cli, until, tx)).ok()?;
     // Whatever is ready when the time is up goes out: a card that is late is not waited for.
     let mut cards: Vec<String> = Vec::new();
-    while let Ok(card) = rx.recv_timeout(SLOW_DEADLINE.saturating_sub(started.elapsed())) {
+    while let Ok(card) = rx.recv_timeout(slow_deadline().saturating_sub(started.elapsed())) {
         cards.push(card);
     }
     (!cards.is_empty()).then(|| format!("codefast: {}", cards.join("\n")))
@@ -2293,8 +2332,8 @@ enum Did {
 /// calls, and several edits go out in one request: said after the first of them, the finding
 /// is about a state the conversation has already left, and it reads as an index that cannot
 /// be trusted. It is said when the conversation runs something and it still holds.
-fn edit_findings(place: Place, base: Option<PathBuf>, did: Did, session_id: Option<String>, tx: mpsc::Sender<String>) {
-    let Some(session) = Session::open(&place, session_id.as_deref()) else { return };
+fn edit_findings(place: Place, base: Option<PathBuf>, did: Did, session_id: Option<String>, until: Instant, tx: mpsc::Sender<String>) {
+    let Some(session) = Session::open(&place, session_id.as_deref()).map(|s| s.until(until)) else { return };
     let relative = |p: &String| {
         let path = PathBuf::from(p);
         let abs = match (path.is_absolute(), &base) {
@@ -2388,9 +2427,10 @@ fn findings_text(place: Place, payload: &Payload, did: Did, dir: Option<String>,
     let base = dir.or_else(|| payload.cwd.clone()).map(PathBuf::from).filter(|d| d.is_absolute());
     let session_id = payload.audience();
     let (tx, rx) = mpsc::channel();
-    std::thread::Builder::new().stack_size(16 << 20).spawn(move || edit_findings(place, base, did, session_id, tx)).ok()?;
+    let until = started + slow_deadline();
+    std::thread::Builder::new().stack_size(16 << 20).spawn(move || edit_findings(place, base, did, session_id, until, tx)).ok()?;
     let mut found: Vec<String> = Vec::new();
-    while let Ok(text) = rx.recv_timeout(SLOW_DEADLINE.saturating_sub(started.elapsed())) {
+    while let Ok(text) = rx.recv_timeout(slow_deadline().saturating_sub(started.elapsed())) {
         found.push(text);
     }
     (!found.is_empty()).then(|| found.join("\n\n"))
@@ -2749,7 +2789,7 @@ mod tests {
 
     #[test]
     fn notes_stay_inside_their_budget() {
-        let session = Session { file: PathBuf::from("/nonexistent/codefast-test") };
+        let session = Session { file: PathBuf::from("/nonexistent/codefast-test"), until: None };
         let long = format!("drivers/gpu/drm/some/long/path/file.c:1234 static int {}", "a_long_parameter_name, ".repeat(40));
         let head = Head { name: "a_function_with_quite_a_long_name".into(), at: "a.c:1".into(), line: long, shown: false, test: false, doc: None, callable: true, files: 1234, others: 3, session };
         let usage = format!("called by: {}", "another_caller_name, ".repeat(30));
@@ -2789,14 +2829,14 @@ mod tests {
             callable: false,
             files: 1,
             others: 0,
-            session: Session { file: PathBuf::from("/nonexistent/x") },
+            session: Session { file: PathBuf::from("/nonexistent/x"), until: None },
         };
         assert_eq!(
             symbol_note(&short, None, "codefast"),
             "codefast: f_x is defined at a.c:1 int f_x(void)\nmentioned in 1 file; `codefast refs f_x` lists its uses"
         );
         // The sentence its author wrote stands between the definition and its use.
-        let documented = Head { doc: Some("Fold x into the running sum".into()), session: Session { file: PathBuf::from("/nonexistent/y") }, name: "f_x".into(), at: "a.c:1".into(), line: "a.c:1 int f_x(void)".into(), shown: false, test: false, callable: true, files: 1, others: 0 };
+        let documented = Head { doc: Some("Fold x into the running sum".into()), session: Session { file: PathBuf::from("/nonexistent/y"), until: None }, name: "f_x".into(), at: "a.c:1".into(), line: "a.c:1 int f_x(void)".into(), shown: false, test: false, callable: true, files: 1, others: 0 };
         assert_eq!(
             symbol_note(&documented, Some("called by: main"), "codefast"),
             "codefast: f_x is defined at a.c:1 int f_x(void)\nFold x into the running sum\ncalled by: main"
@@ -2816,7 +2856,7 @@ mod tests {
     fn a_key_is_claimed_once() {
         let dir = std::env::temp_dir().join(format!("codefast-claim-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let session = Session { file: dir.join("sessions").join("0123456789abcdef") };
+        let session = Session { file: dir.join("sessions").join("0123456789abcdef"), until: None };
         assert!(!session.seen("s:vfs_read"));
         assert!(session.claim("s:vfs_read"), "the first claim wins, and creates the file");
         assert!(session.seen("s:vfs_read") && !session.seen("s:vfs") && !session.seen("s:vfs_read2"));
@@ -2830,6 +2870,22 @@ mod tests {
         for bad in ["", "s:a\nb", "s:a\tb", "s:a\rb"] {
             assert!(!session.claim(bad), "{bad:?}");
         }
+        // A hook that has run out of time claims nothing, so that what it worked out too late
+        // is said the next time. What the session did is recorded whatever the time.
+        let late = Session { file: session.file.clone(), until: Some(Instant::now()) };
+        assert!(!late.claim("p:too_late") && !session.seen("p:too_late"));
+        late.hold("src/a.c");
+        late.keep_for_later("src/a.c");
+        assert!(session.holds("src/a.c") && session.held() == ["src/a.c"]);
+        assert!(late.take_held().is_empty() && session.held() == ["src/a.c"], "still held for the next hook");
+        assert!(session.claim("p:too_late"), "in time, it is claimed");
+        assert_eq!(session.take_held(), ["src/a.c"]);
+        assert!(session.held().is_empty());
+        // After a compaction the conversation holds no file any more.
+        session.forget();
+        assert!(!session.holds("src/a.c"));
+        session.hold("src/a.c");
+        assert!(session.holds("src/a.c"));
         // Many threads at once: exactly one gets it.
         let session = std::sync::Arc::new(session);
         let winners: usize = (0..16)
