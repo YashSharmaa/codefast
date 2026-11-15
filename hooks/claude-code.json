@@ -1,5 +1,5 @@
 {
-  "description": "codefast lifecycle hooks for the Claude Code plugin. They add context and never block a tool call. They change one only where CODEFAST_WAITS=cap asks for it: the time limit of a shell call that only waits, in a conversation on the five-minute prompt cache. CODEFAST_HOOKS=off turns all of them off. At the start of a session one line is added to the session's shell setup: in zsh a pattern that matches nothing is passed on as typed, as in bash (CODEFAST_SHELL_SETUP=off leaves the shell as it is).",
+  "description": "codefast lifecycle hooks for the Claude Code plugin. They add context and never block a tool call. They change one only where CODEFAST_WAITS=cap asks for it: the time limit of a shell call of the main thread that only waits, in a conversation on the five-minute prompt cache. CODEFAST_HOOKS=off turns all of them off. At the start of a session one line is added to the session's shell setup: in zsh a pattern that matches nothing is passed on as typed, as in bash (CODEFAST_SHELL_SETUP=off leaves the shell as it is).",
   "hooks": {
     "SessionStart": [
       {

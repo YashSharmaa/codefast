@@ -132,6 +132,11 @@ pub fn command(home: &Path) -> Command {
         "DROID_PLUGIN_ROOT",
         "CLAUDECODE",
         "CLAUDE_CODE_CHILD_SESSION",
+        "CLAUDE_CODE_SESSION_ATTENDED",
+        "CLAUDE_ENV_FILE",
+        "CODEFAST_WAITS",
+        "CODEFAST_COST_NOTES",
+        "CODEFAST_SHELL_SETUP",
     ] {
         c.env_remove(k);
     }

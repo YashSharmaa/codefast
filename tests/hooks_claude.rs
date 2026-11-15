@@ -205,11 +205,12 @@ fn nothing_is_indexed_outside_a_repository() {
     assert!(!plain.join(".codefast").exists() && !home.join(".codefast").exists());
 }
 
-/// A wait that would outlive the five-minute prompt cache gets four minutes, when that is
-/// asked for with `CODEFAST_WAITS=cap`: when the time is up the harness moves the wait to the
-/// background or ends it, the model is told why, and waiting on costs a cache read a call. It
-/// is the one thing a hook changes in a tool call, so it is off unless asked for, and it never
-/// touches a command that works, or a wait that would start over when run again.
+/// A wait of the main thread that would outlive the five-minute prompt cache gets four
+/// minutes, when that is asked for with `CODEFAST_WAITS=cap`: when the time is up the harness
+/// moves the wait to the background, the model is told why, and the main thread is called
+/// back when the wait ends. It is the one thing a hook changes in a tool call, so it is off
+/// unless asked for, and it never touches a command that works, a wait that would start over
+/// when run again, or anything a sub-agent runs.
 #[test]
 fn a_wait_that_would_outlive_the_cache_is_given_four_minutes_on_request() {
     let (repo, home) = indexed("wait-cap");
@@ -297,12 +298,12 @@ fn a_wait_that_would_outlive_the_cache_is_given_four_minutes_on_request() {
     transcript(&home, 20_000, 0, false);
     quiet("a small conversation", "w9", wait, Some(600_000), &on);
 
-    // A sub-agent's conversation is its own: on the five-minute cache whatever the main thread
-    // writes to, and the figures are those of its model.
-    transcript(&home, 150_000, 0, true);
+    // A sub-agent's wait is left as it is, although its conversation is on the five-minute
+    // cache: a sub-agent that answers while its wait is in the background hands its job back
+    // unfinished, and tried live two of four did.
+    transcript(&home, 150_000, 0, false);
     let mut agent: serde_json::Value = serde_json::from_str(&call("w10", "while pgrep -q cargo; do sleep 10; done; tail -3 build.log", Some(1_800_000))).unwrap();
     agent["agent_id"] = serde_json::json!("a1b2c3");
-    hook(&home, &repo.dir, "pre-tool-use", agent.to_string().as_bytes(), &on).assert_quiet("an agent whose transcript is not there");
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
     let asked = serde_json::json!({"type": "user", "isSidechain": true, "timestamp": rfc3339(now - 30), "message": {"role": "user", "content": "Build it."}});
     let line = serde_json::json!({"type": "assistant", "isSidechain": true, "timestamp": rfc3339(now - 20), "message": {"id": "msg_a", "model": "claude-opus-5-5", "usage": {
@@ -310,10 +311,7 @@ fn a_wait_that_would_outlive_the_cache_is_given_four_minutes_on_request() {
         "cache_creation": {"ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 998}}}});
     let session = home.join(".claude/projects/-work-project/0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11");
     write(&session.join("subagents/agent-a1b2c3.jsonl"), &format!("{asked}\n{line}\n"));
-    let v: serde_json::Value = serde_json::from_str(&hook(&home, &repo.dir, "pre-tool-use", agent.to_string().as_bytes(), &on).stdout).unwrap();
-    assert_eq!(v["hookSpecificOutput"]["updatedInput"]["timeout"], 240_000, "{v}");
-    let said = v["hookSpecificOutput"]["additionalContext"].as_str().unwrap();
-    assert!(said.starts_with("codefast: this wait was given 4 minutes, not the 30 minutes it asked for.") && said.contains("send its 80k tokens again as new input, about 25 times"), "{said}");
+    hook(&home, &repo.dir, "pre-tool-use", agent.to_string().as_bytes(), &on).assert_quiet("a wait of a sub-agent");
     settle(&repo);
 }
 

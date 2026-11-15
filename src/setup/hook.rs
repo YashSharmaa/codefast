@@ -56,8 +56,8 @@
 //!
 //! `CODEFAST_HOOKS=off` (or `0`, `false`, `no`) turns every event off.
 //! `CODEFAST_SHELL_SETUP=off` leaves the session's shell as it is (see `shell_setup`), and
-//! `CODEFAST_WAITS=cap` (Claude Code only) gives a wait that would outlive the five-minute
-//! prompt cache four minutes (see `capped_wait`).
+//! `CODEFAST_WAITS=cap` (Claude Code only) gives a wait of the main thread that would outlive
+//! the five-minute prompt cache four minutes (see `capped_wait`).
 //! `CODEFAST_COST_NOTES=off` keeps the hooks and drops the notes to the person, and
 //! `CODEFAST_CARRY` is the size in tokens from which a long conversation is spoken of (default:
 //! where a compaction would pay for itself within twelve requests at the prices of the model).
@@ -1127,21 +1127,26 @@ fn limit_text(ms: u64) -> String {
 /// A wait that would outlive the prompt cache is given less time (`CODEFAST_WAITS=cap`, off
 /// unless asked for: it is the one thing here that changes a tool call).
 ///
-/// A sub-agent's prompt cache lives five minutes from each request. When a call takes longer,
-/// the request after it sends the whole conversation again as new input. In thirty days of
-/// sessions on one machine 1,204 shell calls of sub-agents took more than five minutes, the
-/// request after 96% of them was such a resend, and 518 of those calls did nothing but wait
-/// for something: a loop that looks at a file, a process or a port and sleeps until it is as
-/// wanted. Every one of the 518 had asked for a time limit of more than four minutes, which is
-/// how this hook knows one before it runs (`docs/INSTALL.md` has the counts).
+/// A prompt cache on the five-minute plan lives five minutes from each request. When a call
+/// takes longer, the request after it sends the whole conversation again as new input. A
+/// call that does nothing but wait for something, a loop that looks at a file, a process or
+/// a port and sleeps until it is as wanted, loses nothing when it is given less time: when
+/// the time is up the harness moves it to the background, where it goes on, and calls the
+/// main thread back when it ends.
 ///
 /// So: a call of the harness's shell tool that only waits on a condition
-/// ([`shell::Wait::Loop`]), with a time limit of more than four minutes asked for, in a
-/// conversation the transcript shows on the five-minute cache and long enough to matter, gets
-/// four minutes. Nothing is lost: when the time is up the harness moves the wait to the
-/// background, where it goes on, and a loop that looks and sleeps has done nothing that has to
-/// be done again. A command that works is never touched, nor a sleep of a set length, nor a
-/// wait that starts with a sleep, which the harness ends instead of moving.
+/// ([`shell::Wait::Loop`]), with a time limit of more than four minutes asked for, in a main
+/// thread the transcript shows on the five-minute cache and long enough to matter, gets four
+/// minutes. A command that works is never touched, nor a sleep of a set length, nor a wait
+/// that starts with a sleep, which the harness ends instead of moving.
+///
+/// Not in a sub-agent, although that is where most such waits are (518 of the 1,204 shell
+/// calls of sub-agents that took more than five minutes in thirty days of sessions on one
+/// machine, the request after 96% of them a resend). A sub-agent that answers while its wait
+/// is in the background hands its job back unfinished, since the harness ends what it
+/// started and no notice reaches it after its answer. Tried live with Haiku 5.5, two of
+/// four sub-agents did just that after starting a monitor on the wait, though the harness
+/// and this hook's explanation both told them to stay in the turn (`docs/INSTALL.md`).
 ///
 /// The model is told why, once for a conversation, and that waiting on in calls of four
 /// minutes costs a cache read each. Where that cannot be remembered it is said again, and
@@ -1149,8 +1154,8 @@ fn limit_text(ms: u64) -> String {
 /// unexplained.
 fn capped_wait(passed: &Path, payload: &Payload, command: &str) -> Option<Capped> {
     let asked_for = std::env::var("CODEFAST_WAITS").is_ok_and(|v| v.trim().eq_ignore_ascii_case("cap"));
-    // The harness's own shell tool, and nothing that only looks like it.
-    if !asked_for || std::env::var_os("CLAUDECODE").is_none() || payload.tool.as_deref() != Some("Bash") {
+    // The harness's own shell tool in the main thread, and nothing that only looks like it.
+    if !asked_for || std::env::var_os("CLAUDECODE").is_none() || payload.tool.as_deref() != Some("Bash") || payload.agent.is_some() {
         return None;
     }
     let input = payload.input.as_ref()?;
@@ -1159,11 +1164,7 @@ fn capped_wait(passed: &Path, payload: &Payload, command: &str) -> Option<Capped
     if !foreground || shell::wait_of(command) != Some(shell::Wait::Loop) {
         return None;
     }
-    let main = Path::new(payload.transcript.as_deref()?);
-    let last = match payload.agent.as_deref() {
-        None => super::sessions::last_request(main)?,
-        Some(agent) => super::sessions::last_agent_request(&agent_transcript(main, agent)?)?,
-    };
+    let last = super::sessions::last_request(Path::new(payload.transcript.as_deref()?))?;
     if last.one_hour? || last.context < OUTLIVED_FROM {
         return None;
     }

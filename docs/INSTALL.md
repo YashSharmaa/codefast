@@ -759,8 +759,8 @@ Registry, [`server.json`](../server.json) is **validated against a schema** (202
 
 Hooks are optional: codefast works without them. They add context and never block a tool call.
 They set one option of the session's shell, and one setting that is off unless you turn it on
-shortens the time limit of a wait in Claude Code, both described below. `CODEFAST_HOOKS=off`
-turns them off.
+shortens the time limit of a wait in the main thread of Claude Code, both described below.
+`CODEFAST_HOOKS=off` turns them off.
 The variable has to reach the hook: Claude Code and Codex both run hooks with your environment
 (Codex seen with codex-cli 0.164.0), and in Codex `/hooks` disables a hook as well.
 
@@ -1002,56 +1002,68 @@ conversation's own transcript and says nothing where that does not show it.
 
 One setting goes further than a note. It is off unless you turn it on, because it is the one
 thing here that changes a tool call, and it works in Claude Code only. With `CODEFAST_WAITS=cap`
-in the environment the session runs in, a shell call that only waits for something is given four
-minutes where the model asked for more, in a conversation that its transcript shows on the
-five-minute cache and that holds 30,000 tokens or more. The time limit is all that changes: the
-command is passed on as it was typed. In Claude Code the `env` block of a `settings.json` is one
-place to set it (seen to reach the hook with Claude Code 2.1.323).
+in the environment the session runs in, a shell call of the main thread that only waits for
+something is given four minutes where the model asked for more, in a conversation that its
+transcript shows on the five-minute cache and that holds 30,000 tokens or more. The time limit
+is all that changes: the command is passed on as it was typed. A main thread writes to the
+five-minute cache where the session is signed in with an API key or goes through another
+provider. With a subscription it writes to the one-hour cache, and the setting changes nothing.
+In Claude Code the `env` block of a `settings.json` is one place to set it (seen to reach the
+hook with Claude Code 2.1.323).
 
 What counts as such a wait is narrow on purpose. It is a loop that looks at a file, a process or
 a port and sleeps until that is as wanted, like `until [ -f out/done.txt ]; do sleep 5; done` or
 `while pgrep -q cargo; do sleep 10; done; tail -3 build.log`. When its four minutes are up,
-Claude Code moves it to the background, where it goes on, and tells the model so. Nothing is
-lost, since a loop that looks and sleeps has done nothing that has to be done again. A command
-that builds, tests, starts or writes anything is never touched. Neither is a wait whose `curl`
-sends something or whose `find` acts, a line that starts with a `sleep`, which Claude Code ends
-at its limit where it moves any other, or a sleep of a set length such as
-`sleep 540; tail build.log`, which would start over. The model is told why once per
-conversation, with what the resend would have cost, and that waiting on in calls of four minutes
-costs a cache read each. `CODEFAST_COST_NOTES=off` does not silence that explanation, and where
-it cannot be remembered that it was given, it is given again: a call that was changed is never
-left unexplained.
-
-The numbers behind it, from thirty days of sessions on one machine (read 15 November 2026):
-1,204 shell calls of sub-agents took more than five minutes, and the request after 96% of them
-sent the conversation again as new input, 540 million tokens in all. 518 of the 1,204 were such
-waits, nearly nine minutes long on average, and every one had asked for a time limit of more
-than four minutes: ten or more in 436, between five and ten in 79. In every version of Claude
-Code those sessions ran on (2.1.274 to 2.1.322), a call that reached its limit was moved to the
-background, 606 times, and ended only twice, both times a command that starts with `sleep`. A
-note after the call does not do the same. In a staged check (Claude Haiku 5.5, a command of five
-and a half minutes run three times in one conversation, four times in one of them, two sessions
-each way), the sessions that were told after the first run what it had cost sent the
-conversation again as often as the ones that were not: 3 and 3 times against 4 and 3.
+Claude Code moves it to the background, where it goes on, tells the model so, and calls the main
+thread back when the wait ends. Nothing is lost, since a loop that looks and sleeps has done
+nothing that has to be done again. A command that builds, tests, starts or writes anything is
+never touched. Neither is a wait whose `curl` sends something or whose `find` acts, a line that
+starts with a `sleep`, which Claude Code ends at its limit where it moves any other, or a sleep
+of a set length such as `sleep 540; tail build.log`, which would start over. The model is told
+why once per conversation, with what the resend would have cost, and that waiting on in calls of
+four minutes costs a cache read each. `CODEFAST_COST_NOTES=off` does not silence that
+explanation, and where it cannot be remembered that it was given, it is given again: a call that
+was changed is never left unexplained.
 
 Checked live on the five-minute cache (Claude Haiku 5.5, Claude Code 2.1.323, a conversation of
 88,000 tokens that waits seven minutes for a file, two sessions each way, 15 November 2026):
 with the setting the wait went to the background at four minutes, every request after it read
-the conversation from the cache, and the two sessions cost 0.65 and 0.67 of the mean of the two left
-alone, which each sent all 88,000 tokens again as new input. That is four sessions on one
+the conversation from the cache, and the two sessions cost 0.65 and 0.67 of the mean of the two
+left alone, which each sent all 88,000 tokens again as new input. That is four sessions on one
 staged wait and no benchmark. It shows that the mechanism works and what one such wait is worth.
 
-What it does not reach. A wait sent in the same request as the reads that made the conversation
-long is judged by the size the transcript shows, which is the size before that request: the
-explanation then names that smaller size, and a wait in the very first request of a conversation
-is left as it is. A main thread that ends its turn once the wait is in the background is called
-back when the wait ends: if that is more than five minutes later, that one request sends the
-conversation again, as it would have without the setting. Sub-agents go on in calls of their
-own: of the 518 calls that were moved to the background in the sessions read here (272 waits and
-246 commands that work), the sub-agent ended its turn after one. And a long command that works,
-a build or a test run, makes up most of the rest of those 1,204 calls and is left alone. It
-would go on in the background as well, but a session started with `-p` stops a background
-command ten minutes after the move, so a shorter limit could end work that would have finished.
+It is not applied in a sub-agent, although that is where the waits are. In thirty days of
+sessions on one machine (read 15 November 2026), 1,204 shell calls of sub-agents took more than
+five minutes, and the request after 96% of them sent the conversation again as new input, 540
+million tokens in all. 518 of the 1,204 were such waits, nearly nine minutes long on average,
+every one with a time limit of more than four minutes asked for. But a sub-agent is not called
+back. When it answers while its wait is in the background, Claude Code ends the wait and the job
+comes back unfinished. Tried live with the same wait handed to a sub-agent (Claude Haiku 5.5,
+four sessions with a build of codefast that capped the wait there, one session without), two of
+the four sub-agents did that: they started a monitor on the wait and answered, though Claude
+Code's message and the explanation both told them to stay in the turn. One finished at 0.66 of
+the cost of the session without, and one finished at 1.17 of it. In the thirty days of sessions,
+which ran mostly on Claude Opus 5.5, 272 waits of sub-agents were moved to the background at
+their limit and no sub-agent answered early, so another model may do better. That was not tried,
+and the setting leaves sub-agents alone.
+
+It also stops at waits. A long command that works, a build or a test run, would go on in the
+background in the same way: in every version of Claude Code those sessions ran on (2.1.274 to
+2.1.322), a call that reached its limit was moved to the background, 606 times, and ended only
+twice, both times a command that starts with `sleep`. But what is lost when it goes wrong is the
+work. Tried once with a build of six minutes handed to a sub-agent, the build was moved at four
+minutes, the sub-agent answered, and Claude Code ended the build. A note after the call does not
+move the model either. In a staged check (Claude Haiku 5.5, a command of five and a half minutes
+run three times in one conversation, four times in one of them, two sessions each way), the
+sessions that were told after the first run what it had cost sent the conversation again as
+often as the ones that were not: 3 and 3 times against 4 and 3.
+
+Two more things it does not reach. A wait sent in the same request as the reads that made the
+conversation long is judged by the size the transcript shows, which is the size before that
+request: the explanation then names that smaller size, and a wait in the very first request of a
+conversation is left as it is. And the main thread is called back when the wait ends: if that is
+more than five minutes after its last request, that one request sends the conversation again, as
+it would have without the setting.
 
 Once a week, at the start of a session, you are also told in one line what the sessions of the
 last seven days mostly cost, when that is a tenth of them or more: sub-agents carrying long
