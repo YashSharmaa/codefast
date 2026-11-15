@@ -214,6 +214,20 @@ fn card(ix: &Index, rs: &Resolver, t: &Target, others: &[Target], opts: &SearchO
     }
 }
 
+/// `name()` and `name(label:other:)` taken apart: the name, and the labels that are words (a
+/// `_` stands for an argument without one). Nothing for anything else in parentheses, which
+/// is code and not a name.
+fn called_form(q: &str) -> Option<(&str, Vec<&str>)> {
+    let open = q.find('(')?;
+    let inner = q.strip_suffix(')')?.get(open + 1..)?;
+    let base = &q[..open];
+    let named = base.chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_') && !base.contains(char::is_whitespace);
+    if !named || !inner.chars().all(|c| c.is_alphanumeric() || c == '_' || c == ':') {
+        return None;
+    }
+    Some((base, inner.split(':').filter(|l| !l.is_empty() && *l != "_").collect()))
+}
+
 /// `collection.go Collection.Add`, `*Collection Add`, `(*Collection).Add`, `Collection::add in
 /// pkg/`: several words that name one symbol, the way people and models write them. Returns the
 /// symbol as `Owner.name` or `name`, and the paths that were given with it.
@@ -649,6 +663,27 @@ pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &Se
         // for it, and with the ranking alone where the caller named the size of the answer.
         let code = opts.source && (out.budget() == 0 || out.remaining() >= super::locate::CODE_MIN_BUDGET);
         locate(ix, q, common, &LocateOpts { code, ..Default::default() }, out);
+        return;
+    }
+    // A name written as it is called: `resume()`, or with the labels of its arguments as Swift
+    // and Objective-C name a method, `validate(statusCode:)`. The name is what is looked for,
+    // and the labels say which of several definitions of that name is meant.
+    if let Some((base, labels)) = called_form(q) {
+        if !labels.is_empty() {
+            let pf = PathFilter::new(&common.paths);
+            let defs: Vec<DefId> = targets_for(ix, rs, &parse_spec(ix, base), common, &pf).iter().flat_map(|t| t.defs.clone()).collect();
+            let has = |d: &DefId| {
+                let sig = super::sig_of(&ix.def(*d));
+                labels.iter().all(|l| sig.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|w| w == *l))
+            };
+            let fitting: Vec<&DefId> = defs.iter().filter(|d| has(d)).collect();
+            if let ([d], true) = (&fitting[..], defs.len() > 1) {
+                let v = ix.def(**d);
+                show(ix, rs, &[format!("{}:{}", v.path(), v.rec.line)], common, &ShowOpts::default(), out);
+                return;
+            }
+        }
+        search(ix, rs, base, common, opts, out);
         return;
     }
     let pf = PathFilter::new(&common.paths);

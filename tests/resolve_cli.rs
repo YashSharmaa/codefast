@@ -469,6 +469,30 @@ fn a_member_asked_for_on_the_wrong_owner_is_found_where_it_is() {
     lacks(&exact, "no `");
 }
 
+/// A method is asked for the way it is called: `resume()`, or with the labels of its arguments
+/// as Swift names it, `validate(statusCode:)`. The name is what is looked for, and the labels
+/// say which of the definitions of that name is meant.
+#[test]
+fn a_name_written_as_a_call_is_found_and_its_labels_pick_the_definition() {
+    let swift = "class DataRequest {\n    func validate(_ validation: (Int) -> Bool) -> Self {\n        return self\n    }\n\n    func validate(statusCode codes: [Int]) -> Self {\n        return validate { codes.contains($0) }\n    }\n\n    func validate(contentType types: [String]) -> Self {\n        return self\n    }\n\n    func resume() -> Self {\n        return self\n    }\n}\n";
+    let p = Project::new("swift-labels", &[("Sources/DataRequest.swift", swift)]);
+    let status = p.ask(&["search", "DataRequest.validate(statusCode:)"]);
+    has(&status, "Sources/DataRequest.swift:6-8 DataRequest.validate");
+    has(&status, "func validate(statusCode codes: [Int]) -> Self {");
+    lacks(&status, "contentType");
+    let content = p.ask(&["search", "DataRequest.validate(contentType:)"]);
+    has(&content, "Sources/DataRequest.swift:10-12 DataRequest.validate");
+    // No labels, or labels no single definition has: the name, as it is answered without them.
+    let resume = p.ask(&["search", "DataRequest.resume()"]);
+    has(&resume, "Sources/DataRequest.swift:14-16 DataRequest.resume");
+    lacks(&resume, "no `");
+    let plain = p.ask(&["search", "DataRequest.validate"]);
+    assert_eq!(p.ask(&["search", "DataRequest.validate(_:)"]), plain);
+    assert_eq!(p.ask(&["search", "DataRequest.validate(nothing:)"]), plain);
+    // Code in parentheses is not a name.
+    lacks(&p.ask(&["search", "validate(statusCode: [200, 201])"]), "Sources/DataRequest.swift:6-8 DataRequest.validate\n");
+}
+
 /// A name that several things answer to is answered for each of them, or listed with their
 /// places where they are many. It is never answered for the first of them alone: that is the
 /// callers of another type's method, under the name that was asked for.
