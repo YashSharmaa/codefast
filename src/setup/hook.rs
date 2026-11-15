@@ -1772,8 +1772,24 @@ fn site_list(refs: &[crate::store::RefV], max: usize) -> Option<String> {
 /// What a card says about the use of a symbol. The places themselves when they are few: the
 /// list is no longer than the sentence that would send the agent to ask for it, and it is what
 /// the agent would ask for. Their number, and the command that lists them, when they are many.
+/// What to call a symbol on the command line so that the command is about this definition and
+/// no other: its name where that names it alone, and its place where something else answers
+/// to the same name. A note that names a command names one that works. In a repository with
+/// five types called `Encoder`, a card for one of them said `codefast callers Encoder.Encode`,
+/// the command answered for another, and the session took the index for wrong.
+fn handle(ix: &Index, rs: &Resolver, t: &Target, name: &str) -> String {
+    let spec = crate::query::parse_spec(ix, name);
+    let found = crate::query::targets_for(ix, rs, &spec, &crate::query::Common::default(), &crate::query::PathFilter::new(&[]));
+    if found.len() == 1 && found[0].defs.iter().any(|d| t.defs.contains(d)) {
+        return name.to_string();
+    }
+    let p = t.primary(ix);
+    format!("{}:{}", p.path(), p.rec.line)
+}
+
 fn card_usage(ix: &Index, rs: &Resolver, t: &Target, name: &str, cli: &str) -> Option<String> {
     use crate::query::refs::{Via, caller_edges, loose_is_likely, proximity_key};
+    let name = &handle(ix, rs, t, name);
     let p = t.primary(ix);
     if p.flags() & crate::facts::dflag::TEST != 0 || ix.is_test_file(p.file()) {
         return None;

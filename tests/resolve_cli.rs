@@ -469,6 +469,38 @@ fn a_member_asked_for_on_the_wrong_owner_is_found_where_it_is() {
     lacks(&exact, "no `");
 }
 
+/// A name that several things answer to is answered for each of them, or listed with their
+/// places where they are many. It is never answered for the first of them alone: that is the
+/// callers of another type's method, under the name that was asked for.
+#[test]
+fn a_name_that_several_things_answer_to_is_answered_for_each() {
+    let pack = "package pack\n\ntype Encoder struct{ n int }\n\nfunc (e *Encoder) Encode(objs []int) int {\n\treturn e.n + len(objs)\n}\n\nfunc Push(e *Encoder) int {\n\treturn e.Encode(nil)\n}\n";
+    let graph = "package graph\n\ntype Encoder struct{ w int }\n\nfunc (e *Encoder) Encode(idx int) error {\n\treturn nil\n}\n\nfunc Write(e *Encoder) error {\n\treturn e.Encode(1)\n}\n";
+    let p = Project::new("go-two-encoders", &[("pack/encoder.go", pack), ("graph/encoder.go", graph)]);
+    let both = p.ask(&["callers", "Encoder.Encode"]);
+    has(&both, "2 symbols are named `Encoder.Encode`. Each is answered below. One alone: `codefast callers PATH:LINE`.");
+    has(&both, "pack/encoder.go:5 func (e *Encoder) Encode(objs []int) int  (in Encoder)  (all 1 call sites, 1 files)");
+    has(&both, "10 Push: return e.Encode(nil)");
+    has(&both, "graph/encoder.go:5 func (e *Encoder) Encode(idx int) error  (in Encoder)  (all 1 call sites, 1 files)");
+    has(&both, "10 Write: return e.Encode(1)");
+    // By its place, one alone, as the first line says.
+    let one = p.ask(&["callers", "pack/encoder.go:5"]);
+    has(&one, "10 Push: return e.Encode(nil)");
+    lacks(&one, "symbols are named");
+    lacks(&one, "Write");
+    // What a function calls is asked the same way.
+    let callees = p.ask(&["callees", "Encoder.Encode"]);
+    has(&callees, "2 symbols are named `Encoder.Encode`. Each is answered below. One alone: `codefast callees PATH:LINE`.");
+    // Many of them: their places, and how to ask about one.
+    let many: Vec<(String, String)> = (0..7).map(|i| (format!("m{i}/run.go"), format!("package m{i}\n\nfunc Run() int {{\n\treturn {i}\n}}\n\nfunc Start() int {{\n\treturn Run()\n}}\n"))).collect();
+    let files: Vec<(&str, &str)> = many.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+    let q = Project::new("go-many-run", &files);
+    let listed = q.ask(&["callers", "Run"]);
+    has(&listed, "7 symbols are named `Run`. Ask about one by its place, as in `codefast callers m0/run.go:3`:");
+    has(&listed, "m6/run.go:3 func Run() int");
+    lacks(&listed, "Start: return Run()");
+}
+
 #[test]
 fn a_place_names_the_definition_at_that_place() {
     // One function with a definition per architecture is one entity. Asked about by name, the

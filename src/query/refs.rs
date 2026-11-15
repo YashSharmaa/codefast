@@ -189,6 +189,37 @@ fn ambiguous_members(ix: &Index, name: &str, ents: &[Target], out: &mut Out) {
     }
 }
 
+/// A name that several things answer to. Where they are few, each of them is answered in its
+/// share of the room, so that the one that was meant is in the answer whichever it is. Where
+/// they are many, their places are listed, and one is asked about by its place. Answering for
+/// the first of them alone gave a session the callers of another type's method under the
+/// name it had asked for (five types called `Encoder` in go-git, each with an `Encode`).
+fn several(ix: &Index, name: &str, ents: &[Target], command: &str, out: &mut Out, mut answer: impl FnMut(&str, &mut Out)) {
+    const EACH: usize = 5;
+    let place = |t: &Target| {
+        let p = t.primary(ix);
+        format!("{}:{}", p.path(), p.rec.line)
+    };
+    if ents.len() > EACH {
+        out.push(&format!("{} symbols are named `{name}`. Ask about one by its place, as in `codefast {command} {}`:", count(ents.len()), place(&ents[0])));
+        for t in ents.iter().take(12) {
+            out.line(&format!("  {}", def_line(&t.primary(ix))));
+        }
+        if ents.len() > 12 {
+            out.push(&format!("  … {} more (codefast find {name})", count(ents.len() - 12)));
+        }
+        return;
+    }
+    out.push(&format!("{} symbols are named `{name}`. Each is answered below. One alone: `codefast {command} PATH:LINE`.", ents.len()));
+    for (i, t) in ents.iter().enumerate() {
+        let room = if out.budget() == 0 { 0 } else { (out.remaining() / (ents.len() - i)).max(120) };
+        let mut one = Out::new(room);
+        answer(&place(t), &mut one);
+        out.push("");
+        out.push(one.finish().trim_end());
+    }
+}
+
 pub fn refs(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, opts: &RefsOpts, out: &mut Out) {
     let pf = PathFilter::new(&common.paths);
     // Path filters restrict where references are searched, not which definition is meant.
@@ -864,6 +895,10 @@ pub fn callers(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, dep
             ambiguous_members(ix, s, &ents, out);
             continue;
         }
+        if ents.len() > 1 && matches!(&spec, Spec::Sym { .. }) {
+            several(ix, s, &ents, "callers", out, |place, one| callers(ix, rs, &[place.to_string()], common, depth, one));
+            continue;
+        }
         let p = t.primary(ix);
         if depth > 1 {
             callers_tree(ix, rs, t, common, &pf, depth, out);
@@ -1254,6 +1289,10 @@ pub fn callees(ix: &Index, rs: &Resolver, specs: &[String], common: &Common, sig
             out.push(&format!("no symbol matches `{s}` (try: codefast find {s})"));
             continue;
         };
+        if ents.len() > 1 && matches!(&spec, Spec::Sym { .. }) {
+            several(ix, s, &ents, "callees", out, |place, one| callees(ix, rs, &[place.to_string()], common, sigs, one));
+            continue;
+        }
         let p = t.primary(ix);
         let mut cs = callee_edges(rs, &p);
         let ncalls = cs.len();

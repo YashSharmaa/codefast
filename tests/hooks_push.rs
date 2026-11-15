@@ -575,6 +575,37 @@ fn what_a_conversation_wrote_itself_is_not_explained_to_it() {
     settle(&repo);
 }
 
+/// A card that names a command names one that is about the card's symbol. Where another type
+/// has the same name and the same method, the name alone is answered for all of them, so the
+/// card names the definition by its place.
+#[test]
+fn a_card_names_its_symbol_by_place_where_the_name_is_shared() {
+    let repo = Repo::new("shared-name");
+    for rel in ["src/io.c", "src/io.h", "src/main.c", "src/big.c"] {
+        let _ = std::fs::remove_file(repo.path(rel));
+    }
+    std::fs::remove_dir_all(repo.path(".git")).unwrap();
+    write(&repo.path("pack/encoder.go"), "package pack\n\ntype Encoder struct{ n int }\n\nfunc (e *Encoder) Encode(objs []int) int {\n\treturn e.n + len(objs)\n}\n\nfunc Push(e *Encoder) int {\n\treturn e.Encode(nil)\n}\n");
+    write(&repo.path("graph/encoder.go"), "package graph\n\ntype Encoder struct{ w int }\n\nfunc (e *Encoder) Encode(idx int) error {\n\treturn nil\n}\n\nfunc Write(e *Encoder) error {\n\treturn e.Encode(1)\n}\n");
+    write(&repo.path("solo/solo.go"), "package solo\n\ntype Packer struct{ n int }\n\nfunc (p *Packer) Pack() int {\n\treturn p.n\n}\n\nfunc Run(p *Packer) int {\n\treturn p.Pack()\n}\n\nfunc Other(p *Packer) int {\n\treturn p.Pack() + 1\n}\n");
+    git(&repo, &["init", "-q", "."]);
+    write(&repo.path(".gitignore"), ".codefast/\n");
+    let home = scratch("home");
+    assert_eq!(run(&home, &repo.dir, &["index"], &[], None).0, 0);
+    let ask = |session: &str, prompt: &str| {
+        let v = serde_json::json!({"hook_event_name": "UserPromptSubmit", "session_id": session, "cwd": repo.dir.display().to_string(), "prompt": prompt});
+        hook(&home, &repo.dir, "user-prompt-submit", v.to_string().as_bytes(), &[]).context("UserPromptSubmit")
+    };
+    let shared = ask("shared-1", "Which functions call the method Encode of Encoder (defined in pack/encoder.go)? Other types have a method called Encode too.");
+    assert!(shared.starts_with("codefast: Encoder.Encode is defined at pack/encoder.go:5-7\n"), "{shared}");
+    assert!(shared.contains("`codefast callers pack/encoder.go:5`"), "{shared}");
+    assert!(!shared.contains("callers Encoder.Encode"), "{shared}");
+    // A name nothing else has is named as it is.
+    let alone = ask("shared-2", "What does `Packer.Pack` return, and who calls it?");
+    assert!(alone.starts_with("codefast: Packer.Pack is defined at solo/solo.go:5-7\n"), "{alone}");
+    assert!(alone.contains("`codefast callers Packer.Pack`") && !alone.contains("solo/solo.go:5`"), "{alone}");
+}
+
 /// A sub-agent starts with its brief and with nothing of what the conversation was told at
 /// its start. It is told the one line about the index, and it gets the card of what its brief
 /// names, as a person's prompt would. The hook at its start is not told the brief: the hooks
