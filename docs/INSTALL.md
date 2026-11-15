@@ -777,6 +777,22 @@ What they add, each said once per session:
   its card comes with the result of its first tool call, read from the agent's own transcript.
   On one machine 95% of the requests of thirty days of sessions were made inside sub-agents
   and workflow agents (15 November 2026), which is who this is for.
+- In Claude Code, to every sub-agent when it starts as well: how to wait. A sub-agent's prompt
+  cache lives five minutes from each request, so a call that waits longer makes the next request
+  send the whole conversation again. And nothing calls a sub-agent back once it has answered:
+  what it left in the background is ended, and its job comes back unfinished. So it is told to
+  wait with a loop that gives up by itself inside four minutes, and to run it again until what
+  it waits for has happened. Tried live (Claude Haiku 5.5, a job handed to a sub-agent that has
+  to wait seven minutes for a file in a conversation of 88,000 tokens, three sessions each way,
+  15 November 2026): told so, all three sub-agents waited that way and finished, and no request
+  sent the conversation again. Not told, one started a monitor and answered after 17 seconds
+  with the job undone, and the other two finished after sending about 80,000 tokens again each.
+  The three that were told cost 0.69 of the two that finished without. One pair on Claude Opus
+  5.5 went the same way: told, the sub-agent waited in two such loops and finished, and not
+  told, it put the wait in the background, started a monitor and answered with the job undone.
+  That is eight sessions on one staged wait and no benchmark. It is left out where
+  `subagentPromptCacheTtl` gives sub-agents the one-hour cache, and with
+  `CODEFAST_COST_NOTES=off`.
 - For a prompt that names a symbol the index can pin down: where it is defined, the sentence its
   author wrote about it, and how it is used. A definition of up to 25 lines comes whole, with
   its line numbers. Where the function is stored in a table or handed over as a callback, the
@@ -1045,7 +1061,8 @@ Code's message and the explanation both told them to stay in the turn. One finis
 the cost of the session without, and one finished at 1.17 of it. In the thirty days of sessions,
 which ran mostly on Claude Opus 5.5, 272 waits of sub-agents were moved to the background at
 their limit and no sub-agent answered early, so another model may do better. That was not tried,
-and the setting leaves sub-agents alone.
+and the setting leaves sub-agents alone. What a sub-agent gets instead is said to it at its
+start (see the list above): how to wait so that nothing is moved to the background at all.
 
 It also stops at waits. A long command that works, a build or a test run, would go on in the
 background in the same way: in every version of Claude Code those sessions ran on (2.1.274 to

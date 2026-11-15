@@ -58,7 +58,8 @@
 //! `CODEFAST_SHELL_SETUP=off` leaves the session's shell as it is (see `shell_setup`), and
 //! `CODEFAST_WAITS=cap` (Claude Code only) gives a wait of the main thread that would outlive
 //! the five-minute prompt cache four minutes (see `capped_wait`).
-//! `CODEFAST_COST_NOTES=off` keeps the hooks and drops the notes to the person, and
+//! `CODEFAST_COST_NOTES=off` keeps the hooks and drops the notes to the person and what a
+//! sub-agent is told about waiting, and
 //! `CODEFAST_CARRY` is the size in tokens from which a long conversation is spoken of (default:
 //! where a compaction would pay for itself within twelve requests at the prices of the model).
 //! `CODEFAST_HOOK_BUDGET_MS` is how long `post-tool-use` may wait for the caller summary
@@ -1325,9 +1326,10 @@ fn late_brief_cards(passed: &Path, payload: &Payload, started: Instant) -> Optio
 }
 
 /// A sub-agent starts with its brief and with nothing of what the conversation was told at
-/// its start. So it is told the one line about the index, and it gets the cards of what its
-/// brief names, as a person's prompt would. Nothing in a project without code or without an
-/// index: its first request does not wait for one to be built.
+/// its start. So it is told the one line about the index, how to wait where its cache lives
+/// five minutes ([`WAIT_ADVICE`]), and it gets the cards of what its brief names, as a
+/// person's prompt would. Nothing in a project without code or without an index: its first
+/// request does not wait for one to be built.
 fn subagent_start(passed: &Path, payload: &Payload, started: Instant) -> String {
     let Some(place) = Place::find(passed, payload.cwd.as_deref()) else { return String::new() };
     let Some((files, defs)) = index_counts(&place).filter(|c| c.1 > 0) else { return String::new() };
@@ -1344,10 +1346,41 @@ fn subagent_start(passed: &Path, payload: &Payload, started: Instant) -> String 
         session.record(BRIEF_SEEN);
     }
     let asked = Payload { prompt: brief, session: payload.session.clone(), agent: payload.agent.clone(), cwd: payload.cwd.clone(), ..Default::default() };
+    let note = if std::env::var_os("CLAUDECODE").is_some() && !cost_notes_off() && !agents_cache_one_hour(&place.root) {
+        format!("{note}\n\n{WAIT_ADVICE}")
+    } else {
+        note
+    };
     match prompt_text(place, &asked, cli, started) {
         Some(cards) => payload.reply(Event::SubagentStart, &format!("{note}\n\n{cards}")),
         None => payload.reply(Event::SubagentStart, &note),
     }
+}
+
+/// What a sub-agent is told at its start about waiting.
+///
+/// A sub-agent's prompt cache lives five minutes from each request, so a call that waits
+/// longer makes the next request send the whole conversation again, and a sub-agent is not
+/// called back: when it answers while something of its is in the background, the harness
+/// ends that and the job comes back unfinished. Both are avoided by a wait that ends by
+/// itself inside four minutes and is run again, and a sub-agent that is told so at its start
+/// waits that way (`docs/INSTALL.md` has the live runs). Said at the start because that is
+/// when it is followed: a note after a long call changes nothing, and nothing a hook does to
+/// the call itself keeps a sub-agent in its turn.
+const WAIT_ADVICE: &str = "codefast: the prompt cache of a sub-agent lives 5 minutes from each request, and a call that takes longer makes the next request send the whole conversation again as new input. To wait for something, use a foreground loop that gives up by itself within 4 minutes, such as `for i in $(seq 1 45); do CHECK && break; sleep 5; done`, and run it again until it has happened. A call that reaches its time limit is moved to the background, and nothing calls a sub-agent back once it has answered.";
+
+/// Whether sub-agents here write to the one-hour prompt cache: `subagentPromptCacheTtl` in
+/// the harness's settings, the project's own before the person's.
+fn agents_cache_one_hour(root: &Path) -> bool {
+    let own = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".claude")));
+    let files = [Some(root.join(".claude/settings.local.json")), Some(root.join(".claude/settings.json")), own.map(|dir| dir.join("settings.json"))];
+    for file in files.into_iter().flatten() {
+        let Some(settings) = std::fs::read_to_string(file).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok()) else { continue };
+        if let Some(ttl) = settings.get("subagentPromptCacheTtl").and_then(Value::as_str) {
+            return ttl.trim() == "1h";
+        }
+    }
+    false
 }
 
 fn session_start(passed: &Path, payload: &Payload) -> String {

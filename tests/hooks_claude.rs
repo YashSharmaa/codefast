@@ -315,6 +315,37 @@ fn a_wait_that_would_outlive_the_cache_is_given_four_minutes_on_request() {
     settle(&repo);
 }
 
+/// A sub-agent's prompt cache lives five minutes and nothing calls a sub-agent back once it has
+/// answered, so it is told at its start how to wait: with a loop that gives up by itself
+/// inside four minutes and is run again. Not where the harness is set to give sub-agents the
+/// one-hour cache, and not with the cost notes turned off.
+#[test]
+fn a_sub_agent_is_told_at_its_start_how_to_wait() {
+    let (repo, home) = indexed("wait-advice");
+    let start = |agent: &str, envs: &[(&str, &str)]| {
+        let v = serde_json::json!({"hook_event_name": "SubagentStart", "session_id": "5d2c1e7a-0000-4000-8000-0000000000ad", "cwd": repo.dir.display().to_string(),
+            "agent_id": agent, "agent_type": "general-purpose", "transcript_path": "/nowhere/t.jsonl"});
+        let said = hook(&home, &repo.dir, "subagent-start", v.to_string().as_bytes(), envs).context("SubagentStart");
+        let (index, rest) = said.split_once("\n\n").map_or((said.clone(), String::new()), |(a, b)| (a.to_string(), b.to_string()));
+        assert!(index.starts_with("codefast has an index of this repository (") && index.ends_with("every place that uses it in one call."), "{said}");
+        rest
+    };
+    let harness = [("CLAUDECODE", "1")];
+    assert_eq!(
+        start("a1", &harness),
+        "codefast: the prompt cache of a sub-agent lives 5 minutes from each request, and a call that takes longer makes the next request send the whole conversation again as new input. To wait for something, use a foreground loop that gives up by itself within 4 minutes, such as `for i in $(seq 1 45); do CHECK && break; sleep 5; done`, and run it again until it has happened. A call that reaches its time limit is moved to the background, and nothing calls a sub-agent back once it has answered."
+    );
+    assert_eq!(start("a2", &[("CLAUDECODE", "1"), ("CODEFAST_COST_NOTES", "off")]), "", "the cost notes are off");
+    assert_eq!(start("a3", &[]), "", "another harness");
+    // The person has given sub-agents the one-hour cache: nothing of this holds there.
+    write(&home.join(".claude/settings.json"), r#"{"subagentPromptCacheTtl": "1h"}"#);
+    assert_eq!(start("a4", &harness), "", "the one-hour cache");
+    // The project's own settings come first.
+    write(&repo.path(".claude/settings.json"), r#"{"subagentPromptCacheTtl": "5m"}"#);
+    assert!(start("a5", &harness).starts_with("codefast: the prompt cache of a sub-agent lives 5 minutes"));
+    settle(&repo);
+}
+
 /// zsh refuses a command line with a pattern that matches nothing, where bash passes the word
 /// on, and the models write for bash: `grep -rn x --include=*.go .` then fails before grep
 /// runs. The harness hands the hook at the start of a session a file whose lines its shell
