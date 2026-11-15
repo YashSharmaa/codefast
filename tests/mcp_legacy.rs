@@ -34,6 +34,43 @@ fn initialize_negotiates_every_handshake_revision() {
     }
 }
 
+/// A session that starts in a directory without code is there to write the first files. What
+/// the server says about itself would be read with every request of that session for nothing:
+/// no instructions, and no tool marked to be loaded before it is asked for. The tools are all
+/// still listed.
+#[test]
+fn a_project_without_code_gets_no_instructions_and_no_tool_loaded_up_front() {
+    let dir = scratch("no-code");
+    std::fs::create_dir_all(dir.join(".git")).unwrap();
+    write(&dir.join("README.md"), "# a project to come\n");
+    write(&dir.join("docs/plan.md"), "what it will do\n");
+    let names = |list: &Value| list["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    let loaded = |list: &Value| list["result"]["tools"].as_array().unwrap().iter().filter(|t| t.get("_meta").is_some()).count();
+
+    let mut s = Session::start(&dir, &[], &[]);
+    let hello = initialize(&mut s, "2025-06-18");
+    assert!(hello["result"].get("instructions").is_none(), "{hello}");
+    assert_eq!(hello["result"]["serverInfo"]["name"], "codefast");
+    let list = s.legacy("tools/list", json!({}));
+    assert_eq!(loaded(&list), 0, "{list}");
+    let quiet = names(&list);
+    // The stateless revision says the same.
+    let found = s.modern("server/discover", Value::Null);
+    assert!(found["result"].get("instructions").is_none(), "{found}");
+    assert_eq!(loaded(&s.modern("tools/list", Value::Null)), 0);
+    s.finish();
+
+    // One source file, and the server introduces itself as it always did.
+    write(&dir.join("src/app.py"), "def main():\n    return 0\n");
+    let mut s = Session::start(&dir, &[], &[]);
+    let hello = initialize(&mut s, "2025-06-18");
+    assert!(hello["result"]["instructions"].as_str().is_some_and(|i| i.starts_with("codefast")), "{hello}");
+    let list = s.legacy("tools/list", json!({}));
+    assert_eq!(loaded(&list), 1, "{list}");
+    assert_eq!(names(&list), quiet, "the same tools either way");
+    s.finish();
+}
+
 #[test]
 fn unknown_or_newer_versions_get_the_newest_handshake_revision() {
     let repo = Repo::new("fallback");

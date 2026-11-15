@@ -741,7 +741,17 @@ else and has a variable for the workspace, name it: `"args": ["mcp", "--root", "
 in Cursor and VS Code. `codefast setup` writes the plain form and keeps a `--root` that you add.
 
 Claude Code and Codex connect to the server and list its five tools (`search`, `show`, `refs`,
-`path`, `grep`). For troubleshooting in Claude Code, `MCP_PROTOCOL_NEGOTIATION=legacy` makes it
+`path`, `grep`). In Claude Code, which loads tools when they are asked for, one of them
+(`search`) is marked to be loaded from the start, and the server says in a paragraph of
+instructions what it is for: about 485 tokens that go with every request.
+
+In a directory that has no source file yet the server says nothing about itself: no
+instructions, and no tool marked for the start. A session that begins there is about to write
+the first files, and has nothing to ask an index. The five tools are listed all the same, so a
+harness that loads tools on demand finds them once there is code. Measured on 15 November 2026
+in a session started in an empty directory: 19.3k tokens at the start before, 18.8k after.
+
+For troubleshooting in Claude Code, `MCP_PROTOCOL_NEGOTIATION=legacy` makes it
 open with the older handshake instead of the stateless revision 2026-07-28. For the MCP
 Registry, [`server.json`](../server.json) is **validated against a schema** (2025-12-11).
 

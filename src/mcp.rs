@@ -613,9 +613,39 @@ fn tool_result(text: String, is_error: bool) -> Map<String, Value> {
     object(json!({"content": [{"type": "text", "text": text}], "isError": is_error}))
 }
 
+/// Whether a repository has a source file codefast reads. Looked for breadth first and given
+/// up after a few thousand directory entries: a tree of that size has code.
+fn has_code(root: &Path) -> bool {
+    let mut queue = std::collections::VecDeque::from([root.to_path_buf()]);
+    let mut seen = 0usize;
+    while let Some(dir) = queue.pop_front() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for e in entries.flatten() {
+            seen += 1;
+            if seen > 4000 {
+                return true;
+            }
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            let Ok(kind) = e.file_type() else { continue };
+            if kind.is_dir() {
+                if !name.starts_with('.') && !matches!(&*name, "node_modules" | "target" | "vendor" | "dist" | "build" | "__pycache__") {
+                    queue.push_back(e.path());
+                }
+            } else if crate::lang::Lang::from_path(&name).has_extractor() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 struct Server<W: Write> {
     out: W,
     workspace: Workspace,
+    /// The repository has no code yet (looked at once, at the handshake). Then nothing about
+    /// this server is worth a line in every request of the session that starts there.
+    quiet: Option<bool>,
     /// Ids of open `subscriptions/listen` streams, closed gracefully at shutdown.
     subscriptions: Vec<Value>,
     /// Set when the client stopped reading; the loop ends.
@@ -630,6 +660,17 @@ impl<W: Write> Server<W> {
         if self.out.write_all(line.as_bytes()).and_then(|_| self.out.flush()).is_err() {
             self.closed = true;
         }
+    }
+
+    /// A project without code has nothing to be asked about. A session that starts in one (to
+    /// build it) gets no instructions and no tool loaded up front: both would be read with
+    /// every request while the session writes its first files. The tools stay listed, so a
+    /// harness that loads tools on demand still finds them once there is something to ask.
+    fn quiet(&mut self) -> bool {
+        if self.quiet.is_none() {
+            self.quiet = Some(matches!(&self.workspace.default, Ok(root) if !has_code(root)));
+        }
+        self.quiet == Some(true)
     }
 
     fn instructions(&self) -> String {
@@ -748,13 +789,19 @@ impl<W: Write> Server<W> {
             None => Era::Legacy,
         };
         let body = match (method, era) {
-            ("server/discover", Era::Modern) => object(json!({
-                "supportedVersions": MODERN_VERSIONS,
-                "capabilities": capabilities(),
-                "instructions": self.instructions(),
-                "ttlMs": LIST_TTL_MS,
-                "cacheScope": if self.instructions_are_local() { "private" } else { "public" }
-            })),
+            ("server/discover", Era::Modern) => {
+                let mut body = object(json!({
+                    "supportedVersions": MODERN_VERSIONS,
+                    "capabilities": capabilities(),
+                    "instructions": self.instructions(),
+                    "ttlMs": LIST_TTL_MS,
+                    "cacheScope": if self.instructions_are_local() { "private" } else { "public" }
+                }));
+                if self.quiet() {
+                    body.remove("instructions");
+                }
+                body
+            }
             ("server/discover", Era::Legacy) => {
                 return Err(RpcError::new(
                     INVALID_PARAMS,
@@ -765,7 +812,17 @@ impl<W: Write> Server<W> {
                 if params.get("cursor").is_some_and(|c| !c.is_null()) {
                     return Err(RpcError::new(INVALID_PARAMS, "Invalid cursor: the tool list has a single page"));
                 }
-                let mut body = object(json!({"tools": tools()}));
+                let mut list = tools();
+                if self.quiet()
+                    && let Some(all) = list.as_array_mut()
+                {
+                    for tool in all {
+                        if let Some(t) = tool.as_object_mut() {
+                            t.remove("_meta");
+                        }
+                    }
+                }
+                let mut body = object(json!({"tools": list}));
                 if era == Era::Modern {
                     body.insert("ttlMs".into(), json!(LIST_TTL_MS));
                     body.insert("cacheScope".into(), json!("public"));
@@ -807,12 +864,15 @@ impl<W: Write> Server<W> {
     fn initialize(&mut self, params: &Map<String, Value>, id: &Value) -> Value {
         let requested = params.get("protocolVersion").and_then(|v| v.as_str()).unwrap_or("");
         let version = if LEGACY_VERSIONS.contains(&requested) { requested } else { LEGACY_VERSIONS[0] };
-        let body = object(json!({
+        let mut body = object(json!({
             "protocolVersion": version,
             "capabilities": capabilities(),
             "serverInfo": server_info(),
             "instructions": self.instructions()
         }));
+        if self.quiet() {
+            body.remove("instructions");
+        }
         result(Era::Legacy, id, body)
     }
 
@@ -926,7 +986,7 @@ fn protocol_stream() -> Box<dyn Write> {
 /// Serve MCP on stdin / stdout until the client closes the stream. `root` is the repository
 /// the command line resolved; see [`Workspace::detect`] for how it is weighed.
 pub fn serve(root: PathBuf) -> Result<()> {
-    let mut server = Server { out: protocol_stream(), workspace: Workspace::detect(&root), subscriptions: Vec::new(), closed: false };
+    let mut server = Server { out: protocol_stream(), workspace: Workspace::detect(&root), quiet: None, subscriptions: Vec::new(), closed: false };
     let stdin = std::io::stdin();
     let mut input = stdin.lock();
     let mut buf: Vec<u8> = Vec::with_capacity(4096);
