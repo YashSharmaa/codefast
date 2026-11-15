@@ -1462,6 +1462,34 @@ last request back after a compaction: 375.5 of 376 hidden tests, as in one conve
 the one test it lost was a mistake written before the compaction. That is 8 conversations
 against 8 and not a proof, but it is the direction the mechanism predicts.
 
+### The same conversations at the prices of other models
+
+No conversation was run with another model: Sonnet 5.5 builds one of these projects in three
+requests, and a conversation of six messages with it does not reach a length at which any of
+this matters. What can be said without running anything is what the recorded requests would
+cost at another price list. Every request of the runs above, priced again (a compaction, which
+the stream does not record, added as a read of the conversation and a summary of 3,600
+tokens):
+
+| Projects | Prices | One conversation | Window of 100,000 | Window of 125,000 | A session for each message |
+|---|---|---|---|---|---|
+| 2 to develop on | Haiku 5.5, as it was run | 1.00 | 0.43 | 0.37 | 0.38 |
+| 2 to develop on | priced as Sonnet 5.5 or Opus 5.5 | 1.00 | 1.53 | 1.25 | 1.36 |
+| 2 to develop on | priced as Fable 5.2 | 1.00 | 1.72 | 1.36 | 1.53 |
+| 4 held out | Haiku 5.5, as it was run | 1.00 | | 0.28 | |
+| 4 held out | priced as Sonnet 5.5 or Opus 5.5 | 1.00 | | 1.27 | |
+| 4 held out | priced as Fable 5.2 | 1.00 | | 1.44 | |
+
+The first row of each pair is the check of the method: the harness's own dollars give 0.51,
+0.46, 0.45 and 0.39 where this gives 0.43, 0.37, 0.38 and 0.28, so the repricing leaves out
+about a fifth of what the cut shapes cost, and the other rows are lower bounds. At the prices
+of a model without the step, every one of these shapes costs at least a quarter more than the
+conversation left alone, and the cheaper a cache read is, the more. That is the other half of
+the advice: `codefast doctor sessions` says "compact earlier" on Haiku 5.5 from 100,000 tokens,
+and on Sonnet 5.5, Opus 5.5 and Fable 5.2 only from 200,000 and 430,000, where reading a long
+conversation again has come to cost more than starting it over. These are the requests of
+Haiku 5.5 with other prices, not sessions of those models.
+
 ### What a summary drops, and what the hook gives back
 
 A summary is written by the model from the conversation, and it shortens the request the
