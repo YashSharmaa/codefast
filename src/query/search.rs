@@ -5,7 +5,7 @@
 use super::locate::{LocateOpts, locate};
 use super::refs::{Via, callee_edges, caller_edges, encl_name, proximity_key, sites_summary};
 use super::show::{ShowOpts, outline, show, show_def};
-use super::{Common, PathFilter, Spec, def_line, parse_spec, targets_for};
+use super::{Common, PathFilter, Spec, def_line, defs_for, parse_spec, targets_for};
 use crate::facts::DefKind;
 use crate::output::{Out, count};
 use crate::resolve::{Class, Resolver, Target};
@@ -741,6 +741,25 @@ pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &Se
         let same: Vec<DefId> = mine.iter().copied().filter(|&d| ix.def(d).name_str().eq_ignore_ascii_case(name)).collect();
         if same.len() == 1 {
             mine = same;
+        }
+        // The same owner, a name that starts the same: `_filter_or_exclude_inner` on a type
+        // that has `_filter_or_exclude` and `_filter_or_exclude_inplace`. A member is as often
+        // remembered from another version of the code as it is mistyped, and then the two
+        // names share their beginning and nothing else a similarity of letters would find.
+        if mine.is_empty() {
+            let asked = name.to_lowercase();
+            let mut close: Vec<(usize, DefId)> = Vec::new();
+            for ty in defs_for(ix, None, owner, common, &pf).into_iter().map(|d| ix.def(d)).filter(|d| d.kind().is_container()) {
+                for m in ix.defs_of_file(ty.file()).filter(|m| m.parent().is_some_and(|p| p.id == ty.id)) {
+                    let have = m.name_str().to_lowercase();
+                    let shared = asked.bytes().zip(have.bytes()).take_while(|(a, b)| a == b).count();
+                    if shared >= 4 && shared * 5 >= asked.len().min(have.len()) * 3 && !close.iter().any(|c| c.1 == m.id) {
+                        close.push((shared, m.id));
+                    }
+                }
+            }
+            close.sort_by(|a, b| b.0.cmp(&a.0));
+            mine = close.into_iter().take(6).map(|c| c.1).collect();
         }
         if let [d] = mine[..] {
             let v = ix.def(d);

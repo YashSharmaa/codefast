@@ -450,6 +450,19 @@ fn a_member_asked_for_on_the_wrong_owner_is_found_where_it_is() {
     // The right owner, and the name in another case.
     let cased = p.ask(&["search", "RemoteConfig.validate"]);
     has(&cased, "no `RemoteConfig.validate`; the one member of RemoteConfig with a similar name is RemoteConfig.Validate:");
+    // The right owner, and a name remembered from another version of the code: what the type
+    // has that starts the same. One such member is answered, several are listed.
+    let py = "class QuerySet:\n    def _filter_or_exclude(self, negate, args):\n        return self._chain()\n\n    def _filter_or_exclude_inplace(self, negate, args):\n        return None\n\n    def _chain(self):\n        return self\n\n    def count(self):\n        return 0\n";
+    let q = Project::new("py-remembered", &[("db/query.py", py)]);
+    let inner = q.ask(&["search", "QuerySet._filter_or_exclude_inner"]);
+    has(&inner, "no `QuerySet._filter_or_exclude_inner`; 2 members of QuerySet have a similar name:");
+    has(&inner, "db/query.py:2 def _filter_or_exclude(self, negate, args)");
+    has(&inner, "db/query.py:5 def _filter_or_exclude_inplace(self, negate, args)");
+    let chained = q.ask(&["search", "QuerySet._chain_clone"]);
+    has(&chained, "no `QuerySet._chain_clone`; the one member of QuerySet with a similar name is QuerySet._chain:");
+    has(&chained, "return self");
+    // Nothing that starts the same is not a similar name.
+    lacks(&q.ask(&["search", "QuerySet.total"]), "similar name");
     // What exists is answered as before.
     let exact = p.ask(&["search", "RemoteConfig.marshal"]);
     has(&exact, "config/config.go:11-13 RemoteConfig.marshal");
