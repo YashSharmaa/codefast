@@ -83,6 +83,8 @@ fn payload_for(harness: &str, wired: &Wired, repo: &Path, home: &Path) -> String
     let name = match (harness, wired.event.as_str()) {
         ("claude", "SessionStart") => "claude-session-start",
         ("claude", "UserPromptSubmit") => "claude-user-prompt",
+        ("claude", "SubagentStart") => "claude-subagent-start",
+        ("claude", "PreCompact") => "claude-pre-compact",
         ("codex", "UserPromptSubmit") => "codex-user-prompt",
         ("claude", "PreToolUse") => "claude-pre-read",
         ("claude", "PostToolUse") => "claude-post-bash-grep",
@@ -152,7 +154,7 @@ fn the_plugin_hooks_run_the_launcher_and_answer_under_the_event_they_are_registe
     let manifest = shipped(".claude-plugin/plugin.json");
     assert_eq!(manifest["hooks"], "./hooks/claude-code.json", "the plugin manifest names the hooks file");
     let wired = wiring(&shipped("hooks/claude-code.json"));
-    assert_eq!(wired.iter().map(|w| w.event.as_str()).collect::<Vec<_>>(), ["PostToolUse", "PostToolUseFailure", "PreToolUse", "SessionStart", "UserPromptSubmit"]);
+    assert_eq!(wired.iter().map(|w| w.event.as_str()).collect::<Vec<_>>(), ["PostToolUse", "PostToolUseFailure", "PreCompact", "PreToolUse", "SessionStart", "SubagentStart", "UserPromptSubmit"]);
 
     let (repo, home) = indexed("plugin-hooks");
     let plugin = installed_plugin();
@@ -168,6 +170,12 @@ fn the_plugin_hooks_run_the_launcher_and_answer_under_the_event_they_are_registe
         // A session of its own each time, so that nothing was said before.
         let input = in_session(&payload_for("claude", w, &repo.dir, &home), &format!("plugin-hooks-{n}"));
         let reply = fire(&w.command, &repo.dir, &home, &envs, &input);
+        if w.event == "PreCompact" {
+            // What this one prints is plain text for the summary, and it prints nothing where
+            // it cannot read the requests back, as here, where no transcript was written.
+            assert_eq!(reply, (Some(0), String::new(), String::new()), "{}", w.command);
+            continue;
+        }
         let said = context(&reply, &w.event, &w.command);
         // Inside the plugin the agent's shell has the launcher on PATH: the bare name is right.
         // The card for a prompt names no command where it lists the uses itself.

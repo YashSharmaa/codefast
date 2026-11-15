@@ -195,6 +195,10 @@ enum Event {
     UserPromptSubmit,
     PreToolUse,
     PostToolUse,
+    /// A sub-agent is about to make its first request.
+    SubagentStart,
+    /// The conversation is about to be summarised.
+    PreCompact,
     /// Internal: the detached worker `session-start` leaves behind.
     Refresh,
 }
@@ -207,6 +211,8 @@ impl Event {
             "userpromptsubmit" => Event::UserPromptSubmit,
             "pretooluse" | "beforetool" => Event::PreToolUse,
             "posttooluse" | "posttoolusefailure" | "aftertool" => Event::PostToolUse,
+            "subagentstart" => Event::SubagentStart,
+            "precompact" => Event::PreCompact,
             "indexrefresh" => Event::Refresh,
             _ => return None,
         })
@@ -219,6 +225,8 @@ impl Event {
             Event::UserPromptSubmit => &["UserPromptSubmit"],
             Event::PreToolUse => &["PreToolUse"],
             Event::PostToolUse => &["PostToolUse", "PostToolUseFailure", "AfterTool"],
+            Event::SubagentStart => &["SubagentStart"],
+            Event::PreCompact => &["PreCompact"],
             Event::Refresh => &[],
         }
     }
@@ -397,6 +405,8 @@ struct Payload {
     model: Option<String>,
     /// How long the tool call took, in milliseconds (`PostToolUse`).
     duration_ms: Option<u64>,
+    /// The sub-agent a call started, as the harness names it in the call's result.
+    started_agent: Option<String>,
     /// Cursor's hook protocol: flat, snake-case output.
     cursor: bool,
 }
@@ -429,7 +439,13 @@ impl Payload {
                         p.input = serde_json::from_str(raw).ok();
                     }
                 }
-                "tool_response" | "tool_output" => p.output = output_text(raw).or(p.output),
+                "tool_response" | "tool_output" => {
+                    p.output = output_text(raw).or(p.output);
+                    // The result of the call that starts a sub-agent is small and names the agent.
+                    if raw.len() <= 64 << 10 && raw.contains("\"agentId\"") {
+                        p.started_agent = serde_json::from_str::<Value>(raw).ok().and_then(|v| v.get("agentId").and_then(Value::as_str).map(str::to_string));
+                    }
+                }
                 "transcript_path" => p.transcript = string(raw),
                 "context_tokens" => p.resumed.0 = raw.trim().parse().ok(),
                 "prompt_cache_likely_expired" => p.resumed.1 = raw.trim().parse().ok(),
@@ -530,6 +546,8 @@ enum Call {
     /// A tool that writes files: the files it named, and those of them whose whole text the
     /// call carried (a new file, or one written over).
     Edit { paths: Vec<String>, whole: Vec<String> },
+    /// The call that hands a job to a sub-agent, with the brief it hands over.
+    Agent { brief: String },
 }
 
 impl Payload {
@@ -568,6 +586,7 @@ impl Payload {
                 let all = matches!(tool.as_str(), "write" | "write_file" | "create_file") || input.get("command").and_then(Value::as_str) == Some("create");
                 Some(Call::Edit { whole: if all { paths.clone() } else { Vec::new() }, paths })
             }
+            "agent" | "task" => Some(Call::Agent { brief: text(&["prompt"])? }),
             // Codex: one patch, any number of files, each announced on a line of its own.
             "apply_patch" => {
                 let patch = text(&["command", "patch", "input"])?;
@@ -927,7 +946,9 @@ fn age(path: &Path) -> Option<Duration> {
 fn prune_sessions(place: &Place) {
     let Ok(entries) = std::fs::read_dir(place.index_dir.join(SESSIONS_DIR)) else { return };
     for entry in entries.flatten().take(2048) {
-        if age(&entry.path()).is_some_and(|a| a > SESSION_KEEP) {
+        // A brief that no sub-agent took is of no use a moment later, and it is the person's text.
+        let brief = entry.file_name().to_str().is_some_and(|n| n.starts_with("brief-"));
+        if age(&entry.path()).is_some_and(|a| a > if brief { BRIEF_KEEP } else { SESSION_KEEP }) {
             let _ = std::fs::remove_file(entry.path());
         }
     }
@@ -1061,6 +1082,148 @@ fn request_refresh(place: &Place) {
     }
 }
 
+/// How long the brief of a sub-agent is kept for its start, which follows the call at once.
+const BRIEF_KEEP: Duration = Duration::from_secs(120);
+/// How long the start of a sub-agent waits for the hook of the call that started it, which
+/// runs at the same moment and is the one that knows which agent got which brief.
+const BRIEF_WAIT: Duration = Duration::from_millis(250);
+
+/// The name of a brief that waits in the state directory: `by` says how it is found again,
+/// `a` by the agent it went to and `c` by the order of the calls.
+fn brief_name(payload: &Payload, by: char, rest: &str) -> String {
+    format!("brief-{by}-{:016x}-{rest}", xxhash_rust::xxh3::xxh3_64(payload.session.as_deref().unwrap_or("").as_bytes()))
+}
+
+/// Keep the brief a conversation hands to a sub-agent until that sub-agent starts. The start
+/// is the one moment a hook can speak to a sub-agent before its first request, and the one
+/// hook that is not told the brief. Before the call the agent has no name yet, so the brief is
+/// kept in the order of the calls. After it (a sub-agent that runs in the background) the
+/// harness has named the agent, and the brief is kept under that name.
+fn keep_brief(place: &Place, payload: &Payload, brief: &str) {
+    if !place.index_dir.is_dir() || brief.trim().is_empty() {
+        return;
+    }
+    let dir = place.index_dir.join(SESSIONS_DIR);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    // What an earlier call left and no sub-agent took goes first: a brief is not kept around.
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten().take(512) {
+        if entry.file_name().to_str().is_some_and(|n| n.starts_with("brief-")) && age(&entry.path()).is_some_and(|a| a > BRIEF_KEEP) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    let name = match &payload.started_agent {
+        Some(agent) => brief_name(payload, 'a', &format!("{:016x}", xxhash_rust::xxh3::xxh3_64(agent.as_bytes()))),
+        None => brief_name(payload, 'c', &format!("{:032x}", SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0))),
+    };
+    let _ = std::fs::write(dir.join(name), clip_bytes(brief, 24 * 1024));
+}
+
+/// The brief of the sub-agent that is starting: the one kept under its name, or, where the
+/// harness has not named it to a hook yet, the oldest one no agent has taken. A brief is
+/// handed out once.
+fn take_brief(place: &Place, payload: &Payload) -> Option<String> {
+    let dir = place.index_dir.join(SESSIONS_DIR);
+    // Whoever renames a file has it: several sub-agents start at the same moment.
+    let take = |file: &Path| -> Option<String> {
+        let mine = file.with_extension(format!("{}.taken", std::process::id()));
+        std::fs::rename(file, &mine).ok()?;
+        let text = std::fs::read_to_string(&mine).ok();
+        let _ = std::fs::remove_file(&mine);
+        text.filter(|t| !t.trim().is_empty())
+    };
+    let in_order = || -> Vec<PathBuf> {
+        let prefix = brief_name(payload, 'c', "");
+        let mut v: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(&prefix) && !n.ends_with(".taken")))
+            .collect();
+        v.sort();
+        v
+    };
+    if let Some(agent) = &payload.agent {
+        let named = dir.join(brief_name(payload, 'a', &format!("{:016x}", xxhash_rust::xxh3::xxh3_64(agent.as_bytes()))));
+        let until = Instant::now() + BRIEF_WAIT;
+        // Only where a call is known to have been made is there anything to wait for.
+        while !named.exists() && !in_order().is_empty() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if let Some(text) = take(&named) {
+            // The same brief was kept in the order of the calls as well: it is used up.
+            for file in in_order() {
+                if std::fs::read_to_string(&file).is_ok_and(|t| t == text) {
+                    let _ = std::fs::remove_file(&file);
+                    break;
+                }
+            }
+            return Some(text);
+        }
+    }
+    for file in in_order() {
+        if age(&file).is_none_or(|a| a > BRIEF_KEEP) {
+            let _ = std::fs::remove_file(&file);
+            continue;
+        }
+        if let Some(text) = take(&file) {
+            return Some(text);
+        }
+    }
+    None
+}
+
+/// The mark in a sub-agent's state that its brief has been looked at for cards.
+const BRIEF_SEEN: &str = "brief";
+
+/// The cards of a sub-agent's brief, for a sub-agent whose brief no hook was given: a workflow
+/// starts its agents without a call each. At the agent's first tool call its own transcript
+/// exists and begins with the brief, so that is when it is read: once per agent, and the
+/// cards come in with the result of that call.
+fn late_brief_cards(passed: &Path, payload: &Payload, started: Instant) -> Option<String> {
+    let agent = payload.agent.as_deref()?;
+    if std::env::var_os("CLAUDECODE").is_none() {
+        return None;
+    }
+    let place = Place::find(passed, payload.cwd.as_deref())?;
+    let session = Session::open(&place, payload.audience().as_deref())?;
+    if session.seen(BRIEF_SEEN) || !session.claim(BRIEF_SEEN) {
+        return None;
+    }
+    let own = agent_transcript(Path::new(payload.transcript.as_deref()?), agent)?;
+    let brief = super::sessions::brief_of(&own)?;
+    let asked = Payload { prompt: Some(brief), session: payload.session.clone(), agent: payload.agent.clone(), cwd: payload.cwd.clone(), ..Default::default() };
+    prompt_text(place, &asked, cli(), started)
+}
+
+/// A sub-agent starts with its brief and with nothing of what the conversation was told at
+/// its start. So it is told the one line about the index, and it gets the cards of what its
+/// brief names, as a person's prompt would. Nothing in a project without code or without an
+/// index: its first request does not wait for one to be built.
+fn subagent_start(passed: &Path, payload: &Payload, started: Instant) -> String {
+    let Some(place) = Place::find(passed, payload.cwd.as_deref()) else { return String::new() };
+    let Some((files, defs)) = index_counts(&place).filter(|c| c.1 > 0) else { return String::new() };
+    let cli = cli();
+    let note = format!(
+        "codefast has an index of this repository ({} files, {} symbols): `{cli} search NAME` prints a symbol's definition, its body and every place that uses it in one call.",
+        count(files),
+        count(defs)
+    );
+    let brief = take_brief(&place, payload);
+    if brief.is_some()
+        && let Some(session) = Session::open(&place, payload.audience().as_deref())
+    {
+        session.record(BRIEF_SEEN);
+    }
+    let asked = Payload { prompt: brief, session: payload.session.clone(), agent: payload.agent.clone(), cwd: payload.cwd.clone(), ..Default::default() };
+    match prompt_text(place, &asked, cli, started) {
+        Some(cards) => payload.reply(Event::SubagentStart, &format!("{note}\n\n{cards}")),
+        None => payload.reply(Event::SubagentStart, &note),
+    }
+}
+
 fn session_start(passed: &Path, payload: &Payload) -> String {
     let Some(place) = Place::find(passed, payload.cwd.as_deref()) else { return String::new() };
     let mut counts = index_counts(&place);
@@ -1134,16 +1297,50 @@ fn request_in_progress(payload: &Payload) -> Option<String> {
     if std::env::var_os("CLAUDECODE").is_none() || payload.agent.is_some() {
         return None;
     }
-    let text = super::sessions::last_prompt(Path::new(payload.transcript.as_deref()?))?;
+    let all = super::sessions::prompts(Path::new(payload.transcript.as_deref()?));
+    let text = all.last()?;
     let lead = "The last request in this conversation, word for word, because the summary of a compacted conversation shortens it";
-    if text.len() <= REQUEST_BYTES {
+    if text.len() > REQUEST_BYTES {
+        let mut cut = REQUEST_BYTES;
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        return Some(format!("{lead} (its first {} of {} characters):\n{}", count(text[..cut].chars().count()), count(text.chars().count()), &text[..cut]));
+    }
+    // The requests before it hold what the last one takes for granted: a rule stated once, a
+    // name decided on. A summary shortens those as well, so they come back with it, the
+    // latest first for as many as there is room for.
+    let mut room = REQUEST_BYTES - text.len();
+    let mut from = all.len() - 1;
+    while from > 0 && all[from - 1].len() + 24 <= room {
+        room -= all[from - 1].len() + 24;
+        from -= 1;
+    }
+    if from == all.len() - 1 {
         return Some(format!("{lead}:\n{text}"));
     }
-    let mut cut = REQUEST_BYTES;
-    while !text.is_char_boundary(cut) {
-        cut -= 1;
+    let left = match from {
+        0 => String::new(),
+        1 => " (the first one is left out for length)".to_string(),
+        n => format!(" (the first {n} are left out for length)"),
+    };
+    let listed: Vec<String> = all[from..].iter().enumerate().map(|(i, t)| format!("Request {} of {}:\n{t}", from + i + 1, all.len())).collect();
+    Some(format!(
+        "The requests of this conversation, word for word and in the order they were made, because the summary of a compacted conversation shortens them. The last is the one it was working on{left}:\n\n{}",
+        listed.join("\n\n")
+    ))
+}
+
+/// What the summary of a compaction should hold, said to the model that writes it. The
+/// requests come back word for word after it ([`request_in_progress`]). What does not come
+/// back from anywhere is the state of the work, and of that a summary drops the exact strings
+/// first: paths, commands, names that were decided on. Claude Code only, and only for a
+/// conversation whose requests this hook can read, since it promises them.
+fn pre_compact(payload: &Payload) -> String {
+    if request_in_progress(payload).is_none() {
+        return String::new();
     }
-    Some(format!("{lead} (its first {} of {} characters):\n{}", count(text[..cut].chars().count()), count(text.chars().count()), &text[..cut]))
+    "After this summary the conversation is given the person's requests again, word for word. Keep in the summary, exactly as they were written: the paths of the files that were changed and what changed in each, the commands that check the work and what they last showed, the names and literal strings that were decided on, and what is still to do.\n".to_string()
 }
 
 /// Once a week per project, for the person and not for the model: what the harness's own
@@ -2475,6 +2672,15 @@ fn post_tool_use(passed: &Path, payload: &Payload, started: Instant) -> String {
             (searches, dir)
         }
         Some(Call::Search(s)) => (vec![s], None),
+        Some(Call::Agent { brief }) => {
+            // A sub-agent that runs in the background has its name by now.
+            if payload.started_agent.is_some()
+                && let Some(place) = Place::find(passed, payload.cwd.as_deref())
+            {
+                keep_brief(&place, payload, &brief);
+            }
+            return String::new();
+        }
         Some(Call::Edit { paths, whole }) => {
             // A write that failed wrote nothing: the conversation does not hold that file.
             let failed = payload.event_name.as_deref().is_some_and(|n| n.to_ascii_lowercase().ends_with("failure"));
@@ -2582,6 +2788,9 @@ fn read_note(rel: &str, lines: u64, bytes: u64, symbols: usize, cli: &str) -> St
 }
 
 fn pre_tool_use(passed: &Path, payload: &Payload, started: Instant) -> String {
+    if let Some(cards) = late_brief_cards(passed, payload, started) {
+        return payload.reply(Event::PreToolUse, &cards);
+    }
     let cwd = payload.cwd.as_deref().map(PathBuf::from).filter(|d| d.is_absolute());
     let path: PathBuf = match payload.call() {
         Some(Call::Read { path, whole: true }) => {
@@ -2591,6 +2800,12 @@ fn pre_tool_use(passed: &Path, payload: &Payload, started: Instant) -> String {
                 (false, Some(cwd)) => cwd.join(p),
                 _ => return String::new(),
             }
+        }
+        Some(Call::Agent { brief }) => {
+            if let Some(place) = Place::find(passed, payload.cwd.as_deref()) {
+                keep_brief(&place, payload, &brief);
+            }
+            return String::new();
         }
         Some(Call::Shell { command, dir }) => {
             let reads = shell::analyse(&command).reads;
@@ -2647,6 +2862,9 @@ pub(super) fn run(passed: &Path, event: &str, input: &str) -> String {
             }
         }
         Event::PreToolUse => pre_tool_use(passed, &payload, started),
+        Event::SubagentStart => subagent_start(passed, &payload, started),
+        // Plain text: what this hook prints is read as instructions for the summary.
+        Event::PreCompact => pre_compact(&payload),
         Event::Refresh => String::new(),
     }
 }

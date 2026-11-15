@@ -683,8 +683,10 @@ impl Harness {
                 events: vec![
                     ("SessionStart", None, "session-start", 10),
                     ("UserPromptSubmit", None, "user-prompt-submit", 10),
-                    ("PreToolUse", Some("Read|Bash"), "pre-tool-use", 5),
-                    ("PostToolUse", Some("Bash|Grep|Glob|Edit|Write"), "post-tool-use", 10),
+                    ("SubagentStart", None, "subagent-start", 10),
+                    ("PreCompact", None, "pre-compact", 10),
+                    ("PreToolUse", Some("Read|Bash|Agent|Task"), "pre-tool-use", 5),
+                    ("PostToolUse", Some("Bash|Grep|Glob|Edit|Write|Agent|Task"), "post-tool-use", 10),
                     ("PostToolUseFailure", Some("Bash|Grep|Glob"), "post-tool-use", 5),
                 ],
                 note: None,

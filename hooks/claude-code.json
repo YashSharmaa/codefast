@@ -23,9 +23,31 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codefast\" hook subagent-start",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codefast\" hook pre-compact",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
-        "matcher": "Read|Bash",
+        "matcher": "Read|Bash|Agent|Task",
         "hooks": [
           {
             "type": "command",
@@ -37,7 +59,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|Grep|Glob|Edit|Write",
+        "matcher": "Bash|Grep|Glob|Edit|Write|Agent|Task",
         "hooks": [
           {
             "type": "command",

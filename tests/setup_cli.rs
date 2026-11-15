@@ -442,7 +442,9 @@ fn hooks_are_registered_on_request_next_to_the_users_own() {
     let handler = |sub: &str, timeout: u64| json!([{"type": "command", "command": hook_command(BIN, sub), "timeout": timeout}]);
     assert_eq!(doc["hooks"]["SessionStart"], json!([{"hooks": handler("session-start", 10)}]));
     assert_eq!(doc["hooks"]["UserPromptSubmit"], json!([{"hooks": handler("user-prompt-submit", 10)}]));
-    assert_eq!(doc["hooks"]["PreToolUse"], json!([{"matcher": "Read|Bash", "hooks": handler("pre-tool-use", 5)}]));
+    assert_eq!(doc["hooks"]["SubagentStart"], json!([{"hooks": handler("subagent-start", 10)}]));
+    assert_eq!(doc["hooks"]["PreCompact"], json!([{"hooks": handler("pre-compact", 10)}]));
+    assert_eq!(doc["hooks"]["PreToolUse"], json!([{"matcher": "Read|Bash|Agent|Task", "hooks": handler("pre-tool-use", 5)}]));
     assert_eq!(doc["hooks"]["PostToolUseFailure"], json!([{"matcher": "Bash|Grep|Glob", "hooks": handler("post-tool-use", 5)}]));
     let post = doc["hooks"]["PostToolUse"].as_array().unwrap();
     assert_eq!(post.len(), 2);
@@ -452,7 +454,7 @@ fn hooks_are_registered_on_request_next_to_the_users_own() {
         "the user's own hook, first and unchanged"
     );
     // Searches, and the tools that write files: an edit is checked for what it left behind.
-    assert_eq!(post[1], json!({"matcher": "Bash|Grep|Glob|Edit|Write", "hooks": handler("post-tool-use", 10)}));
+    assert_eq!(post[1], json!({"matcher": "Bash|Grep|Glob|Edit|Write|Agent|Task", "hooks": handler("post-tool-use", 10)}));
     assert!(read(&settings).starts_with("{\n  \"model\": \"opus\",\n  \"hooks\": {\n    \"PostToolUse\": [\n      {\n        \"matcher\": \"Edit|Write\",\n        \"hooks\": [{\"type\": \"command\", \"command\": \"prettier --write\"}]\n      },\n"));
     // Codex: its shell and its patch tool are what there is to match, and there is no failure event.
     let codex = json(&sb.home(".codex/hooks.json"));
@@ -502,7 +504,7 @@ fn hooks_that_are_not_ours_survive_setup() {
     let doc = json(&settings);
     let handler = |sub: &str, timeout: u64| json!([{"type": "command", "command": hook_command(BIN, sub), "timeout": timeout}]);
     assert_eq!(doc["hooks"]["PostToolUse"], json!([shared]), "the shared group is left exactly as it was, and it already runs the hook");
-    assert_eq!(doc["hooks"]["PreToolUse"], json!([lookalike, {"matcher": "Read|Bash", "hooks": handler("pre-tool-use", 5)}]));
+    assert_eq!(doc["hooks"]["PreToolUse"], json!([lookalike, {"matcher": "Read|Bash|Agent|Task", "hooks": handler("pre-tool-use", 5)}]));
     assert_eq!(doc["hooks"]["SessionStart"], json!([{"hooks": handler("session-start", 10)}]));
     assert_eq!(doc["hooks"]["PostToolUseFailure"], json!([{"matcher": "Bash|Grep|Glob", "hooks": handler("post-tool-use", 5)}]));
     // doctor counts the shared group as a registration, and a second run has nothing to add.
@@ -570,7 +572,7 @@ fn registered_hooks_stay_silent_where_codefast_is_not_installed() {
             ran += 1;
         }
     }
-    assert_eq!(ran, 5 + 4 + 5 + 4);
+    assert_eq!(ran, 7 + 4 + 7 + 4);
     // With the program there, the same commands are the hooks: the guard changes nothing.
     let command = json(&sb.project(".codex/hooks.json"))["hooks"]["SessionStart"][0]["hooks"][0]["command"].as_str().unwrap().to_string();
     let bin_dir = std::path::Path::new(BIN).parent().unwrap();

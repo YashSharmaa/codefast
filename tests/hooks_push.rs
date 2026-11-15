@@ -385,14 +385,29 @@ fn after_a_compaction_the_session_gets_the_request_back_word_for_word() {
     lines.extend(after_request.iter().cloned());
     transcript(&lines);
     let lead = "The last request in this conversation, word for word, because the summary of a compacted conversation shortens it";
-    // Nothing changed in the work tree: the request alone.
+    // Every request comes back, in order: the one before holds what the last takes for granted.
+    let several = "The requests of this conversation, word for word and in the order they were made, because the summary of a compacted conversation shortens them. The last is the one it was working on";
+    let all = format!("{several}:\n\nRequest 1 of 2:\nAdd a device table.\n\nRequest 2 of 2:\n{request}");
+    // Nothing changed in the work tree: the requests alone.
     let alone = hook(&home, &repo.dir, "session-start", input.as_bytes(), &claude).context("SessionStart");
-    assert_eq!(alone, format!("codefast: this conversation was compacted. {lead}:\n{request}"));
+    assert_eq!(alone, format!("codefast: this conversation was compacted. {all}"));
+    // Before the compaction, the model that writes the summary is told what the summary is
+    // for, since the requests come back: in plain text, which the harness reads as instructions.
+    let before = input.replace("\"SessionStart\"", "\"PreCompact\"").replace("\"source\": \"compact\"", "\"trigger\": \"auto\"");
+    assert!(before.contains("PreCompact") && before.contains("trigger"), "{before}");
+    let told = hook(&home, &repo.dir, "pre-compact", before.as_bytes(), &claude);
+    assert_eq!((told.code, told.stderr.as_str()), (0, ""));
+    assert!(told.stdout.starts_with("After this summary the conversation is given the person's requests again, word for word. Keep in the summary, exactly as they were written: the paths of the files") && told.stdout.ends_with("what is still to do.\n"), "{}", told.stdout);
+    // Where the requests cannot be promised, nothing is said about the summary.
+    hook(&home, &repo.dir, "pre-compact", before.as_bytes(), &[]).assert_quiet("another harness, whose transcript this is not");
+    let mut agent: serde_json::Value = serde_json::from_str(&before).unwrap();
+    agent["agent_id"] = serde_json::json!("a1b2c3");
+    hook(&home, &repo.dir, "pre-compact", agent.to_string().as_bytes(), &claude).assert_quiet("a sub-agent, whose request is its brief");
     // With changes: what the session changed, then what it was asked.
     edit(&repo, "src/main.c", "static int copy_all(struct dev *in", "static int copy_everything(struct dev *in");
     let both = hook(&home, &repo.dir, "session-start", input.as_bytes(), &claude).context("SessionStart");
     assert!(both.starts_with("codefast: uncommitted changes, by definition (1 source file;"), "{both}");
-    assert!(both.ends_with(&format!("a symbol with every place that uses it.\n\n{lead}:\n{request}")), "{both}");
+    assert!(both.ends_with(&format!("a symbol with every place that uses it.\n\n{all}")), "{both}");
     // Not in another harness, whose transcript this is not, and not inside a subagent, whose
     // request is its brief.
     let elsewhere = hook(&home, &repo.dir, "session-start", input.as_bytes(), &[]).context("SessionStart");
@@ -414,7 +429,21 @@ fn after_a_compaction_the_session_gets_the_request_back_word_for_word() {
     lines.extend(after_request.iter().cloned());
     transcript(&lines);
     let typed_later = hook(&home, &repo.dir, "session-start", input.as_bytes(), &claude).context("SessionStart");
-    assert!(typed_later.ends_with(&format!("{lead}:\nAlso keep `ordinal(0)` an error.")), "{typed_later}");
+    assert!(typed_later.ends_with(&format!("{several}:\n\nRequest 1 of 2:\n{request}\n\nRequest 2 of 2:\nAlso keep `ordinal(0)` an error.")), "{typed_later}");
+    // One request is given as the request it is.
+    let mut lines = vec![typed(request)];
+    lines.extend(after_request.iter().cloned());
+    transcript(&lines);
+    let single = hook(&home, &repo.dir, "session-start", input.as_bytes(), &claude).context("SessionStart");
+    assert!(single.ends_with(&format!("{lead}:\n{request}")), "{single}");
+    // Earlier requests come back as far as there is room, the latest first, and what is left
+    // out is said.
+    let early = format!("Port the parser.\n{}", "Keep `Critical` as it is. ".repeat(260));
+    let mut lines = vec![typed("Set up the project."), said("m0", false), typed(&early), said("m1", false), typed("Add a device table."), said("m3", false), typed(request)];
+    lines.extend(after_request.iter().cloned());
+    transcript(&lines);
+    let some = hook(&home, &repo.dir, "session-start", input.as_bytes(), &claude).context("SessionStart");
+    assert!(some.ends_with(&format!("{several} (the first 2 are left out for length):\n\nRequest 3 of 4:\nAdd a device table.\n\nRequest 4 of 4:\n{request}")), "{some}");
     // A request longer than a hook may add is given from its start, and says so.
     let long = format!("Port the scheduler.\n{}", "Keep `Critical` as it is. ".repeat(400));
     let mut lines = vec![typed(&long)];
@@ -543,6 +572,89 @@ fn what_a_conversation_wrote_itself_is_not_explained_to_it() {
     let compact = hook(&home, &repo.dir, "session-start", payload("claude-session-compact", &repo.dir, &home).as_bytes(), &[]);
     assert_eq!(compact.code, 0, "{}", compact.stderr);
     assert_eq!(hook(&home, &repo.dir, "user-prompt-submit", prompt.as_bytes(), &[]).context("UserPromptSubmit"), CARD);
+    settle(&repo);
+}
+
+/// A sub-agent starts with its brief and with nothing of what the conversation was told at
+/// its start. It is told the one line about the index, and it gets the card of what its brief
+/// names, as a person's prompt would. The hook at its start is not told the brief: the hooks
+/// around the call that starts the agent are, and keep it for that moment.
+#[test]
+fn a_sub_agent_is_told_of_the_index_and_gets_the_card_of_its_brief() {
+    let (repo, home) = committed("subagent");
+    let session = "5d2c1e7a-0000-4000-8000-00000000abcd";
+    let start = |agent: &str| {
+        let v = serde_json::json!({"hook_event_name": "SubagentStart", "session_id": session, "cwd": repo.dir.display().to_string(), "agent_id": agent, "agent_type": "general-purpose", "transcript_path": "/nowhere/t.jsonl"});
+        hook(&home, &repo.dir, "subagent-start", v.to_string().as_bytes(), &[]).context("SubagentStart")
+    };
+    // The call as the hook before it sees it, and as the hook after it does when the harness
+    // has started the agent in the background and named it.
+    let call = |event: &str, brief: &str, agent: Option<&str>| {
+        let mut v = serde_json::json!({"hook_event_name": event, "session_id": session, "cwd": repo.dir.display().to_string(), "tool_name": "Agent", "tool_use_id": "toolu_01",
+            "tool_input": {"description": "look it up", "prompt": brief, "subagent_type": "general-purpose"}});
+        if let Some(a) = agent {
+            v["tool_response"] = serde_json::json!({"isAsync": true, "status": "async_launched", "agentId": a, "prompt": brief});
+        }
+        let name = if event == "PreToolUse" { "pre-tool-use" } else { "post-tool-use" };
+        hook(&home, &repo.dir, name, v.to_string().as_bytes(), &[]).assert_quiet("the call that starts a sub-agent is not commented on");
+    };
+    let line = |text: &str| {
+        let first = text.lines().next().unwrap_or_default().to_string();
+        assert!(first.starts_with("codefast has an index of this repository (5 files, ") && first.ends_with("every place that uses it in one call."), "{text}");
+        text[first.len()..].trim_start().to_string()
+    };
+    // An agent whose brief no hook saw (a workflow starts its agents without a call each).
+    assert_eq!(line(&start("a-unseen")), "");
+    // The brief names a function: its card, once the agent starts.
+    let brief = "dev_read returns -1 for a device that is open. Find out why and report the line.";
+    call("PreToolUse", brief, None);
+    assert_eq!(line(&start("a-first")), CARD);
+    // The brief is used up, and the agent after it gets the line alone.
+    assert_eq!(line(&start("a-second")), "");
+    // Two agents started at once, each named by the harness in the hook after its call: each
+    // gets the card of its own brief, whichever starts first.
+    let other = "Where is copy_all defined, and what does it call?";
+    call("PreToolUse", brief, None);
+    call("PreToolUse", other, None);
+    call("PostToolUse", brief, Some("a-dev"));
+    call("PostToolUse", other, Some("a-copy"));
+    let copy = line(&start("a-copy"));
+    assert!(copy.starts_with("codefast: copy_all is defined at src/main.c:"), "{copy}");
+    assert_eq!(line(&start("a-dev")), CARD);
+    assert_eq!(line(&start("a-late")), "");
+    // Nothing is left behind of a brief that was handed out.
+    let left: Vec<String> = std::fs::read_dir(repo.path(".codefast/sessions")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with("brief-")).collect();
+    assert!(left.is_empty(), "{left:?}");
+    // An agent a workflow started: no call carried its brief, and its start knows only its
+    // name. Its own transcript begins with the brief, and exists by its first tool call: the
+    // card comes in with the result of that call, once.
+    let mut first: serde_json::Value = serde_json::from_str(&payload("claude-pre-bash-other", &repo.dir, &home)).unwrap();
+    first["session_id"] = session.into();
+    first["agent_id"] = "a-workflow".into();
+    first["agent_type"] = "workflow".into();
+    let main = home.join(".claude/projects/-work-project").join(format!("{session}.jsonl")).display().to_string();
+    first["transcript_path"] = main.clone().into();
+    let own = std::path::Path::new(&main).with_extension("").join("subagents/workflows/wf_0001/agent-a-workflow.jsonl");
+    let said = |role: &str, content: serde_json::Value| serde_json::json!({"type": role, "isSidechain": true, "agentId": "a-workflow", "message": {"role": role, "content": content}}).to_string();
+    write(&own, &format!("{}\n{}\n", said("user", brief.into()), said("assistant", serde_json::json!([{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}}]))));
+    let claude = [("CLAUDECODE", "1")];
+    assert_eq!(line(&start("a-workflow")), "");
+    assert_eq!(hook(&home, &repo.dir, "pre-tool-use", first.to_string().as_bytes(), &claude).context("PreToolUse"), CARD);
+    hook(&home, &repo.dir, "pre-tool-use", first.to_string().as_bytes(), &claude).assert_quiet("the second call of that agent");
+    // An agent whose brief was handed over at its start is not looked up again.
+    call("PreToolUse", brief, None);
+    assert_eq!(line(&start("a-told")), CARD);
+    let mut told = first.clone();
+    told["agent_id"] = "a-told".into();
+    write(&std::path::Path::new(&main).with_extension("").join("subagents/agent-a-told.jsonl"), &format!("{}\n", said("user", brief.into())));
+    hook(&home, &repo.dir, "pre-tool-use", told.to_string().as_bytes(), &claude).assert_quiet("an agent that got its card at its start");
+    // A project without code has no index to speak of.
+    let empty = Repo::new("subagent-empty");
+    for rel in ["src/io.c", "src/io.h", "src/main.c", "src/big.c"] {
+        let _ = std::fs::remove_file(empty.path(rel));
+    }
+    let v = serde_json::json!({"hook_event_name": "SubagentStart", "session_id": session, "cwd": empty.dir.display().to_string(), "agent_id": "a1", "agent_type": "Explore"});
+    hook(&home, &empty.dir, "subagent-start", v.to_string().as_bytes(), &[]).assert_quiet("a sub-agent in a project without code");
     settle(&repo);
 }
 

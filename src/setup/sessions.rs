@@ -710,37 +710,43 @@ fn prompt_of(line: &[u8]) -> Option<String> {
     typed.then(|| text.to_string())
 }
 
-/// The last thing a person typed into the conversation at `path`, word for word. Looked for
-/// from the end of the file, and through all of it where a conversation has worked on by
-/// itself for so long that its last prompt lies far back.
-pub fn last_prompt(path: &Path) -> Option<String> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut file = std::fs::File::open(path).ok()?;
-    let len = file.metadata().ok()?.len();
-    for window in [1u64 << 19, 1 << 23] {
-        let from = len.saturating_sub(window);
-        file.seek(SeekFrom::Start(from)).ok()?;
-        let mut buf = Vec::new();
-        file.by_ref().take(window).read_to_end(&mut buf).ok()?;
-        let start = if from == 0 { 0 } else { memchr::memchr(b'\n', &buf).map_or(buf.len(), |i| i + 1) };
-        if let Some(found) = buf[start..].rsplit(|b| *b == b'\n').find_map(prompt_of) {
-            return Some(found);
+/// What a sub-agent was asked: the first thing said to it in its own transcript at `path`,
+/// which is the brief it was started with. Read from the start of the file, where it stands.
+pub fn brief_of(path: &Path) -> Option<String> {
+    use memchr::memmem::find;
+    use std::io::Read;
+    let mut buf = Vec::new();
+    std::fs::File::open(path).ok()?.take(4 << 20).read_to_end(&mut buf).ok()?;
+    for line in buf.split(|b| *b == b'\n') {
+        if find(line, b"\"type\":\"user\"").is_none() && find(line, b"\"type\": \"user\"").is_none() {
+            continue;
         }
-        if from == 0 {
-            return None;
+        let Ok(v) = serde_json::from_slice::<Value>(line) else { continue };
+        if v["type"] != "user" {
+            continue;
         }
+        let text = result_text(&v["message"]["content"]);
+        let text = text.trim();
+        // The first line of that kind is the brief, or the agent was started some other way.
+        return (!text.is_empty() && !text.starts_with('<')).then(|| text.to_string());
     }
-    file.seek(SeekFrom::Start(0)).ok()?;
+    None
+}
+
+/// Everything a person typed into the conversation at `path`, word for word and in order. A
+/// transcript keeps what was said before a compaction, so this is the whole conversation's.
+pub fn prompts(path: &Path) -> Vec<String> {
+    let Ok(file) = std::fs::File::open(path) else { return Vec::new() };
     let mut reader = std::io::BufReader::with_capacity(1 << 16, file);
-    let (mut line, mut last) = (Vec::new(), None);
+    let (mut line, mut all) = (Vec::new(), Vec::new());
     loop {
         line.clear();
         match reader.read_until(b'\n', &mut line) {
             Ok(0) | Err(_) => break,
-            Ok(_) => last = prompt_of(&line).or(last),
+            Ok(_) => all.extend(prompt_of(&line)),
         }
     }
-    last
+    all
 }
 
 /// Which kind of line this is worth parsing as, decided without parsing it. Most of a large

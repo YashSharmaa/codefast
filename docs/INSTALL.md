@@ -766,6 +766,15 @@ What they add, each said once per session:
 
 - At the start of a session, one line saying that the repository is indexed (the index is built
   in the background when there is none).
+- In Claude Code, the same line to every sub-agent when it starts, with the card of what its
+  brief names. A sub-agent begins with its brief and with nothing the conversation was told at
+  its own start, and a prompt hook does not run for a brief. The hook at a sub-agent's start is
+  not given the brief, so it is kept from the call that starts the agent until the agent
+  starts a moment later, and deleted then (after two minutes at the latest). An agent that a
+  workflow starts has no such call:
+  its card comes with the result of its first tool call, read from the agent's own transcript.
+  On one machine 95% of the requests of thirty days of sessions were made inside sub-agents
+  and workflow agents (15 November 2026), which is who this is for.
 - For a prompt that names a symbol the index can pin down: where it is defined, the sentence its
   author wrote about it, and how it is used. A definition of up to 25 lines comes whole, with
   its line numbers. Where the function is stored in a table or handed over as a callback, the
@@ -810,18 +819,27 @@ What they add, each said once per session:
 - Before a whole-file read of a source file longer than 400 lines, one line naming the outline
   command.
 - None of the notes above about a file the conversation wrote in full (the harness's write tool,
-  a file a patch adds, or `cat > FILE <<EOF` in the shell): where its definitions are and what
+  a file a patch adds, or `cat > FILE <<EOF` in the shell, also after a `cd`): where its definitions are and what
   they look like is not news to whoever wrote them, and every line a hook adds is read again
   with each later request. A rename still gets its command. After a compaction or `/clear`,
   which Claude Code reports to its hooks, the conversation has the text no longer and the
   notes come back.
 - After a compaction, the definitions the uncommitted changes added, removed and altered, and
-  in Claude Code the last request the person typed, word for word. A summary shortens the
-  request a conversation was working on, and what it drops are the exact strings and rules: in
-  97 compactions of benchmark conversations the summaries kept 74% of the strings a request
-  had in backticks, and never the request as it was written. With the hook all of them are in
-  front of the model again. The hook reads it from the transcript
-  (up to 7,000 bytes of it).
+  in Claude Code the requests the person typed, word for word and in order. A summary shortens
+  the request a conversation was working on, and what it drops are the exact strings and
+  rules: in 97 compactions of benchmark conversations the summaries kept 74% of the strings a
+  request had in backticks, and never the request as it was written. With the hook they are in
+  front of the model again. The requests before the last one come back as well, the latest
+  first for as many as fit, because they hold what the last one takes for granted: in the
+  benchmark conversation that lost hidden tests to a summary, the rule the summary dropped was
+  stated in the second message and tested again in the fifth. The hook reads them from the
+  transcript, which keeps what was said before a compaction (7,000 bytes in all, and what is
+  left out is said).
+- Before a compaction, in Claude Code, two sentences for the model that writes the summary:
+  that the requests come back word for word after it, and what to keep exactly as written,
+  since nothing gives it back (the files changed and what changed in each, the commands that
+  check the work and what they last showed, names and strings decided on, what is left to
+  do). Nothing where the hook cannot read the requests, since it promises them.
 
 Once a week per project, Claude Code also shows you (not the model) one line when plugins and
 skills that nothing in the project matches load more than about 1,500 tokens into every
