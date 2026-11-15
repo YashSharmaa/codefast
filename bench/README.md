@@ -177,7 +177,21 @@ the shape of the conversation and not only the plugin: `control-fresh` and `plug
 every message a session of its own in the same directory, and `control-ac` and `plugin-ac`
 (`-ac125` for a window of 125,000) lower the window at which the harness compacts the
 conversation to 100,000 tokens, which is where Claude Haiku 5.5 starts to cost five times as
-much a token.
+much a token. `--effort low` runs a batch at that effort of the harness.
+
+In `bench/results/live-new-project.jsonl` and `live-conversation.jsonl` an arm that ran a later
+build or another setting has a name of its own: `plugin-b` and `control-b` for the build of 15
+November 2026 and the control that ran with it, `control-low` and `control-ac125-low` for the
+runs at low effort. The `tag` of a row is the batch it came from.
+
+A change to the hooks can be tried on a whole recorded conversation before any session is paid
+for. `replay_conversation.py` rebuilds the files of a recorded run in a scratch directory from
+its writes and edits and hands every prompt, read, edit and shell command to `codefast hook`:
+
+```
+python3 -I bench/tier2/replay_conversation.py OLD_BINARY target/live/S/S-py-2/plugin /tmp/replay-old --show
+python3 -I bench/tier2/replay_conversation.py NEW_BINARY target/live/S/S-py-2/plugin /tmp/replay-new --show
+```
 
 `tier2/LIVE.md` is the protocol: the arms, the five kinds of task and how each answer is
 checked, what is measured, and why the tables report a cost priced from the size of every

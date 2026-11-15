@@ -1372,7 +1372,8 @@ What was changed (commits `0f170fd`, `87eec56` and `c80fc48`, 15 November 2026):
   edit follows, and has to wait for a moment that shows the writing is over.
 
 What the change does to these eight conversations can be said without running a model. Each
-recorded conversation was replayed through the hooks of both builds: its files rebuilt in a
+recorded conversation was replayed through the hooks of both builds
+(`bench/tier2/replay_conversation.py`): its files rebuilt in a
 scratch directory from the recorded writes and edits (526 of 545, the rest touched a file that
 a shell command had changed), and every prompt, read, edit and shell command handed to
 `codefast hook` as the harness had handed it. The build of that morning said 28,505 bytes in
