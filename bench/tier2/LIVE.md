@@ -1464,9 +1464,10 @@ against 8 and not a proof, but it is the direction the mechanism predicts.
 
 ### The same conversations at the prices of other models
 
-No conversation was run with another model: Sonnet 5.5 builds one of these projects in three
-requests, and a conversation of six messages with it does not reach a length at which any of
-this matters. What can be said without running anything is what the recorded requests would
+The shapes above were run with Haiku 5.5 only. The conversation itself was also run with
+Sonnet 5.5 (the last section of this part), where it reaches 61,000 tokens on average and
+101,000 at most, a length at which none of these shapes matters for that model. What can be
+said without running anything is what the recorded requests would
 cost at another price list. Every request of the runs above, priced again (a compaction, which
 the stream does not record, added as a read of the conversation and a summary of 3,600
 tokens):
@@ -1582,7 +1583,184 @@ left alone.
 
 So the note at the price step stays what it was: one line to the person with the command
 that sets the window, which the harness remembers for the model.
+
+### The same conversations with Sonnet 5.5
+
+The six projects of the staged family were run with Sonnet 5.5 on 15 November 2026, through
+OpenRouter with an API key (so with the five-minute prompt cache), with the released build
+0.4.0 as the plugin. Two runs per project and arm.
+
+| Projects | Runs, control and plugin | Requests, control and plugin | Seconds a conversation, control and plugin | Time, plugin against control | Dollars | Hidden tests passed, control and plugin | Conversations that passed every test |
+|---|---|---|---|---|---|---|---|
+| 2 to develop on | 4 and 4 | 18.0 and 18.0 | 187 and 154 | 0.82 | 0.99 | 386 and 386 of 386 | 4 and 4 of 4 |
+| 4 held out | 8 and 8 | 24.8 and 21.0 | 280 and 256 | 0.92 | 0.94 | 748 and 749 of 752 | 5 and 5 of 8 |
+
+The plugin arm is level with the control in dollars (0.94 on the held-out projects, 0.90 to
+1.01 by project, and 0.99 on the two to develop on) and somewhat faster. The control run twice
+differs by more than that, so this is no saving. It is also no cost.
+
+What these sessions showed is how Sonnet 5.5 writes: every file through the shell, with
+`cd /the/project && cat > src/a.ts <<'EOF'`, and every later change with a few lines of Python
+that replace text in a file. 112 shell calls and 8 reads in eight conversations, and not one
+call of the write or the edit tool. The build 0.4.0 took a here document after a `cd` for a
+file it could not place, so these conversations were handed cards about their own code: 28
+notes with 43 cards, 1,440 bytes a conversation, where a conversation of Haiku 5.5 gets 63.
+That is fixed (commit 0126034): replayed without a model, the twelve conversations get 2,949
+bytes from the hooks where 0.4.0 says 19,419, and what is left are rename commands.
+
+Effort, with no plugin:
+
+| What was built | Effort | Runs | Requests | Dollars a run | Against the model's own level | Hidden tests passed | Runs that passed every test |
+|---|---|---|---|---|---|---|---|
+| a project from nothing, 4 to develop on | the model's own level (medium) | 8 | 3.9 | 0.157 | 1.00 | 285 of 286 | 7 of 8 |
+| a project from nothing, 4 to develop on | low | 8 | 3.5 | 0.139 | 0.89 | 283 of 286 | 6 of 8 |
+| a development conversation, 2 to develop on | the model's own level (medium) | 4 | 18.0 | 0.402 | 1.00 | 386 of 386 | 4 of 4 |
+| a development conversation, 2 to develop on | low | 4 | 15.8 | 0.350 | 0.87 | 386 of 386 | 4 of 4 |
+
+At `low` Sonnet 5.5 builds a project for 0.89 of the dollars and loses two hidden tests in
+286, and it carries a conversation of six messages for 0.87 with every hidden test passed.
+Four runs against four in the conversations and eight against eight in the projects.
 <!-- end of the new-code sections -->
+
+<!-- by-model sections: generated, see the kit -->
+## Every model on the same held-out tasks
+
+The four kinds of held-out task that gain from an index (who calls this method, four such
+questions in one session, where an error comes from, a rename everywhere) were run with Opus
+5.5 on 15 November 2026, one run per task and arm, as they had been with Sonnet 5.5 on 13
+November (`bench/results/live-heldout-opus.jsonl`, `live-heldout-sonnet.jsonl`, and the rows of
+Haiku 5.5 in `live-heldout-haiku.jsonl`, two runs per task and arm). Time is the wall clock of
+a session on a machine that other work shares, with the two arms of a batch taking turns. Cost
+is priced per request by the weights of this file (a cached token 0.1, a new one 1.25, an
+output token 5). Dollars are what the harness itself reports at list prices.
+
+| Model | Tasks | Time, plugin against control | Requests | Cost | Dollars as billed | Measured |
+|---|---|---|---|---|---|---|
+| Haiku 5.5 | 37 | 0.36 | 0.50 | 0.31 | 0.30 | 2026-11-13, 2026-11-14 |
+| Sonnet 5.5 | 37 | 0.52 | 0.53 | 0.42 | 0.59 | 2026-11-13 |
+| Opus 5.5 | 37 | 0.56 | 0.62 | 0.50 | 0.62 | 2026-11-15 |
+
+| Model | Task | Tasks, runs an arm | Requests, control and plugin | Seconds a session, control and plugin | Time, plugin against control | Cost, plugin against control | Dollars as billed | Answers right, control and plugin |
+|---|---|---|---|---|---|---|---|---|
+| Haiku 5.5 | Who calls this method? | 12, 2 | 7.2 and 3.7 | 40 and 14 | 0.35 | 0.30 | 0.30 | 1.00 and 0.99 |
+| Haiku 5.5 | Four such questions in one session | 3, 2 | 19.5 and 5.3 | 182 and 32 | 0.18 | 0.15 | 0.10 | 0.99 and 0.98 |
+| Haiku 5.5 | Where does this error come from? | 12, 2 | 5.8 and 3.4 | 11 and 7 | 0.62 | 0.63 | 0.77 | 0.99 and 1.00 |
+| Haiku 5.5 | Rename a method everywhere | 10, 2 | 9.3 and 5.4 | 38 and 20 | 0.52 | 0.51 | 0.59 | 1.00 and 1.00 |
+| Sonnet 5.5 | Who calls this method? | 12, 1 | 7.0 and 2.7 | 27 and 9 | 0.34 | 0.29 | 0.49 | 0.98 and 0.99 |
+| Sonnet 5.5 | Four such questions in one session | 3, 1 | 13.0 and 3.7 | 62 and 20 | 0.32 | 0.23 | 0.30 | 0.95 and 0.99 |
+| Sonnet 5.5 | Where does this error come from? | 12, 1 | 6.0 and 4.0 | 13 and 10 | 0.72 | 0.70 | 0.87 | 0.98 and 1.00 |
+| Sonnet 5.5 | Rename a method everywhere | 10, 1 | 5.7 and 4.2 | 24 and 18 | 0.77 | 0.74 | 0.86 | 1.00 and 1.00 |
+| Opus 5.5 | Who calls this method? | 12, 1 | 6.8 and 4.7 | 42 and 27 | 0.64 | 0.51 | 0.60 | 0.98 and 1.00 |
+| Opus 5.5 | Four such questions in one session | 3, 1 | 16.7 and 6.0 | 127 and 45 | 0.36 | 0.34 | 0.42 | 1.00 and 1.00 |
+| Opus 5.5 | Where does this error come from? | 12, 1 | 5.6 and 4.2 | 24 and 18 | 0.76 | 0.77 | 0.89 | 1.00 and 1.00 |
+| Opus 5.5 | Rename a method everywhere | 10, 1 | 6.9 and 4.2 | 44 and 23 | 0.52 | 0.47 | 0.63 | 1.00 and 1.00 |
+
+With each of the three models a session with the plugin takes about half the time (0.36 to
+0.56) and half the cost (0.31 to 0.50) of the same session without it, and its answers are as
+often right or more often. The saving is largest in the sessions of four questions. Each
+answer that comes in one call is a request the conversation does not make, and every request
+reads the whole conversation again.
+
+Fable 5.2 was started on the same tasks and stopped after nine runs, when the account's weekly
+limit for that model stood at its warning level. It is not in the table.
+
+The sessions of Opus 5.5 were read, and four things were changed because of what they showed.
+All four came after these runs, so the table is the build before them.
+
+- **A card that named a command for the wrong symbol.** go-git has five types called `Encoder`,
+  each with an `Encode`. The card for the one in the packfile package ended with
+  `codefast callers Encoder.Encode`, and the command answered for another of the five. The
+  session said "that output is for the wrong Encoder", asked again by place and then checked
+  the answer against a search of its own. The command now answers for each of the things a
+  name stands for, and a card names its symbol by place where the name is shared (commit
+  1b47427).
+- **The card for an error message.** Of twelve error texts, five got no card although each
+  stands in exactly one string of the source ("temp dir has been cleaned up"), and one got the
+  card of a neighbouring message that shares most of its words ("too many entries in resource
+  directory" for "no entries in resource directory"). In the four of those sessions that were
+  read, the plugin made no difference, 5 requests in each arm. A quoted message is now looked
+  for as it stands before its phrases are ranked (commit 02e8c2a), and all twelve get the card
+  of the line that writes them, where six did.
+- **zsh and a pattern that matches nothing.** `grep -rn x --include=*.go .` ends with "no
+  matches found" in zsh before grep runs. It happened in these sessions in both arms, and over
+  thirty days of sessions on this machine in 2% of all shell calls. One line in the shell setup
+  of a session turns it off (commit d0036f6, and section 4 of `docs/INSTALL.md`).
+- **A name remembered from another version**, and a method named the way Swift calls it
+  (`validate(statusCode:)`): both were answered with "no matches" (commits 00b5997 and
+  139111f).
+
+One thing was seen and not changed. In the who-calls tasks Opus 5.5 asks codefast for the
+callers and then, in most sessions, checks the list against one or two text searches of its
+own: 4.7 requests a session, where Haiku 5.5 makes 3.7 and Sonnet 5.5 2.7.
+
+## The seven-repository protocol another tool publishes
+
+The most quoted figures for a code graph in a coding harness are those of CodeGraph: 62% fewer
+tokens, 44% cheaper, 88% fewer tool calls and 53% faster, measured on 5 August 2026 with Opus
+4.8 (https://github.com/colbymchenry/codegraph, README). The protocol is published: seven
+repositories cloned at depth 1 (VS Code, Excalidraw, Django, Tokio, OkHttp, Gin, Alamofire),
+one question about the architecture of each ("How does the extension host communicate with
+the main process?"), the session run headless with and without the tool, four runs an arm,
+the median of each. Tokens are everything the requests of a session processed, sub-agents
+included, cost is the harness's own dollar figure, and time is wall clock.
+
+`bench/public/seven_repos.py` runs it with the codefast plugin as the arm (the plugin as
+people install it: hooks, skill, command and MCP server). The repositories were cloned on 15
+November 2026 (Django and VS Code on 11 November), the questions are theirs word for word, and
+the model is the one named, since theirs is no longer current. The answers are not graded in
+their protocol. Here the files an answer names are checked against the repository, and the
+two arms name as many that exist. Rows in `bench/results/public-seven-repos.jsonl`.
+
+| Model | Runs an arm | Without any tool: seconds, tool calls, tokens, dollars a question | With codefast | Time | Tool calls | Tokens | Cost |
+|---|---|---|---|---|---|---|---|
+| Opus 5.5 | 28 | 36 s, 3.0, 81k, 0.141 | 36 s, 3.2, 101k, 0.159 | 0.98 | 0.98 | 1.14 | 1.16 |
+| Sonnet 5.5 | 28 | 15 s, 1.9, 54k, 0.043 | 12 s, 1.5, 49k, 0.042 | 0.84 | 0.91 | 0.96 | 0.98 |
+| Haiku 5.5 | 28 | 20 s, 5.2, 113k, 0.005 | 16 s, 3.6, 93k, 0.004 | 0.79 | 0.76 | 0.90 | 0.80 |
+| published for the other tool, Opus 4.8 | 28 | 46 to 163 s, 6 to 43, 180k to 991k, 0.31 to 2.43 | 28 to 63 s, 1 to 4, 87k to 209k, 0.31 to 0.66 | 0.47 | 0.12 | 0.38 | 0.57 |
+
+With Opus 5.5, by repository, next to what was published:
+
+| Repository | Without any tool here: seconds, tool calls, dollars | With codefast | Published without the other tool | Published with it | Files an answer names that exist, without and with |
+|---|---|---|---|---|---|
+| VS Code | 31 s, 2, 0.09 | 34 s, 3, 0.16 | 130 s, 28, 1.80 | 58 s, 2, 0.53 | 10 and 7 |
+| Excalidraw | 42 s, 4, 0.15 | 45 s, 5, 0.18 | 162 s, 43, 2.43 | 45 s, 2, 0.54 | 10 and 10 |
+| Django | 39 s, 2, 0.12 | 35 s, 2, 0.18 | 83 s, 14, 0.63 | 54 s, 3, 0.55 | 3 and 4 |
+| Tokio | 39 s, 4, 0.16 | 44 s, 4, 0.17 | 163 s, 29, 1.83 | 63 s, 3, 0.66 | 7 and 6 |
+| OkHttp | 27 s, 2, 0.08 | 23 s, 1, 0.07 | 58 s, 6, 0.50 | 33 s, 1, 0.39 | 4 and 3 |
+| Gin | 26 s, 2, 0.08 | 22 s, 1, 0.07 | 46 s, 7, 0.31 | 28 s, 1, 0.31 | 4 and 5 |
+| Alamofire | 45 s, 4, 0.24 | 45 s, 5, 0.19 | 142 s, 33, 1.27 | 54 s, 4, 0.54 | 6 and 6 |
+
+What this says:
+
+1. **The session without any tool is not the one the figures were measured against.** With
+   Opus 4.8 in August it made 6 to 43 tool calls and took 46 to 163 seconds. With Opus 5.5 in
+   November it makes 2 to 4 and takes 26 to 45 seconds, at 8 to 24 cents. That is less than the
+   published session with the tool (28 to 63 seconds, 31 to 66 cents). The models now put
+   several searches and several ranges of several files into one shell command: the two to
+   four calls of a session of Opus 5.5 hold 7 to 19 commands. A saving of 62% of the tokens and
+   53% of the time against the older session says nothing about this one.
+2. **Against this session there is little left to save.** codefast is level with Opus 5.5 in
+   time and tool calls and costs 16% more. With Sonnet 5.5 it is 16% faster at the same cost.
+   With Haiku 5.5 it is 21% faster and 20% cheaper.
+3. **Where it gains and where it costs, with Opus 5.5.** On the two small repositories (Gin,
+   OkHttp) one call of codefast holds the bodies the question needs, and the session ends
+   after it: one call where the control makes two, and 15% less time. On the four where the
+   answer runs through many functions, the first answer of codefast is one more call: the
+   session then reads as many ranges through the shell as the control does.
+4. **How Opus 5.5 asks.** It names the symbols it remembers, several in one call, with a room
+   of 4,000 to 7,000 tokens: `QuerySet._fetch_all`, `ModelIterable.__iter__`,
+   `SQLCompiler.execute_sql`. Of the 107 answers codefast gave in the sessions of Opus 5.5 and
+   Sonnet 5.5 (this protocol and the tasks of the section above), 8 were "nothing found" for a
+   name that the checkout writes a little differently. Those are the last two changes of the
+   section above.
+5. **These are questions about code the models have read.** A model says how a well-known
+   repository works from memory and checks a few places. The tasks of the section above ask
+   for something that cannot be recalled and has to be complete (every caller, in a
+   repository the model knows less well), and there the same plugin halves the session.
+
+Seven questions are few, one run of an arm differs from the next by a quarter, and the
+runs of one model share a batch. Fable 5.2 was not run (see above).
+<!-- end of the by-model sections -->
 
 ## The same questions in Codex
 

@@ -182,8 +182,21 @@ much a token. `--effort low` runs a batch at that effort of the harness.
 In `bench/results/live-new-project.jsonl` and `live-conversation.jsonl` an arm that ran a later
 build or another setting has a name of its own: `plugin-b` and `control-b` for the build of 15
 November 2026 and the control that ran with it, `control-low` and `control-ac125-low` for the
-runs at low effort, and `plugin-handover` for a prototype that was not kept (see "Handing a
-job to a sub-agent" in `tier2/LIVE.md`). The `tag` of a row is the batch it came from.
+runs at low effort, `plugin-handover` for a prototype that was not kept (see "Handing a
+job to a sub-agent" in `tier2/LIVE.md`), and `control-sonnet`, `plugin-sonnet` and
+`control-sonnet-low` for the runs with Sonnet 5.5. The `tag` of a row is the batch it came from.
+
+The arms `control-delegate` and `plugin-delegate` hand the task of any family to one sub-agent
+with the Agent tool, which is how most of the work of a long session is done: they measure
+what a sub-agent gets from the plugin.
+
+`bench/results/live-heldout-opus.jsonl` holds the four kinds of held-out task that gain (N, L, E
+and R) with Opus 5.5, as `live-heldout-sonnet.jsonl` does for Sonnet 5.5.
+
+`bench/public/seven_repos.py` runs the seven-repository protocol that CodeGraph publishes its
+saving on, with the codefast plugin as the arm: `clone` fetches the repositories at depth 1,
+`run --tag T --model opus --reps 4` runs both arms, and `score --tag T` prints the median of
+each repository next to the published figures. Rows in `bench/results/public-seven-repos.jsonl`.
 
 A hook can be tried in sessions before it is built into the binary: `BENCH_EXTRA_HOOKS=FILE`
 adds the hook entries of a JSON file (event names with their entries, as in

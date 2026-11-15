@@ -45,6 +45,10 @@ SYFT_INDEX = ROOT / ("target/bench-index/live-syft" + INDEX_SUFFIX)
 DEV_IDS = {"django__django-18850", "tobymao__sqlglot-4519", "R-Collection-Add"}
 W_READ, W_WRITE, W_OUT = 0.1, 1.25, 5.0
 # Variables of the session this script may be started from: a child session must not inherit them.
+DELEGATE = (
+    "Hand the task below to one sub-agent with the Agent tool (subagent_type general-purpose): give it the whole task, word for word, as its brief. "
+    "Wait for its report, and then give its answer as yours, complete and unchanged. Do not work on the task yourself.\n\n--- the task ---\n"
+)
 SCRUB = [
     "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_BRIDGE_SESSION_ID",
     "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED",
@@ -88,13 +92,17 @@ ARMS = {
     # The other arms run without a transcript, where that hook has nothing to read.
     "plugin-ac-keep": dict(plugin=True, transcript=True, env={"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "100000"}),
     "plugin-ac125-keep": dict(plugin=True, transcript=True, env={"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "125000"}),
+    # The task handed to one sub-agent by the session, which is how most of the work of a long
+    # session is done: what a sub-agent gets from the plugin, and what it does without it.
+    "control-delegate": dict(plugin=False, delegate=True),
+    "plugin-delegate": dict(plugin=True, delegate=True),
     # How a prompt card gives the uses of a symbol (an experiment, see LIVE.md).
     "uses-count": dict(plugin=True, env={"CODEFAST_CARD_USES": "count"}),
     "uses-list": dict(plugin=True, env={"CODEFAST_CARD_USES": "list"}),
 }
 # The last one is the model of the published comparison on LinuxFLBench (arXiv 2611.07286), with
 # the dollar cap of its harness.
-BUDGET = {"haiku": 2.5, "sonnet": 8.0, "opus": 20.0, "claude-haiku-4-5-20251001": 1.0}
+BUDGET = {"haiku": 2.5, "sonnet": 8.0, "opus": 20.0, "fable": 40.0, "claude-haiku-4-5-20251001": 1.0}
 
 
 def load(name):
@@ -911,9 +919,13 @@ def session(row, a, binary, plug):
     elif row["family"] == "S":
         rc = staged_session(cmd, row, env, run, a.timeout)
     else:
+        prompt = run / "prompt.txt"
+        if spec.get("delegate"):
+            prompt = run / "prompt.delegate.txt"
+            prompt.write_text(DELEGATE + (run / "prompt.txt").read_text())
         with open(run / "run.jsonl", "w") as out, open(run / "err.txt", "w") as err:
             try:
-                p = subprocess.run(cmd, cwd=row["repo"], env=env, stdin=open(run / "prompt.txt"), stdout=out, stderr=err, timeout=a.timeout)
+                p = subprocess.run(cmd, cwd=row["repo"], env=env, stdin=open(prompt), stdout=out, stderr=err, timeout=a.timeout)
                 rc = p.returncode
             except subprocess.TimeoutExpired:
                 rc = 124

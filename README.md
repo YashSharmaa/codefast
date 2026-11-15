@@ -41,8 +41,8 @@ all of that reading again. codefast answers from an index instead.
 - **One exact answer.** The definition, every call site with its code line, the call path, the
   tests that reach it. Checked against compilers: precision 0.982 to 1.000.
 - **Before the agent asks.** Hooks hand over the facts with the prompt, after a search, after an
-  edit and after a compaction, when a session also gets its last request back word for word. They
-  state facts and never block or rewrite a tool call.
+  edit and after a compaction, when a session also gets its requests back word for word. A
+  sub-agent gets them too, for its brief. They state facts and never block or rewrite a tool call.
 - **Any size.** The Linux kernel, 44 million lines, indexes in 8 seconds, and the index follows
   your edits.
 - **Measured, with what it does not do.** A session that looks things up costs 0.15 to 0.71 of the
@@ -137,8 +137,9 @@ switching models in the middle of a job, carrying a conversation of half a milli
 sub-agent that waits ten minutes on a build, thinking that is billed as output. `codefast doctor
 sessions` reads the transcripts your harness keeps on your machine and puts numbers on each, with
 the one thing to do about it. It prices every request as its own model does, tries an earlier
-compaction at several lengths on your own sessions, and reads every sub-agent as the conversation
-it is. Nothing is run, nothing leaves the machine, and no model is called.
+compaction at several lengths on your own sessions, reads every sub-agent as the conversation it
+is, and says how many requests were one look after another and where the hours went. Nothing is
+run, nothing leaves the machine, and no model is called.
 
 <details>
 <summary>What the report looks like</summary>
@@ -205,9 +206,10 @@ the protocols, the full tables and what was tried and not kept. The raw rows are
 | **Claude Code sessions that locate a bug report**<br>48 kernel reports, 40 issues of Python projects | **0.77** and **0.84** of the control | Cheaper, and the file is not found more often: 0.73 against 0.77 on the kernel | 14 Nov 2026 |
 | **Claude Code sessions that write or fix code**<br>20 functions to write, 15 bugs to fix | **1.03**, **0.93** and **0.92** of the control | No saving. None of the three can be told from 1.00 | 13 and 14 Nov 2026 |
 | **Claude Code sessions that build a project from nothing**<br>6 held-out projects in four languages, Haiku 5.5 | **0.98** of the control, with the hidden tests passed as often (211 and 210.5 of 211). All 10 projects with the build before 15 Nov: 1.03 | No saving, and none to expect: a project that does not exist has nothing to index. The plugin adds 224 tokens to the start of such a session (734 before 15 Nov). Two runs a project and arm, the control from the night before | 15 Nov 2026 |
-| **A development conversation**<br>a project and five changes to it in six messages, 4 held-out projects, Haiku 5.5 | **1.00** of the control with the plugin (0.92 to 1.08, 8 runs against 16), every hidden test passed (376 of 376) | No saving: the session wrote the code it is asked about. The same control run twice differs by 8%, so read this as no difference. The build before 15 Nov measured 1.08: its hooks commented on code that was still being written (3,516 bytes a conversation, now 63) | 15 Nov 2026 |
+| **A development conversation**<br>a project and five changes to it in six messages, 4 held-out projects, Haiku 5.5 | **1.00** of the control with the plugin (0.92 to 1.08, 8 runs against 16), every hidden test passed (376 of 376). Sonnet 5.5: 0.94 in dollars (0.90 to 1.01), 0.92 of the time | No saving: the session wrote the code it is asked about. The same control run twice differs by 8%, so read this as no difference. The build before 15 Nov measured 1.08: its hooks commented on code that was still being written (3,516 bytes a conversation, now 63) | 15 Nov 2026 |
 | **The shape of that conversation**<br>what `doctor sessions` and the notes point at, 4 held-out projects | Compacted under the model's price step (`/autocompact 125k`): **0.39** of the dollars. With the plugin, whose hook gives the request back after each compaction: **0.36**, and the hidden tests of the one conversation (375.5 of 376, against 373.5 without the hook) | Claude Haiku 5.5 only, which charges five times as much for a request over 100,000 tokens. In tokens the shape costs more (1.19 of the one conversation), so without that step it does not pay at this size. 8 conversations a shape | 15 Nov 2026 |
-| **The same tasks with Sonnet 5.5** | A caller question 0.29, four in one session 0.23, an error traced 0.70, a rename 0.74 | One run per task and arm | 13 Nov 2026 |
+| **The same four kinds of task with every model**<br>37 held-out tasks: a caller question, four in one session, an error traced, a rename | Time and cost of a session with the plugin against the same session without it. Haiku 5.5: **0.36** and **0.31**. Sonnet 5.5: **0.52** and **0.42**. Opus 5.5: **0.56** and **0.50**. Answers as right with each | One run per task and arm for Sonnet and Opus. Opus was measured before four changes that reading its sessions led to. Fable 5.2 was not run | 13 to 15 Nov 2026 |
+| **The seven-repository protocol another tool publishes**<br>one question about the architecture of VS Code, Excalidraw, Django, Tokio, OkHttp, Gin and Alamofire each, four runs an arm | The session without any tool now takes 36 s and 3.0 tool calls with Opus 5.5, less than the published session with the tool (28 to 63 s). Against it codefast takes **0.79** of the time with Haiku 5.5, **0.84** with Sonnet 5.5 and **0.98** with Opus 5.5 | The published saving (0.47 of the time, 0.57 of the cost, Opus 4.8) is against a session of 6 to 43 tool calls. Seven questions about code the models know. With Opus 5.5 codefast costs 1.16 of the control | 15 Nov 2026 |
 | **Codex sessions**<br>54 held-out question tasks, gpt-6.1-sol | **0.81** of the control (0.76 to 0.85 at 95%), every answer right in both arms | Question tasks only. Codex never called the MCP server: the saving came from the prompt card and the command line | 14 Nov 2026 |
 | **agent-context-bench**, published<br>26 graded questions on apache/superset | Lookups **1.00** and hard tasks **0.98**, where the best published arm has 1.00 and 0.94, at the lowest cost of a task | One repository. The other arms are their published figures | 14 Nov 2026 |
 | **LinuxFLBench with an agent**, published<br>its own protocol, 104 kernel bug reports nothing was developed on | The file of the fix is among the ten candidates for **0.82** of the reports. With no map: 0.58. With the paper's best map, built from its code and run here: 0.74. Tokens: 14% fewer than no map, 17% fewer than that map | Version 0.3.1 was changed for this task. Over the paper's map the lead in finding the file is at the edge of what 104 reports show (+0.08, between 0.00 and 0.15). Dollars are level with no map | 14 Nov 2026 |

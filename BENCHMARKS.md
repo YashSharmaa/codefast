@@ -58,7 +58,8 @@ Every benchmark below, and the day it was measured:
 | Benchmark | What it compares | Measured |
 |---|---|---|
 | [Real sessions in Claude Code](#in-real-sessions), held-out tasks | A session with the plugin against the same session without it, 12 kinds of task, Haiku 5.5 | 13 and 14 Nov 2026 (each row has its day) |
-| The same with Sonnet 5.5 | 5 kinds of task | 13 Nov 2026 |
+| [Every model on the same tasks](#every-model-on-the-same-tasks) | Haiku 5.5, Sonnet 5.5 and Opus 5.5 on 37 held-out tasks, with the time of a session | 13 to 15 Nov 2026 |
+| [A published seven-repository protocol](#a-published-seven-repository-protocol) | The questions and repositories another tool publishes its saving on, with three models | 15 Nov 2026 |
 | [Real sessions in Codex](#in-codex) | The same question tasks in Codex with gpt-6.1-sol, 4 kinds of task | 14 Nov 2026 |
 | [agent-context-bench](#two-published-agent-benchmarks), a published benchmark | codefast as a fifth arm next to four published ones, three models | 14 Nov 2026 |
 | [LinuxFLBench with an agent](#two-published-agent-benchmarks), a published comparison | No map, codefast and the paper's own best map on the same kernel bug reports | 14 Nov 2026 |
@@ -268,6 +269,73 @@ compacted conversations of the two projects to develop on for 0.73, where one co
 lost nine hidden tests before any compaction. Both were measured after the instruction file above
 had grown, against controls from before, so the saving is understated by those 365 tokens a
 request.
+
+### Every model on the same tasks
+
+Measured on 13, 14 and 15 November 2026. The four kinds of held-out task that gain from an
+index, with each model the harness runs: time and cost of a session with the plugin against
+the same session without it.
+
+| Model | Tasks | Time, plugin against control | Requests | Cost | Dollars as billed | Measured |
+|---|---|---|---|---|---|---|
+| Haiku 5.5 | 37 | 0.36 | 0.50 | 0.31 | 0.30 | 2026-11-13, 2026-11-14 |
+| Sonnet 5.5 | 37 | 0.52 | 0.53 | 0.42 | 0.59 | 2026-11-13 |
+| Opus 5.5 | 37 | 0.56 | 0.62 | 0.50 | 0.62 | 2026-11-15 |
+
+| Model | Task | Tasks, runs an arm | Requests, control and plugin | Seconds a session, control and plugin | Time, plugin against control | Cost, plugin against control | Dollars as billed | Answers right, control and plugin |
+|---|---|---|---|---|---|---|---|---|
+| Haiku 5.5 | Who calls this method? | 12, 2 | 7.2 and 3.7 | 40 and 14 | 0.35 | 0.30 | 0.30 | 1.00 and 0.99 |
+| Haiku 5.5 | Four such questions in one session | 3, 2 | 19.5 and 5.3 | 182 and 32 | 0.18 | 0.15 | 0.10 | 0.99 and 0.98 |
+| Haiku 5.5 | Where does this error come from? | 12, 2 | 5.8 and 3.4 | 11 and 7 | 0.62 | 0.63 | 0.77 | 0.99 and 1.00 |
+| Haiku 5.5 | Rename a method everywhere | 10, 2 | 9.3 and 5.4 | 38 and 20 | 0.52 | 0.51 | 0.59 | 1.00 and 1.00 |
+| Sonnet 5.5 | Who calls this method? | 12, 1 | 7.0 and 2.7 | 27 and 9 | 0.34 | 0.29 | 0.49 | 0.98 and 0.99 |
+| Sonnet 5.5 | Four such questions in one session | 3, 1 | 13.0 and 3.7 | 62 and 20 | 0.32 | 0.23 | 0.30 | 0.95 and 0.99 |
+| Sonnet 5.5 | Where does this error come from? | 12, 1 | 6.0 and 4.0 | 13 and 10 | 0.72 | 0.70 | 0.87 | 0.98 and 1.00 |
+| Sonnet 5.5 | Rename a method everywhere | 10, 1 | 5.7 and 4.2 | 24 and 18 | 0.77 | 0.74 | 0.86 | 1.00 and 1.00 |
+| Opus 5.5 | Who calls this method? | 12, 1 | 6.8 and 4.7 | 42 and 27 | 0.64 | 0.51 | 0.60 | 0.98 and 1.00 |
+| Opus 5.5 | Four such questions in one session | 3, 1 | 16.7 and 6.0 | 127 and 45 | 0.36 | 0.34 | 0.42 | 1.00 and 1.00 |
+| Opus 5.5 | Where does this error come from? | 12, 1 | 5.6 and 4.2 | 24 and 18 | 0.76 | 0.77 | 0.89 | 1.00 and 1.00 |
+| Opus 5.5 | Rename a method everywhere | 10, 1 | 6.9 and 4.2 | 44 and 23 | 0.52 | 0.47 | 0.63 | 1.00 and 1.00 |
+
+**What this says.** With each of the three models a session with the plugin takes about half
+the time and half the cost, and its answers are as often right or more often. The saving is
+largest where one session asks several things: every answer that comes in one call is a
+request the conversation does not make, and every request reads the whole conversation again.
+
+**Hold against it.** One run per task and arm for Sonnet 5.5 and Opus 5.5, two for Haiku 5.5.
+Time is the wall clock on a machine that other work shares. The Opus 5.5 runs are of the build
+before four changes that reading its sessions led to (`bench/tier2/LIVE.md` names them).
+Fable 5.2 was not run: the account's weekly limit for that model stood at its warning level.
+
+### A published seven-repository protocol
+
+Measured on 15 November 2026. CodeGraph publishes 62% fewer tokens, 44% cheaper, 88% fewer tool
+calls and 53% faster for sessions that answer one question about the architecture of each of
+seven repositories (VS Code, Excalidraw, Django, Tokio, OkHttp, Gin, Alamofire), measured with
+Opus 4.8 on 5 August 2026. The repositories, the questions and the way to run them are
+published, and `bench/public/seven_repos.py` runs them with codefast as the arm: four runs an
+arm, the median for each repository, then the mean of the seven.
+
+| Model | Runs an arm | Without any tool: seconds, tool calls, tokens, dollars a question | With codefast | Time | Tool calls | Tokens | Cost |
+|---|---|---|---|---|---|---|---|
+| Opus 5.5 | 28 | 36 s, 3.0, 81k, 0.141 | 36 s, 3.2, 101k, 0.159 | 0.98 | 0.98 | 1.14 | 1.16 |
+| Sonnet 5.5 | 28 | 15 s, 1.9, 54k, 0.043 | 12 s, 1.5, 49k, 0.042 | 0.84 | 0.91 | 0.96 | 0.98 |
+| Haiku 5.5 | 28 | 20 s, 5.2, 113k, 0.005 | 16 s, 3.6, 93k, 0.004 | 0.79 | 0.76 | 0.90 | 0.80 |
+| published for the other tool, Opus 4.8 | 28 | 46 to 163 s, 6 to 43, 180k to 991k, 0.31 to 2.43 | 28 to 63 s, 1 to 4, 87k to 209k, 0.31 to 0.66 | 0.47 | 0.12 | 0.38 | 0.57 |
+
+**What this says.** The session without any tool is no longer the one those figures were
+measured against. In August it made 6 to 43 tool calls and took 46 to 163 seconds. In
+November, with Opus 5.5, it makes 2 to 4 and takes 26 to 45 seconds, which is less than the
+published session with the tool. The models now put several searches and several ranges of
+several files into one shell command. Against that session there is little left: codefast is
+a fifth faster with Haiku 5.5 and Sonnet 5.5 and level with Opus 5.5, where it costs 16% more.
+These are questions about code the models have read. On the tasks of the section above, where
+an answer has to be complete and cannot be recalled, the same plugin halves the session.
+
+**Hold against it.** Seven questions, and one run of an arm differs from the next by a
+quarter. The answers are not graded in the protocol. Here the files an answer names were
+checked against the repository, and both arms name as many that exist. Their model is no
+longer current, so the two kinds of row are three months of harness and model apart.
 
 ### In Codex
 
