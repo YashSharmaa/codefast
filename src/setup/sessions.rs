@@ -343,6 +343,12 @@ pub struct Request {
     /// Why the harness says the cache missed (`message.diagnostics.cache_miss_reason.type`),
     /// in its own words.
     pub miss: Option<String>,
+    /// The tool calls its reply made.
+    pub calls: u16,
+    /// Every one of them only looked: a read, a search, a listing.
+    pub looks: bool,
+    /// What the first of them is summed under: the tool, `Bash WORD`, `MCP SERVER`.
+    pub call: Option<String>,
 }
 
 /// What a tool gave back, as the conversation carries it.
@@ -531,6 +537,16 @@ fn group(tool: &str, input: &Value) -> (String, Option<String>) {
         }
         "Read" => ("Read".to_string(), input["file_path"].as_str().map(str::to_string)),
         _ => (tool.to_string(), None),
+    }
+}
+
+/// Whether a tool call only looks: a read, a search, a listing, a page fetched. A shell command
+/// counts when every command in it is a viewer or a search and nothing is written.
+fn only_looks(tool: &str, input: &Value) -> bool {
+    match tool {
+        "Read" | "Grep" | "Glob" | "LSP" | "WebFetch" | "WebSearch" | "ToolSearch" => true,
+        "Bash" => input["command"].as_str().is_some_and(super::shell::only_looks),
+        _ => false,
     }
 }
 
@@ -773,9 +789,15 @@ fn read_jsonl(path: &Path, sub: bool, t: &mut Transcript) {
                 if model == "<synthetic>" {
                     continue;
                 }
+                // The calls this line of the reply made: how many, whether all only looked, and
+                // what the first is summed under.
+                let mut made: (u16, bool, Option<String>) = (0, true, None);
                 for block in m["content"].as_array().into_iter().flatten().filter(|b| b["type"] == "tool_use") {
                     if let (Some(id), Some(name)) = (block["id"].as_str(), block["name"].as_str()) {
                         let (g, path) = group(name, &block["input"]);
+                        made.0 += 1;
+                        made.1 &= only_looks(name, &block["input"]);
+                        made.2.get_or_insert_with(|| g.clone());
                         calls.insert(id.to_string(), (name.to_string(), g, path));
                     }
                 }
@@ -791,6 +813,11 @@ fn read_jsonl(path: &Path, sub: bool, t: &mut Transcript) {
                         if r.miss.is_none() {
                             r.miss = miss;
                         }
+                        if made.0 > 0 {
+                            r.looks = (r.calls == 0 || r.looks) && made.1;
+                            r.calls += made.0;
+                            r.call = r.call.take().or(made.2);
+                        }
                     }
                     continue;
                 }
@@ -799,7 +826,7 @@ fn read_jsonl(path: &Path, sub: bool, t: &mut Transcript) {
                 // with nothing between them in the transcript has only its own time.
                 let answers = if sidechain { None } else { asked.take() };
                 let (sent, after_tool) = (answers.map(|a| a.0).or(at), answers.is_some_and(|a| a.1));
-                t.events.push(Event::Request(Request { model, at, sent, done: at, after_tool, sidechain, usage: u, miss }));
+                t.events.push(Event::Request(Request { model, at, sent, done: at, after_tool, sidechain, usage: u, miss, calls: made.0, looks: made.0 > 0 && made.1, call: made.2 }));
             }
             Some("user") if !sidechain => {
                 let tool = v["message"]["content"].as_array().is_some_and(|blocks| blocks.iter().any(|b| b["type"] == "tool_result"));
@@ -1140,6 +1167,7 @@ impl Transcripts for Codex {
                         sidechain: false,
                         usage,
                         miss: None,
+                        ..Default::default()
                     }));
                 }
                 ("response_item", "function_call" | "custom_tool_call" | "local_shell_call") => {
@@ -1538,6 +1566,31 @@ pub struct Step {
     pub window: Window,
 }
 
+/// Requests that made one call that only looks (a read, a search, a listing) right after
+/// another such request. Each read the whole conversation again for one more look.
+#[derive(Debug, Clone, Default)]
+pub struct RoundTrips {
+    /// The requests whose reply called a tool, and those of them that made exactly one call.
+    pub calling: usize,
+    pub single: usize,
+    /// The follow-ups: how many, what reading the conversation again cost them, the context
+    /// they read (summed, for a mean) and the model's time for them in milliseconds.
+    pub requests: usize,
+    pub cost: f64,
+    pub context: u64,
+    pub ms: i64,
+}
+
+/// Where the time went, as far as a transcript times it: the models writing their replies,
+/// and the waits for tool calls by what was called.
+#[derive(Debug, Clone, Default)]
+pub struct Time {
+    pub model_ms: i64,
+    pub wait_ms: i64,
+    /// By what the call is summed under: how many waits, and their milliseconds.
+    pub waits: BTreeMap<String, (usize, i64)>,
+}
+
 /// Sub-agents with a transcript of their own, each looked at as the conversation it is.
 #[derive(Debug, Clone, Default)]
 pub struct Agents {
@@ -1582,6 +1635,9 @@ pub struct Stats {
     pub hour: HourTrade,
     /// `--carry`, when it was given.
     pub carry_given: Option<u64>,
+    /// Looks that followed one another, main thread and sub-agents alike.
+    pub round: RoundTrips,
+    pub time: Time,
 }
 
 /// One session in a few numbers.
@@ -1780,6 +1836,43 @@ impl Stats {
         split
     }
 
+    /// One request in its place in a conversation: the time its reply took, the wait for the
+    /// calls before it, and whether it is one more look after a look. `compacted`: a
+    /// compaction lies between it and `prev`.
+    fn sequence(&mut self, prev: Option<&Request>, r: &Request, split: &Split, compacted: bool) {
+        // Longer than these and the machine slept or a person was asked: not time spent working.
+        const REPLY_MAX: i64 = 30 * 60_000;
+        const WAIT_MAX: i64 = 2 * 3_600_000;
+        let took = match (r.sent, r.done) {
+            (Some(sent), Some(done)) if done >= sent && done - sent <= REPLY_MAX => done - sent,
+            _ => 0,
+        };
+        self.time.model_ms += took;
+        if let (true, Some(p)) = (r.after_tool, prev)
+            && let (Some(done), Some(sent)) = (p.done, r.sent)
+            && sent > done
+            && sent - done <= WAIT_MAX
+        {
+            self.time.wait_ms += sent - done;
+            let e = self.time.waits.entry(p.call.clone().unwrap_or_else(|| "other".to_string())).or_default();
+            e.0 += 1;
+            e.1 += sent - done;
+        }
+        if r.calls > 0 {
+            self.round.calling += 1;
+            if r.calls == 1 {
+                self.round.single += 1;
+            }
+        }
+        let look = |x: &Request| x.calls == 1 && x.looks;
+        if look(r) && !compacted && prev.is_some_and(look) {
+            self.round.requests += 1;
+            self.round.cost += split.cache_read + split.input;
+            self.round.context += r.usage.context().unwrap_or(0);
+            self.round.ms += took;
+        }
+    }
+
     fn sub_request(&mut self, r: &Request) {
         let split = self.count(r);
         self.sub_requests += 1;
@@ -1880,6 +1973,19 @@ impl Stats {
         for w in &o.agents.carry.windows {
             self.agents.carry.window(w.threshold).merge(w);
         }
+        self.round.calling += o.round.calling;
+        self.round.single += o.round.single;
+        self.round.requests += o.round.requests;
+        self.round.cost += o.round.cost;
+        self.round.context += o.round.context;
+        self.round.ms += o.round.ms;
+        self.time.model_ms += o.time.model_ms;
+        self.time.wait_ms += o.time.wait_ms;
+        for (g, (n, ms)) in &o.time.waits {
+            let e = self.time.waits.entry(g.clone()).or_default();
+            e.0 += n;
+            e.1 += ms;
+        }
         self.step.requests += o.step.requests;
         self.step.cost += o.step.cost;
         self.step.lower += o.step.lower;
@@ -1969,6 +2075,7 @@ impl Stats {
                     self.requests += 1;
                     requests += 1;
                     self.main.add(&split);
+                    self.sequence(prev, r, &split, compacted);
                     if compacted && let Some(c) = self.compactions.last_mut() {
                         // What the compaction left is sent as new by the first request after it.
                         c.resent = Some(r.usage.cache_write.unwrap_or(0) + r.usage.input.unwrap_or(0));
@@ -2091,6 +2198,7 @@ impl Stats {
                     let split = self.count(r);
                     self.sub_requests += 1;
                     self.sub.add(&split);
+                    self.sequence(prev, r, &split, compacted);
                     if let Some(c) = r.usage.context() {
                         self.agents.carry.peak = self.agents.carry.peak.max(c);
                         let base = split.total() / times;
@@ -2674,6 +2782,7 @@ fn text(s: &Stats, ctx: &Ctx, dir: &Path, days: u64, session: Option<&str>) -> S
             .collect();
         out.push_str(&format!("  largest: {}\n", largest.join(", ")));
     }
+    out.push_str(&pace(s));
     let mut unrecorded = Vec::new();
     if s.thinking.recorded == 0 && s.thinking.requests > 0 {
         unrecorded.push("thinking tokens".to_string());
@@ -2691,6 +2800,74 @@ fn text(s: &Stats, ctx: &Ctx, dir: &Path, days: u64, session: Option<&str>) -> S
         out.push_str(&format!("Largest sessions: {}. `codefast doctor sessions --session ID` breaks one down.\n", top.join(", ")));
     }
     out
+}
+
+/// How the requests went and where the time went: the calls of a request, the looks that
+/// followed one another, the replies and the waits. Main thread and sub-agents together.
+fn pace(s: &Stats) -> String {
+    let total = s.total();
+    let mut out = String::new();
+    let r = &s.round;
+    if r.calling > 0 {
+        out.push_str("\nHow the requests went:\n");
+        out.push_str(&format!(
+            "  {} of the {} requests that called a tool made one call ({}), {} made several.\n",
+            count(r.single),
+            count(r.calling),
+            share(r.single as f64, r.calling as f64),
+            count(r.calling - r.single)
+        ));
+        if r.requests > 0 {
+            let took = if r.ms >= 60_000 { format!(", and they took {} of the models' time", hours(r.ms)) } else { String::new() };
+            out.push_str(&format!(
+                "  {} requests ({} of all) made one call that only looks (a read, a search, a listing) right after another such request. Each read the conversation again, {} tokens on average: {} ({}){took}.\n",
+                count(r.requests),
+                share(r.requests as f64, (s.requests + s.sub_requests) as f64),
+                short(r.context as f64 / r.requests as f64),
+                short(r.cost),
+                share(r.cost, total)
+            ));
+            out.push_str("  Looks that do not depend on each other cost one reading when they go out in one request, and a job of looking things up costs less in a sub-agent, whose conversation is short.\n");
+        }
+    }
+    let t = &s.time;
+    if t.model_ms + t.wait_ms >= 60_000 {
+        let mut waits: Vec<(&String, &(usize, i64))> = t.waits.iter().collect();
+        waits.sort_by(|a, b| b.1.1.cmp(&a.1.1));
+        let named: Vec<String> = waits.iter().take(5).filter(|(_, (_, ms))| *ms >= 60_000).map(|(g, (n, ms))| format!("{g} {} ({} call{})", hours(*ms), count(*n), if *n == 1 { "" } else { "s" })).collect();
+        let by = if named.is_empty() { String::new() } else { format!(": {}", named.join(", ")) };
+        out.push_str(&format!(
+            "\nWhere the time went, as far as the transcripts time it: {} of the models writing replies, {} of waiting for tool calls{by}.\n",
+            hours(t.model_ms),
+            hours(t.wait_ms)
+        ));
+    }
+    out
+}
+
+/// The same as JSON: the requests with calls, the looks in a row, and the time.
+fn pace_json(s: &Stats) -> (Value, Value, Value) {
+    let total = s.total();
+    let mut by_wait: Vec<(&String, &(usize, i64))> = s.time.waits.iter().collect();
+    by_wait.sort_by(|a, b| b.1.1.cmp(&a.1.1));
+    let waits: Vec<Value> = by_wait.iter().take(12).map(|(g, (n, ms))| json!({"call": g, "waits": n, "ms": ms})).collect();
+    (
+        json!({"count": s.round.calling, "one_call": s.round.single, "several_calls": s.round.calling - s.round.single}),
+        json!({
+            "requests": s.round.requests,
+            "share_of_requests": ratio(s.round.requests as f64, (s.requests + s.sub_requests) as f64),
+            "weighted": round(s.round.cost),
+            "share": ratio(s.round.cost, total),
+            "mean_context_tokens": if s.round.requests > 0 { json!(s.round.context / s.round.requests as u64) } else { Value::Null },
+            "model_ms": s.round.ms,
+        }),
+        json!({"model_ms": s.time.model_ms, "waiting_for_calls_ms": s.time.wait_ms, "waiting_by_call": waits}),
+    )
+}
+
+/// A length of time for a report: `41.2 h`, `35 min`.
+fn hours(ms: i64) -> String {
+    if ms >= 3_600_000 { format!("{:.1} h", ms as f64 / 3.6e6) } else { format!("{} min", (ms as f64 / 60_000.0).round() as i64) }
 }
 
 fn round(x: f64) -> u64 {
@@ -2779,6 +2956,7 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
     };
     let carried_json = carry_json(&s.carry);
     let agents_cold: f64 = s.agents.cold.iter().map(|c| c.cost).sum();
+    let pace = pace_json(s);
     let mut out = json!({
         "sessions": s.sessions,
         "requests": s.requests,
@@ -2829,6 +3007,9 @@ fn to_json(s: &Stats, ctx: &Ctx, detail: bool) -> Value {
             let w = s.weights(m);
             (m.clone(), json!({"cache_read": w.cache_read, "cache_write_5m": w.write_5m, "cache_write_1h": w.write_1h, "output": w.output, "tier": w.tier.map(|t| json!({"over_tokens": t.over, "times": t.times}))}))
         }).collect::<serde_json::Map<String, Value>>(),
+        "requests_with_calls": pace.0,
+        "looks_in_a_row": pace.1,
+        "time": pace.2,
         "prices_read": PRICES_READ,
         "unknown_context_requests": s.unknown_context,
         "findings": s.findings().iter().map(|(k, c)| json!({"finding": k, "weighted": round(*c), "share": ratio(*c, total)})).collect::<Vec<_>>(),
@@ -2997,7 +3178,10 @@ fn all_projects(ctx: &Ctx, o: &Options) -> Result<String> {
             .collect();
         let totals: Vec<Value> = sums
             .iter()
-            .map(|(n, s)| json!({"harness": s.kind.name(), "projects": n, "sessions": s.sessions, "requests": s.requests, "weighted": round(s.total()), "findings": findings_json(s)}))
+            .map(|(n, s)| {
+                let pace = pace_json(s);
+                json!({"harness": s.kind.name(), "projects": n, "sessions": s.sessions, "requests": s.requests, "subagent_requests": s.sub_requests, "weighted": round(s.total()), "findings": findings_json(s), "requests_with_calls": pace.0, "looks_in_a_row": pace.1, "time": pace.2})
+            })
             .collect();
         return Ok(format!("{}\n", serde_json::to_string_pretty(&json!({"days": o.days, "projects": projects, "totals": totals}))?));
     }
@@ -3030,6 +3214,12 @@ fn all_projects(ctx: &Ctx, o: &Options) -> Result<String> {
             count(sum.requests),
             largest(sum)
         ));
+    }
+    for (_, sum) in &sums {
+        let pace = pace(sum);
+        if !pace.is_empty() {
+            out.push_str(&format!("\n{} sessions of all projects together:{}", sum.kind.name(), pace.replace("\nHow the requests went:\n", "\n")));
+        }
     }
     out.push_str("`codefast doctor sessions` in a project shows its findings.\n");
     Ok(out)
@@ -3103,7 +3293,7 @@ mod tests {
 
     fn req(model: &str, minute: i64, usage: Usage) -> Event {
         let at = Some(minute * 60_000);
-        Event::Request(Request { model: model.to_string(), at, sent: at, done: at, after_tool: false, sidechain: false, usage, miss: None })
+        Event::Request(Request { model: model.to_string(), at, sent: at, done: at, after_tool: false, sidechain: false, usage, miss: None, ..Default::default() })
     }
 
     #[test]

@@ -896,9 +896,32 @@ thing to do about it. A finding under 1% of the total is left out.
 | repeated reads | a file read again within a stretch that came back word for word as before. For Codex: a call with the same tool and arguments that gave back the same output |
 
 It also lists the tools whose results weighed most (Bash and Codex's shell by the program they
-ran, MCP tools by server) and the three heaviest single results. `--days N` sets the window (default 14 days,
+ran, MCP tools by server) and the three heaviest single results.
+
+For Claude Code two more things follow, main thread and sub-agents together:
+
+- **How the requests went.** How many requests made one tool call and how many several, and
+  the looks in a row: a request that made one call that only looks (a read, a search, a
+  listing, a shell command in which every program is a viewer and nothing is written) right
+  after another such request. Each of them read the whole conversation again for one more
+  look, and the report says how many there were, how long the conversation was that they
+  read, what the reading cost and how much of the models' time they took. On one machine (30
+  days of sessions of 13 projects, read on 15 November 2026) 91% of the 318,000 requests that
+  called a tool made exactly one call, and 29% of all requests were such looks in a row. Each
+  read 271,000 tokens again on average, which came to 14% of all weighted tokens and 201 of
+  the 1,114 hours the models spent writing replies. What they cost is an upper bound on what
+  is to be had from calls that go out together, and it falls with the length of the
+  conversation, which is what the findings on carried context are about.
+- **Where the time went**, as far as a transcript times it: the models writing their replies
+  (from when a request was sent to the last part of its reply), and the waits for tool calls
+  by what was called (from the end of a reply to the request after it). A reply of more than
+  half an hour and a wait of more than two hours are left out, since the machine slept or a
+  person was asked.
+
+`--days N` sets the window (default 14 days,
 by when a transcript last changed), `--session ID` breaks one session down request by request,
-`--all` gives one line per project and harness and a total per harness, and `--json` prints the
+`--all` gives one line per project and harness and a total per harness (with how the requests
+went and where the time went for all projects together), and `--json` prints the
 same numbers as JSON, one object per harness. Counts that an older harness version did not
 write, such as thinking tokens, are reported as not recorded rather than as zero.
 

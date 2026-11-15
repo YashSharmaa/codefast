@@ -639,6 +639,71 @@ fn a_main_thread_on_the_five_minute_cache() {
     );
 }
 
+/// One call a request is how the models work, and a call that only looks, made right after
+/// another such call, reads the whole conversation again for one more look. The report counts
+/// those requests, what the reading cost and how long they took, and says where the time of
+/// the session went: the replies, and the waits for calls by what was called.
+#[test]
+fn looks_in_a_row_and_where_the_time_went() {
+    let sb = Sandbox::new("sessions-looks");
+    let root = project(&sb, "looks");
+    let lib = root.join("src/lib.rs").display().to_string();
+    let sonnet = "claude-sonnet-5-5";
+    let bash = |id: &str, command: &str| tool_use(id, "Bash", json!({"command": command}));
+    jsonl(
+        &transcripts(&sb, &root).join(format!("{FIRST}.jsonl")),
+        &[
+            json!({"type": "user", "isSidechain": false, "message": {"role": "user", "content": "Find the parser."}, "timestamp": ts(0)}),
+            assistant("m1", sonnet, 1, usage(10, 0, 50_000, 100, 0), bash("t1", "grep -rn parse src/ | head -20"), &root),
+            result("t1", 2, json!("src/lib.rs:12:fn parse()")),
+            // A look after a look, twice: a range of the file, then the file.
+            assistant("m2", sonnet, 3, usage(10, 50_000, 1_000, 100, 0), bash("t2", "sed -n '10,40p' src/lib.rs"), &root),
+            result("t2", 3, json!("fn parse() {}")),
+            assistant("m3", sonnet, 5, usage(10, 51_000, 1_000, 200, 0), tool_use("t3", "Read", json!({"file_path": lib})), &root),
+            result("t3", 6, json!(file_text())),
+            // Two calls in one request, one of which runs the tests: not a look, and one request.
+            assistant(
+                "m4",
+                sonnet,
+                7,
+                usage(10, 52_000, 2_000, 300, 0),
+                json!([{"type": "tool_use", "id": "t4", "name": "Bash", "input": {"command": "cargo test"}}, {"type": "tool_use", "id": "t5", "name": "Read", "input": {"file_path": lib}}]),
+                &root,
+            ),
+            result("t4", 37, json!("test result: ok")),
+            result("t5", 37, json!(file_text())),
+            assistant("m5", sonnet, 38, usage(10, 54_000, 1_000, 50, 0), json!([{"type": "text", "text": "Done."}]), &root),
+        ],
+    );
+    let r = report(&sb, &root, &[]);
+    assert_eq!(r["requests_with_calls"], json!({"count": 4, "one_call": 3, "several_calls": 1}), "{r:#}");
+    let looks = &r["looks_in_a_row"];
+    assert_eq!(looks["requests"], 2, "{looks:#}");
+    // What m2 and m3 read again: 50,000 and 51,000 tokens at 0.05, and 10 new tokens each.
+    near(&looks["weighted"], 0.05 * 101_000.0 + 20.0);
+    assert_eq!(looks["mean_context_tokens"], (51_010 + 52_010) / 2, "{looks:#}");
+    assert_eq!(looks["model_ms"], 3 * 60_000, "{looks:#}");
+    // Replies: one minute each, two for m3. Waits: a minute for the grep, a minute for the
+    // read, and half an hour for the tests. The range came back in the minute it was asked.
+    let time = &r["time"];
+    assert_eq!(time["model_ms"], 6 * 60_000, "{time:#}");
+    assert_eq!(time["waiting_for_calls_ms"], 32 * 60_000, "{time:#}");
+    assert_eq!(time["waiting_by_call"][0], json!({"call": "Bash cargo", "waits": 1, "ms": 30 * 60_000}), "{time:#}");
+    let text = run(&sb, &root, &[]);
+    assert!(text.contains("How the requests went:\n  3 of the 4 requests that called a tool made one call (75%), 1 made several.\n"), "{text}");
+    assert!(
+        text.contains("  2 requests (40% of all) made one call that only looks (a read, a search, a listing) right after another such request. Each read the conversation again, 52k tokens on average: "),
+        "{text}"
+    );
+    assert!(text.contains(", and they took 3 min of the models' time.\n"), "{text}");
+    assert!(
+        text.contains(
+            "Where the time went, as far as the transcripts time it: 6 min of the models writing replies, 32 min of waiting for tool calls: Bash cargo 30 min (1 call), Bash grep 1 min (1 call), Read 1 min (1 call).\n"
+        ),
+        "{text}"
+    );
+}
+
 #[test]
 fn the_harness_reason_for_a_cache_miss() {
     let sb = Sandbox::new("sessions-miss");

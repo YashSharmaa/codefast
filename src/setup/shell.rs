@@ -1146,6 +1146,35 @@ pub fn runs_code(command: &str) -> bool {
     })
 }
 
+/// Whether a command line only looks: every command in it is a viewer, a search or a listing
+/// (`grep`, `sed -n`, `cat`, `ls`, `git log`), and nothing is written. Such a call changes
+/// nothing, so nothing but what the model learns from it ties it to the call after it.
+pub fn only_looks(command: &str) -> bool {
+    const VIEWS: &[&str] = &[
+        "ls", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "ag", "ack", "ugrep", "find", "fd", "tree", "pwd", "cd", "echo", "printf", "which", "type", "stat", "file", "du", "df",
+        "sort", "uniq", "cut", "tr", "awk", "sed", "jq", "diff", "cmp", "less", "more", "bat", "nl", "tac", "basename", "dirname", "realpath", "readlink", "column", "comm", "paste", "true", "test",
+        "[", "[[", "codefast",
+    ];
+    const GIT: &[&str] =
+        &["status", "diff", "log", "show", "branch", "blame", "grep", "ls-files", "ls-tree", "rev-parse", "rev-list", "describe", "remote", "tag", "cat-file", "shortlog", "reflog", "merge-base"];
+    if may_write(command) {
+        return false;
+    }
+    let Some(toks) = lex(command) else { return false };
+    let commands = simple_commands(toks);
+    !commands.is_empty()
+        && commands.iter().all(|s| {
+            let mut words = s.words.iter().skip_while(|w| !w.dynamic && is_assignment(&w.text));
+            match words.next() {
+                Some(w) if !w.dynamic => match base_name(&w.text) {
+                    "git" => words.find(|w| !w.text.starts_with('-')).is_some_and(|sub| !sub.dynamic && GIT.contains(&sub.text.as_str())),
+                    name => VIEWS.contains(&name),
+                },
+                _ => false,
+            }
+        })
+}
+
 /// A symbol name a search pattern asks for, with the kind word written in front of it, if any
 /// (`struct file_operations`, `def handle`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1531,6 +1560,38 @@ mod tests {
             ("grep -c x <<< \"$text\"", vec![]),
         ] {
             assert_eq!(heredoc_files(command), want, "{command}");
+        }
+    }
+
+    #[test]
+    fn a_command_that_only_looks_is_told_from_every_other() {
+        for command in [
+            "grep -rn foo src/",
+            "sed -n '10,40p' src/a.rs",
+            "cat a.py | head -20",
+            "cd /w && ls -la src",
+            "git log --oneline -5",
+            "rg foo | wc -l",
+            "find . -name '*.rs' | sort",
+            "X=1 grep -c y f.txt 2>/dev/null",
+        ] {
+            assert!(only_looks(command), "{command}");
+        }
+        for command in [
+            "cargo test",
+            "cat > a.py <<'EOF'\nx\nEOF",
+            "sed -i s/a/b/ f",
+            "git commit -m x",
+            "git -C sub log",
+            "python3 x.py",
+            "ls; rm a",
+            "echo hi > f",
+            "sleep 5",
+            "mkdir -p a",
+            "$CMD foo",
+            "",
+        ] {
+            assert!(!only_looks(command), "{command}");
         }
     }
 
