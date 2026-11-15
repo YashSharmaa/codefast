@@ -914,9 +914,16 @@ are those of the model the conversation runs on. Each is said once per occasion,
 - When a conversation on Claude Haiku 5.5 comes within a fifth of 100,000 tokens, and again when
   it is over: that a request whose prompt is over that length pays five times the price for
   every token of it, and that `/autocompact 125k` keeps a conversation under it. The harness
-  compacts about 33,000 tokens under the window it is given. In the staged benchmark that
-  window cost 0.46 of the dollars of the same conversation left alone, and no request had a
-  prompt over 91,000 tokens (`bench/tier2/LIVE.md`).
+  compacts about 33,000 tokens under the window it is given, and since Claude Code 2.1.288 it
+  remembers the window for that model, so the command is typed once. In the staged benchmark
+  that window cost 0.39 of the dollars of the same conversation left alone on the four
+  held-out projects (0.46 on the two it was found on), and no request had a prompt over
+  100,000 tokens. With the plugin, whose hook gives the request back after each compaction,
+  the conversations passed the hidden tests as often as the ones left alone
+  (`bench/tier2/LIVE.md`). A hook cannot do this for you: the harness gives a plugin no way to
+  compact a conversation or to set the window. What a plugin can do by itself was tried,
+  handing each job to a sub-agent with a fresh context once the conversation nears that
+  length, and it cost 0.7 to 1.0 of the conversation left alone, so it was not kept.
 - When you come back to a conversation of 60,000 tokens or more after its prompt cache has run
   out (an hour, or five minutes where the transcript shows the five-minute cache), or resume
   such a conversation: that the next request sends all of it again as new input. That is 20
