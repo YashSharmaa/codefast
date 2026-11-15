@@ -172,7 +172,8 @@ def run(a):
             lim = r["limits"]
             worst = max([v for k, v in lim.items() if k != "status" and isinstance(v, (int, float))] or [0])
             print(f"  {res['id']:11} {res['arm']:8} exit={res['exit']} req={r['requests']:3d} tools={sum(r['tools'].values()):3d} ${r['cost']:.3f} {res['seconds']:.0f}s limits={lim}", flush=True)
-            if lim.get("status") not in (None, "allowed") or worst >= a.limit_stop:
+            warned = lim.get("status") not in (None, "allowed") and not (a.allow_warning and lim.get("status") == "allowed_warning")
+            if warned or worst >= a.limit_stop:
                 print(f"  STOPPING: account usage window at {worst:.2f} (status {lim.get('status')})", flush=True)
                 stop = True
             spent += r["cost"] or 0
@@ -283,6 +284,7 @@ def main():
     r.add_argument("--timeout", type=int, default=1800)
     r.add_argument("--resume", action="store_true")
     r.add_argument("--limit-stop", type=float, default=0.8, help="stop the batch when an account usage window is this full")
+    r.add_argument("--allow-warning", action="store_true", help="go on while the account says its window is in warning, up to --limit-stop: for a small batch that was weighed against what is left")
     r.add_argument("--openrouter", action="store_true", help="run the sessions through OpenRouter with OPENROUTER_API_KEY, and --config-dir a directory with no login in it")
     r.add_argument("--max-spend", type=float, default=0.0, help="stop the batch when its sessions have cost this many dollars (0: no bound)")
     r.add_argument("--claude", default=os.environ.get("CLAUDE_BIN", str(Path.home() / ".local/bin/claude")))

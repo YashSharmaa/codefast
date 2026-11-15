@@ -318,24 +318,28 @@ arm, the median for each repository, then the mean of the seven.
 
 | Model | Runs an arm | Without any tool: seconds, tool calls, tokens, dollars a question | With codefast | Time | Tool calls | Tokens | Cost |
 |---|---|---|---|---|---|---|---|
-| Opus 5.5 | 28 | 36 s, 3.0, 81k, 0.141 | 36 s, 3.2, 101k, 0.159 | 0.98 | 0.98 | 1.14 | 1.16 |
+| Opus 5.5 | 28 | 45 s, 3.2, 90k, 0.144 | 41 s, 2.9, 91k, 0.140 | 0.97 | 1.05 | 1.12 | 1.03 |
 | Sonnet 5.5 | 28 | 15 s, 1.9, 54k, 0.043 | 12 s, 1.5, 49k, 0.042 | 0.84 | 0.91 | 0.96 | 0.98 |
 | Haiku 5.5 | 28 | 20 s, 5.2, 113k, 0.005 | 16 s, 3.6, 93k, 0.004 | 0.79 | 0.76 | 0.90 | 0.80 |
 | published for the other tool, Opus 4.8 | 28 | 46 to 163 s, 6 to 43, 180k to 991k, 0.31 to 2.43 | 28 to 63 s, 1 to 4, 87k to 209k, 0.31 to 0.66 | 0.47 | 0.12 | 0.38 | 0.57 |
 
 **What this says.** The session without any tool is no longer the one those figures were
 measured against. In August it made 6 to 43 tool calls and took 46 to 163 seconds. In
-November, with Opus 5.5, it makes 2 to 4 and takes 26 to 45 seconds, which is less than the
-published session with the tool. The models now put several searches and several ranges of
-several files into one shell command. Against that session there is little left: codefast is
-a fifth faster with Haiku 5.5 and Sonnet 5.5 and level with Opus 5.5, where it costs 16% more.
+November, with Opus 5.5, it makes 2 to 6 and takes 29 to 60 seconds at 7 to 23 cents, where the
+published session with the tool takes 28 to 63 seconds and 31 to 66 cents. The models now put
+several searches and several ranges of several files into one shell command. Against that
+session there is little left: codefast is a fifth faster with Haiku 5.5 and Sonnet 5.5 and
+level with Opus 5.5 (0.97 of the time, 1.03 of the cost). In the morning of the same day it
+cost 1.16 with Opus 5.5: the answer to a call that names several symbols was changed after
+those sessions were read (`bench/tier2/LIVE.md` says how).
 These are questions about code the models have read. On the tasks of the section above, where
 an answer has to be complete and cannot be recalled, the same plugin halves the session.
 
 **Hold against it.** Seven questions, and one run of an arm differs from the next by a
 quarter. The answers are not graded in the protocol. Here the files an answer names were
 checked against the repository, and both arms name as many that exist. Their model is no
-longer current, so the two kinds of row are three months of harness and model apart.
+longer current, so the two kinds of row are three months of harness and model apart. The rows
+of Sonnet 5.5 and Haiku 5.5 are from before the change of 15 November.
 
 ### In Codex
 

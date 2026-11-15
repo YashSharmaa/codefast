@@ -1713,7 +1713,7 @@ two arms name as many that exist. Rows in `bench/results/public-seven-repos.json
 
 | Model | Runs an arm | Without any tool: seconds, tool calls, tokens, dollars a question | With codefast | Time | Tool calls | Tokens | Cost |
 |---|---|---|---|---|---|---|---|
-| Opus 5.5 | 28 | 36 s, 3.0, 81k, 0.141 | 36 s, 3.2, 101k, 0.159 | 0.98 | 0.98 | 1.14 | 1.16 |
+| Opus 5.5 | 28 | 45 s, 3.2, 90k, 0.144 | 41 s, 2.9, 91k, 0.140 | 0.97 | 1.05 | 1.12 | 1.03 |
 | Sonnet 5.5 | 28 | 15 s, 1.9, 54k, 0.043 | 12 s, 1.5, 49k, 0.042 | 0.84 | 0.91 | 0.96 | 0.98 |
 | Haiku 5.5 | 28 | 20 s, 5.2, 113k, 0.005 | 16 s, 3.6, 93k, 0.004 | 0.79 | 0.76 | 0.90 | 0.80 |
 | published for the other tool, Opus 4.8 | 28 | 46 to 163 s, 6 to 43, 180k to 991k, 0.31 to 2.43 | 28 to 63 s, 1 to 4, 87k to 209k, 0.31 to 0.66 | 0.47 | 0.12 | 0.38 | 0.57 |
@@ -1722,38 +1722,57 @@ With Opus 5.5, by repository, next to what was published:
 
 | Repository | Without any tool here: seconds, tool calls, dollars | With codefast | Published without the other tool | Published with it | Files an answer names that exist, without and with |
 |---|---|---|---|---|---|
-| VS Code | 31 s, 2, 0.09 | 34 s, 3, 0.16 | 130 s, 28, 1.80 | 58 s, 2, 0.53 | 10 and 7 |
-| Excalidraw | 42 s, 4, 0.15 | 45 s, 5, 0.18 | 162 s, 43, 2.43 | 45 s, 2, 0.54 | 10 and 10 |
-| Django | 39 s, 2, 0.12 | 35 s, 2, 0.18 | 83 s, 14, 0.63 | 54 s, 3, 0.55 | 3 and 4 |
-| Tokio | 39 s, 4, 0.16 | 44 s, 4, 0.17 | 163 s, 29, 1.83 | 63 s, 3, 0.66 | 7 and 6 |
-| OkHttp | 27 s, 2, 0.08 | 23 s, 1, 0.07 | 58 s, 6, 0.50 | 33 s, 1, 0.39 | 4 and 3 |
-| Gin | 26 s, 2, 0.08 | 22 s, 1, 0.07 | 46 s, 7, 0.31 | 28 s, 1, 0.31 | 4 and 5 |
-| Alamofire | 45 s, 4, 0.24 | 45 s, 5, 0.19 | 142 s, 33, 1.27 | 54 s, 4, 0.54 | 6 and 6 |
+| VS Code | 32 s, 2, 0.07 | 40 s, 4, 0.12 | 130 s, 28, 1.80 | 58 s, 2, 0.53 | 11 and 8 |
+| Excalidraw | 51 s, 4, 0.15 | 52 s, 4, 0.19 | 162 s, 43, 2.43 | 45 s, 2, 0.54 | 10 and 9 |
+| Django | 40 s, 2, 0.13 | 43 s, 2, 0.14 | 83 s, 14, 0.63 | 54 s, 3, 0.55 | 3 and 3 |
+| Tokio | 60 s, 6, 0.20 | 44 s, 3, 0.16 | 163 s, 29, 1.83 | 63 s, 3, 0.66 | 6 and 4 |
+| OkHttp | 34 s, 2, 0.08 | 31 s, 2, 0.07 | 58 s, 6, 0.50 | 33 s, 1, 0.39 | 2 and 4 |
+| Gin | 29 s, 2, 0.09 | 28 s, 2, 0.07 | 46 s, 7, 0.31 | 28 s, 1, 0.31 | 3 and 3 |
+| Alamofire | 48 s, 5, 0.23 | 43 s, 4, 0.17 | 142 s, 33, 1.27 | 54 s, 4, 0.54 | 6 and 5 |
 
 What this says:
 
 1. **The session without any tool is not the one the figures were measured against.** With
    Opus 4.8 in August it made 6 to 43 tool calls and took 46 to 163 seconds. With Opus 5.5 in
-   November it makes 2 to 4 and takes 26 to 45 seconds, at 8 to 24 cents. That is less than the
-   published session with the tool (28 to 63 seconds, 31 to 66 cents). The models now put
+   November it makes 2 to 6 and takes 29 to 60 seconds, at 7 to 23 cents. The published session
+   with the tool takes 28 to 63 seconds and 31 to 66 cents. The models now put
    several searches and several ranges of several files into one shell command: the two to
    four calls of a session of Opus 5.5 hold 7 to 19 commands. A saving of 62% of the tokens and
    53% of the time against the older session says nothing about this one.
-2. **Against this session there is little left to save.** codefast is level with Opus 5.5 in
-   time and tool calls and costs 16% more. With Sonnet 5.5 it is 16% faster at the same cost.
-   With Haiku 5.5 it is 21% faster and 20% cheaper.
-3. **Where it gains and where it costs, with Opus 5.5.** On the two small repositories (Gin,
-   OkHttp) one call of codefast holds the bodies the question needs, and the session ends
-   after it: one call where the control makes two, and 15% less time. On the four where the
-   answer runs through many functions, the first answer of codefast is one more call: the
-   session then reads as many ranges through the shell as the control does.
-4. **How Opus 5.5 asks.** It names the symbols it remembers, several in one call, with a room
-   of 4,000 to 7,000 tokens: `QuerySet._fetch_all`, `ModelIterable.__iter__`,
+2. **Against this session there is little left to save.** With Opus 5.5 codefast is level
+   with it: 0.97 of the time and 1.03 of the cost by the medians of the table, and by the means
+   of the 28 sessions an arm 0.92 of the time, 0.90 of the tool calls, 1.02 of the tokens and
+   0.97 of the cost. With Sonnet 5.5 it is 16% faster at the same cost. With Haiku 5.5 it is
+   21% faster and 20% cheaper.
+3. **Where it gains and where it costs, with Opus 5.5.** By the means of four runs the session
+   with codefast costs 0.75 of the control on Alamofire, 0.76 on Tokio, 0.90 on Gin and 0.96 on
+   OkHttp: the first answer holds the flow, and the session reads less after it. It costs 1.15
+   on Django, 1.24 on Excalidraw and 1.51 on VS Code. On VS Code the session names classes,
+   gets their outlines, and then reads the same ranges through the shell as the control does,
+   so the answer of codefast is one call more. On Django and Excalidraw it asks twice, for six
+   names each time, and each answer is longer than what the control reads in one step.
+4. **What was changed on 15 November, and what it did.** The rows of Opus 5.5 are of the build
+   of that evening. In the morning the same protocol gave 0.98 of the time, 0.98 of the tool
+   calls, 1.14 of the tokens and 1.16 of the cost. The sessions showed why. A call that names
+   several symbols got a full card for each, with a body of up to sixty lines and every place
+   that uses it, two to three times what the control reads, and the session then asked for
+   the next layer of the same flow in a second call. Such a call now gets a card for each
+   without the list of uses, the call chains between them with the place of every call, the
+   functions on the way, and what they call besides by signature. The cards share 200 lines: a
+   flow that fits is printed whole, and beyond that the functions that lead on to another of
+   them come first. The description of the tool asks for a size to be named only when an
+   answer was cut short, and the sessions stopped naming one. Sonnet 5.5 and Haiku 5.5 were
+   measured in the morning, before the change. Haiku 5.5 with the build of the evening, run
+   through OpenRouter (56 sessions, `bench/results/public-seven-repos-openrouter.jsonl`), took
+   0.69 of the time, 0.60 of the tool calls, 0.71 of the tokens and 0.74 of the cost of its
+   control by the means, and was at or under it on every repository.
+5. **How Opus 5.5 asks.** It names the symbols it remembers, several in one call (in the
+   morning with a room of 4,000 to 7,000 tokens that it named itself): `QuerySet._fetch_all`, `ModelIterable.__iter__`,
    `SQLCompiler.execute_sql`. Of the 107 answers codefast gave in the sessions of Opus 5.5 and
    Sonnet 5.5 (this protocol and the tasks of the section above), 8 were "nothing found" for a
    name that the checkout writes a little differently. Those are the last two changes of the
    section above.
-5. **These are questions about code the models have read.** A model says how a well-known
+6. **These are questions about code the models have read.** A model says how a well-known
    repository works from memory and checks a few places. The tasks of the section above ask
    for something that cannot be recalled and has to be complete (every caller, in a
    repository the model knows less well), and there the same plugin halves the session.
