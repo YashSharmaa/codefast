@@ -5,9 +5,11 @@ Edit calls (and from here documents that write a file), and every prompt, read, 
 command is handed to `codefast hook` the way the harness handed it. What the hooks then say is
 what that build would have put in front of the model in this conversation.
 
-Recorded shell commands are never run. An edit whose file a shell command had changed cannot
-be rebuilt and is counted as such. Nothing is written outside the scratch directory, which is
-made new for every replay.
+Recorded shell commands are never run. A here document that writes or appends to a file
+(`cat > FILE <<EOF`, `cat >> FILE <<EOF`, also after a `cd`) is applied as text, which is how
+some models write every file. An edit made by an inline script cannot be rebuilt, and neither
+can an edit whose file a shell command had changed: both are counted. Nothing is written
+outside the scratch directory, which is made new for every replay.
 
 usage: replay_conversation.py BINARY RUN_DIR SCRATCH_DIR [--fresh] [--show]
 
@@ -27,6 +29,33 @@ import subprocess
 import sys
 
 MARK = ".replay-scratch"
+
+
+def here_documents(command, start):
+    """(path, text, appended) for each `cat > PATH <<WORD` and `cat >> PATH <<WORD` of a
+    command line, with a `cd` in front of it followed from the directory `start`."""
+    out, cur, lines, i = [], start, command.split("\n"), 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        opened = re.search(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1", line)
+        before = line[: opened.start()] if opened else line
+        for part in re.split(r"[;&|]", before):
+            moved = re.match(r"cd\s+(\"[^\"]*\"|'[^']*'|\S+)", part.strip())
+            if moved:
+                to = moved.group(1).strip("'\"")
+                cur = None if cur is None or "$" in to or to == "-" else os.path.normpath(os.path.join(cur, to))
+        if not opened:
+            continue
+        body = []
+        while i < len(lines) and lines[i] != opened.group(2):
+            body.append(lines[i])
+            i += 1
+        i += 1
+        wrote = re.search(r"cat\s*(>>?)\s*(\"[^\"]*\"|'[^']*'|[^\s<>]+)\s*$", before.strip())
+        if wrote and cur is not None and "$" not in wrote.group(2):
+            out.append((os.path.join(cur, wrote.group(2).strip("'\"")), "\n".join(body) + "\n", wrote.group(1) == ">>"))
+    return out
 
 
 def main():
@@ -158,17 +187,23 @@ def main():
             elif name == "Bash":
                 command = i.get("command") or ""
                 # A here document that writes a file is applied as text. Nothing of the command is run.
-                for m in re.finditer(r"cat\s*>\s*([^\s<>]+)\s*<<-?\s*(['\"]?)(\w+)\2\n(.*?)\n\3(?=\n|$)", command, re.S):
-                    path = local(m.group(1).strip("'\""))
-                    if not path or "$" in path:
+                for target, text, appended in here_documents(command, recorded):
+                    path = local(target)
+                    if not path:
+                        count["outside"] += 1
                         continue
                     os.makedirs(os.path.dirname(path), exist_ok=True)
-                    open(path, "w").write(m.group(4) + "\n")
+                    open(path, "a" if appended else "w").write(text)
                     count["rebuilt"] += 1
+                if re.search(r"\b(python3?|node|ruby|perl)\s+-\s*<<", command) and re.search(r"open\(|write|replace", command):
+                    count["scripted"] += 1
                 command = command.replace(recorded, repo)
                 note("PostToolUse", hook("post-tool-use", {"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": {"command": command}, "tool_response": {"stdout": "", "stderr": ""}}), where)
     task, arm = os.path.basename(os.path.dirname(run)), os.path.basename(run)
-    print(f"{task} {arm}: {count['rebuilt']} writes and edits rebuilt, {count['missed']} edits not rebuilt (a shell command had changed their file), {count['outside']} calls outside the project left out")
+    print(
+        f"{task} {arm}: {count['rebuilt']} writes and edits rebuilt, {count['missed']} edits not rebuilt (a shell command had changed their file), "
+        f"{count['scripted']} inline scripts that may have edited files not run, {count['outside']} calls outside the project left out"
+    )
     for kind, n in sorted(said.items()):
         if kind != "start":
             print(f"   {n:3} {size[kind]:6,} B  {kind}")

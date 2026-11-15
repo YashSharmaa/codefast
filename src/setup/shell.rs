@@ -1017,8 +1017,16 @@ pub fn analyse(command: &str) -> Found {
 /// The files a command writes whole from a here document: `cat > PATH <<'EOF'`, `cat <<EOF >
 /// PATH`, `tee PATH <<EOF`. This is how a model writes a file through its shell, and what it
 /// wrote that way it has in front of it as much as a file written with the harness's own tool.
+///
+/// A `cd` in front is followed, because that is how the files of a project get written:
+/// `cd /the/project && cat > src/a.ts <<'EOF'`, then one `cat` after another. A path then comes
+/// back joined to the directory the command moved to (absolute when that directory is). The
+/// lines of a here document are the text of a file and are stepped over, so a `cd` in a
+/// script that is being written moves nothing.
+///
 /// Appends (`>>`, `tee -a`) are left out, and so is a path that is not written out in full
-/// (a variable, a pattern) or that follows a `cd`, which moves what a relative path means.
+/// (a variable, a pattern). The list ends at a move that cannot be followed (a variable, `cd
+/// -`, `pushd`, a subshell), since nothing after it is known to be where it seems.
 pub fn heredoc_files(command: &str) -> Vec<String> {
     // One word of a command line as a path: quotes removed, nothing the shell would expand.
     fn path(s: &str) -> Option<String> {
@@ -1029,21 +1037,57 @@ pub fn heredoc_files(command: &str) -> Vec<String> {
         };
         (!w.is_empty() && !w.starts_with('-') && !w.contains(['$', '`', '*', '?', '~', '{'])).then(|| w.to_string())
     }
-    let mut out = Vec::new();
-    let mut moved = false;
-    for line in command.lines() {
-        let at = line.find("<<");
-        let before = &line[..at.unwrap_or(line.len())];
-        if moved {
-            break;
+    // `to` as seen from `dir`, with `.` and `..` taken out. Nothing when it would climb above
+    // the directory the command started in, which this function does not know.
+    fn join(dir: &str, to: &str) -> Option<String> {
+        if to.starts_with('/') {
+            return Some(to.trim_end_matches('/').to_string());
         }
-        if before.split(|c: char| matches!(c, ';' | '&' | '|' | '(')).any(|c| matches!(c.split_whitespace().next(), Some("cd" | "pushd" | "popd"))) {
-            moved = true;
+        let absolute = dir.starts_with('/');
+        let mut parts: Vec<&str> = dir.split('/').filter(|p| !p.is_empty()).collect();
+        for p in to.split('/') {
+            match p {
+                "" | "." => {}
+                ".." => {
+                    parts.pop()?;
+                }
+                p => parts.push(p),
+            }
+        }
+        Some(format!("{}{}", if absolute { "/" } else { "" }, parts.join("/")))
+    }
+    // The word that ends a here document: `EOF`, `'EOF'`, `"EOF"`, `\EOF`. A digit there is a
+    // shift (`1<<3`), not a here document.
+    fn delimiter(after: &str) -> Option<&str> {
+        let s = after.trim_start_matches('-').trim_start();
+        let s = s.strip_prefix('\\').unwrap_or(s);
+        let word = match s.chars().next()? {
+            q @ ('\'' | '"') => &s[1..1 + s[1..].find(q)?],
+            _ => &s[..s.find(|c: char| !(c.is_alphanumeric() || c == '_')).unwrap_or(s.len())],
+        };
+        word.chars().next().filter(|c| c.is_alphabetic() || *c == '_').map(|_| word)
+    }
+    let mut out = Vec::new();
+    // Where the command stands, as it is written: empty until it moves.
+    let mut dir = String::new();
+    let mut lines = command.lines();
+    while let Some(line) = lines.next() {
+        let at = line.match_indices("<<").map(|(i, _)| i).find(|&i| !line[i..].starts_with("<<<") && delimiter(&line[i + 2..]).is_some());
+        let before = &line[..at.unwrap_or(line.len())];
+        for part in before.split([';', '&', '|']) {
+            let part = part.trim_start();
+            let moves = |name: &str| part.strip_prefix(name).filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace));
+            if part.starts_with('(') && part.contains("cd ") || moves("pushd").is_some() || moves("popd").is_some() {
+                return out;
+            }
+            if let Some(rest) = moves("cd") {
+                match path(rest).and_then(|to| join(&dir, &to)) {
+                    Some(d) => dir = d,
+                    None => return out,
+                }
+            }
         }
         let Some(at) = at else { continue };
-        if line[at..].starts_with("<<<") {
-            continue;
-        }
         let start = before.rfind([';', '|', '&', '(']).map_or(0, |i| i + 1);
         let cmd = before[start..].trim();
         // What follows the delimiter word on the same line: `<<'EOF' > PATH`.
@@ -1058,8 +1102,17 @@ pub fn heredoc_files(command: &str) -> Vec<String> {
         } else {
             None
         };
-        if let Some(f) = file.filter(|_| !moved) {
+        if let Some(f) = file.and_then(|f| join(&dir, &f)).filter(|f| !f.is_empty()) {
             out.push(f);
+        }
+        // The text of the file, up to the line that ends it.
+        if let Some(word) = delimiter(&line[at + 2..]) {
+            let tabs = line[at + 2..].starts_with('-');
+            for body in lines.by_ref() {
+                if body == word || (tabs && body.trim_start_matches('\t') == word) {
+                    break;
+                }
+            }
         }
     }
     out
@@ -1461,7 +1514,18 @@ mod tests {
             ("cat >> src/a.py <<EOF\nx = 1\nEOF", vec![]),
             ("tee -a log.txt <<EOF\nx\nEOF", vec![]),
             ("cat > \"$OUT/a.py\" <<EOF\nx\nEOF", vec![]),
-            ("cd sub && cat > a.py <<EOF\nx\nEOF", vec![]),
+            // A `cd` is followed, as far as it is written out, and the lines of the file are not commands.
+            ("cd sub && cat > a.py <<EOF\nx\nEOF", vec!["sub/a.py"]),
+            ("cd /w/proj && cat > src/a.ts <<'EOF'\nexport {}\nEOF\ncat > src/b.ts <<'EOF'\nexport {}\nEOF", vec!["/w/proj/src/a.ts", "/w/proj/src/b.ts"]),
+            ("mkdir -p csvq tests && cd csvq && cat > reader.py <<'EOF'\nx = 1\nEOF\ncd ../tests && cat > t.py <<'EOF'\ny = 2\nEOF", vec!["csvq/reader.py", "tests/t.py"]),
+            ("cat > run.sh <<'EOF'\ncd build && make\ncat > /etc/x <<INNER\nEOF\ncat > b.py <<'EOF'\nx\nEOF", vec!["run.sh", "b.py"]),
+            ("echo $((1<<3))\ncat > a.py <<EOF\nx = 1 << 2\nEOF", vec!["a.py"]),
+            ("cat > ./a.py <<EOF\nx\nEOF", vec!["a.py"]),
+            ("cd \"$ROOT\" && cat > a.py <<EOF\nx\nEOF", vec![]),
+            ("cd .. && cat > a.py <<EOF\nx\nEOF", vec![]),
+            ("cd - && cat > a.py <<EOF\nx\nEOF", vec![]),
+            ("(cd sub && cat > a.py <<EOF\nx\nEOF\n)\ncat > b.py <<EOF\ny\nEOF", vec![]),
+            ("pushd sub\ncat > a.py <<EOF\nx\nEOF", vec![]),
             ("python3 - <<'EOF'\nopen('a.py', 'w').write('x')\nEOF", vec![]),
             ("cat src/a.py", vec![]),
             ("grep -c x <<< \"$text\"", vec![]),

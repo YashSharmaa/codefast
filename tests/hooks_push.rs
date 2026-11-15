@@ -521,6 +521,16 @@ fn what_a_conversation_wrote_itself_is_not_explained_to_it() {
     let heredoc = ran(&repo, &home, "heredoc", "cat > src/io.c <<'EOF'\n#include \"io.h\"\nEOF");
     hook(&home, &repo.dir, "post-tool-use", heredoc.as_bytes(), &[]).assert_quiet("a file written from a here document, as it was");
     hook(&home, &repo.dir, "user-prompt-submit", in_session(&prompt, "heredoc").as_bytes(), &[]).assert_quiet("a card about a file written through the shell");
+    // So is one written after a `cd`, which is how a model writes the files of a project:
+    // `cd /the/project && cat > src/a.c <<'EOF'`, or into a directory it has just made.
+    let root = repo.dir.display().to_string();
+    for (name, command) in [
+        ("heredoc-cd", format!("cd {root} && cat > src/io.c <<'EOF'\n#include \"io.h\"\nEOF")),
+        ("heredoc-sub", "mkdir -p src && cd src && cat > io.c <<'EOF'\n#include \"io.h\"\nEOF".to_string()),
+    ] {
+        hook(&home, &repo.dir, "post-tool-use", ran(&repo, &home, name, &command).as_bytes(), &[]).assert_quiet("a file written from a here document after a cd, as it was");
+        hook(&home, &repo.dir, "user-prompt-submit", in_session(&prompt, name).as_bytes(), &[]).assert_quiet("a card about a file written after a cd");
+    }
     hook(&home, &repo.dir, "post-tool-use", payload("claude-post-bash-grep", &repo.dir, &home).as_bytes(), &[]).assert_quiet("a grep for a symbol of that file");
     hook(&home, &repo.dir, "pre-tool-use", payload("claude-pre-read", &repo.dir, &home).as_bytes(), &[]).assert_quiet("a read of a long file the conversation wrote");
     // Another conversation is told as ever, and so is one whose write failed.
