@@ -205,6 +205,44 @@ fn nothing_is_indexed_outside_a_repository() {
     assert!(!plain.join(".codefast").exists() && !home.join(".codefast").exists());
 }
 
+/// zsh refuses a command line with a pattern that matches nothing, where bash passes the word
+/// on, and the models write for bash: `grep -rn x --include=*.go .` then fails before grep
+/// runs. The harness hands the hook at the start of a session a file whose lines its shell
+/// runs before each command, and one line there turns the refusal off.
+#[test]
+fn the_start_of_a_session_makes_zsh_pass_an_unmatched_pattern_on() {
+    let repo = Repo::new("shell-setup");
+    let home = scratch("home");
+    let file = home.join("session-env/sessionstart-hook-0.sh");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let start = payload("claude-session-start", &repo.dir, &home);
+    let env = [("CLAUDE_ENV_FILE", file.to_str().unwrap())];
+    hook(&home, &repo.dir, "session-start", start.as_bytes(), &env).context("SessionStart");
+    let wrote = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(wrote, "# codefast: a pattern that matches nothing is passed on as typed, as in bash\n[ -n \"${ZSH_VERSION:-}\" ] && setopt nonomatch 2>/dev/null; :\n");
+    // Once: the hook runs again after a compaction and when a session is resumed.
+    hook(&home, &repo.dir, "session-start", payload("claude-session-compact", &repo.dir, &home).as_bytes(), &env);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), wrote);
+    // The line does what it says in zsh, and nothing in a shell that is not zsh.
+    let sourced = |shell: &str, script: &str| {
+        let out = std::process::Command::new(shell).args(["-c", &format!(". '{}'; {script}", file.display())]).output();
+        out.ok().map(|o| (o.status.code(), String::from_utf8_lossy(&o.stdout).trim().to_string()))
+    };
+    assert_eq!(sourced("/bin/sh", "echo $?"), Some((Some(0), "0".to_string())));
+    if std::path::Path::new("/bin/zsh").exists() {
+        assert_eq!(sourced("/bin/zsh", "print -r -- --include=*.nothing-has-this-name"), Some((Some(0), "--include=*.nothing-has-this-name".to_string())));
+    }
+    // Left alone on request, with the hooks switched off, and where the harness names no file.
+    for off in [[("CODEFAST_SHELL_SETUP", "off")], [("CODEFAST_HOOKS", "off")]] {
+        let other = home.join("session-env/other.sh");
+        hook(&home, &repo.dir, "session-start", start.as_bytes(), &[("CLAUDE_ENV_FILE", other.to_str().unwrap()), off[0]]);
+        assert!(!other.exists(), "{off:?}");
+    }
+    hook(&home, &repo.dir, "session-start", start.as_bytes(), &[("CLAUDE_ENV_FILE", "relative/file.sh")]);
+    assert!(!repo.path("relative/file.sh").exists() && !home.join("relative/file.sh").exists());
+    settle(&repo);
+}
+
 #[test]
 fn the_switch_turns_all_three_off() {
     let repo = Repo::new("off");

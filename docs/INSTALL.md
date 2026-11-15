@@ -758,7 +758,8 @@ Registry, [`server.json`](../server.json) is **validated against a schema** (202
 ## 4. Hooks
 
 Hooks are optional: codefast works without them. They only add context, never block or rewrite a
-tool call, and `CODEFAST_HOOKS=off` turns them off. The variable has to reach the hook: Claude
+tool call (and set one option of the session's shell, described below), and `CODEFAST_HOOKS=off`
+turns them off. The variable has to reach the hook: Claude
 Code and Codex both run hooks with your environment (Codex seen with codex-cli 0.164.0), and in
 Codex `/hooks` disables a hook as well.
 
@@ -840,6 +841,17 @@ What they add, each said once per session:
   since nothing gives it back (the files changed and what changed in each, the commands that
   check the work and what they last showed, names and strings decided on, what is left to
   do). Nothing where the hook cannot read the requests, since it promises them.
+
+One thing the hooks do is not a note. zsh refuses a command line that holds a pattern nothing
+matches, where bash passes the word on as typed, and the models write for bash:
+`grep -rn x --include=*.go .` ends with "no matches found: --include=*.go" before grep runs. In
+thirty days of sessions on one machine with zsh (read 15 November 2026), 2% of all shell calls
+failed this way: 5,304 of 257,334 for Opus 5.5, 4% for Sonnet 5.5, four in five of them on
+`--include=`. Each is a request to do it again, and in a pipeline the failure is silent:
+`... | wc -l` prints 0. Claude Code hands the hook at the start of a session a file whose lines
+its shell runs before each command, and codefast writes one line there, which turns the refusal
+off in zsh and does nothing in any other shell. No command is changed. `CODEFAST_SHELL_SETUP=off`
+leaves the shell as it is.
 
 Once a week per project, Claude Code also shows you (not the model) one line when plugins and
 skills that nothing in the project matches load more than about 1,500 tokens into every

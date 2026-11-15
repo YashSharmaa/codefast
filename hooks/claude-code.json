@@ -1,5 +1,5 @@
 {
-  "description": "codefast lifecycle hooks for the Claude Code plugin. They only add context: they never block or rewrite a tool call, and CODEFAST_HOOKS=off turns all of them off.",
+  "description": "codefast lifecycle hooks for the Claude Code plugin. They only add context: they never block or rewrite a tool call, and CODEFAST_HOOKS=off turns all of them off. At the start of a session one line is added to the session's shell setup: in zsh a pattern that matches nothing is passed on as typed, as in bash (CODEFAST_SHELL_SETUP=off leaves the shell as it is).",
   "hooks": {
     "SessionStart": [
       {

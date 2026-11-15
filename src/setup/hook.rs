@@ -1082,6 +1082,30 @@ fn request_refresh(place: &Place) {
     }
 }
 
+/// The line that marks what [`shell_setup`] wrote, so that it is written once.
+const SHELL_MARK: &str = "# codefast: a pattern that matches nothing is passed on as typed, as in bash";
+
+/// zsh refuses a command line that holds a pattern nothing matches: `grep -rn x --include=*.go .`
+/// ends with "no matches found: --include=*.go" before grep runs, where bash hands the word
+/// to grep as typed. The models write for bash. In thirty days of sessions on one machine
+/// with zsh, 2% of all shell calls failed this way (5,304 of 257,334 for Opus 5.5, four in
+/// five of them on `--include=`), each one a request to do it again, and in a pipeline the
+/// failure is silent: `... | wc -l` then prints 0.
+///
+/// Claude Code gives the hook at the start of a session a file whose lines its shell runs
+/// before each command. One line there turns the refusal off for zsh and does nothing in any
+/// other shell. `CODEFAST_SHELL_SETUP=off` leaves the shell as it is.
+fn shell_setup() {
+    let Some(file) = std::env::var_os("CLAUDE_ENV_FILE").filter(|f| !f.is_empty()) else { return };
+    let off = std::env::var("CODEFAST_SHELL_SETUP").is_ok_and(|v| matches!(v.to_ascii_lowercase().as_str(), "off" | "0" | "false" | "no" | "disabled"));
+    let path = Path::new(&file);
+    if off || !path.is_absolute() || std::fs::read_to_string(path).is_ok_and(|t| t.contains(SHELL_MARK)) {
+        return;
+    }
+    let line = format!("{SHELL_MARK}\n[ -n \"${{ZSH_VERSION:-}}\" ] && setopt nonomatch 2>/dev/null; :\n");
+    let _ = std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut f| f.write_all(line.as_bytes()));
+}
+
 /// How long the brief of a sub-agent is kept for its start, which follows the call at once.
 const BRIEF_KEEP: Duration = Duration::from_secs(120);
 /// How long the start of a sub-agent waits for the hook of the call that started it, which
@@ -2868,7 +2892,10 @@ pub(super) fn run(passed: &Path, event: &str, input: &str) -> String {
         return String::new();
     }
     match event {
-        Event::SessionStart => session_start(passed, &payload),
+        Event::SessionStart => {
+            shell_setup();
+            session_start(passed, &payload)
+        }
         Event::UserPromptSubmit => user_prompt(passed, &payload, started),
         Event::PostToolUse => {
             let reply = post_tool_use(passed, &payload, started);
