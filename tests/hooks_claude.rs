@@ -205,6 +205,118 @@ fn nothing_is_indexed_outside_a_repository() {
     assert!(!plain.join(".codefast").exists() && !home.join(".codefast").exists());
 }
 
+/// A wait that would outlive the five-minute prompt cache gets four minutes, when that is
+/// asked for with `CODEFAST_WAITS=cap`: when the time is up the harness moves the wait to the
+/// background or ends it, the model is told why, and waiting on costs a cache read a call. It
+/// is the one thing a hook changes in a tool call, so it is off unless asked for, and it never
+/// touches a command that works, or a wait that would start over when run again.
+#[test]
+fn a_wait_that_would_outlive_the_cache_is_given_four_minutes_on_request() {
+    let (repo, home) = indexed("wait-cap");
+    let main = home.join(".claude/projects/-work-project/0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11.jsonl").display().to_string();
+    let call = |session: &str, command: &str, timeout: Option<u64>| {
+        let mut v: serde_json::Value = serde_json::from_str(&payload("claude-pre-bash-other", &repo.dir, &home)).unwrap();
+        v["session_id"] = session.into();
+        v["transcript_path"] = main.clone().into();
+        v["tool_input"] = serde_json::json!({"command": command, "description": "Wait for the build"});
+        if let Some(ms) = timeout {
+            v["tool_input"]["timeout"] = ms.into();
+        }
+        v.to_string()
+    };
+    let on = [("CLAUDECODE", "1"), ("CODEFAST_WAITS", "cap")];
+    let wait = "until [ -f out/done.txt ]; do sleep 5; done";
+    // A conversation of 150,000 tokens on the five-minute cache.
+    transcript(&home, 150_000, 0, false);
+    let ran = hook(&home, &repo.dir, "pre-tool-use", call("w1", wait, Some(600_000)).as_bytes(), &on);
+    assert_eq!((ran.code, ran.stderr.as_str()), (0, ""));
+    let v: serde_json::Value = serde_json::from_str(&ran.stdout).unwrap_or_else(|e| panic!("not JSON ({e}): {:?}", ran.stdout));
+    let out = &v["hookSpecificOutput"];
+    assert_eq!(out["hookEventName"], "PreToolUse");
+    // The whole input comes back, with the time alone changed, and no decision is made for anyone.
+    assert_eq!(out["updatedInput"], serde_json::json!({"command": wait, "description": "Wait for the build", "timeout": 240_000}), "{v}");
+    assert!(out.get("permissionDecision").is_none() && v.as_object().unwrap().len() == 1, "{v}");
+    assert_eq!(
+        out["additionalContext"],
+        "codefast: this wait was given 4 minutes, not the 10 minutes it asked for. The prompt cache of this conversation lives 5 minutes from each request, and a call that takes longer makes the next request send its 150k tokens again as new input, about 12 times what a request that reads them from the cache costs. When what it waits for has not happened after 4 minutes, wait on in calls of at most 4 minutes each: every one is a request that reads the cache."
+    );
+    // Again in the same conversation: the time, and not the explanation.
+    let again: serde_json::Value = serde_json::from_str(&hook(&home, &repo.dir, "pre-tool-use", call("w1", wait, Some(600_000)).as_bytes(), &on).stdout).unwrap();
+    assert_eq!(again["hookSpecificOutput"]["updatedInput"]["timeout"], 240_000);
+    assert!(again["hookSpecificOutput"].get("additionalContext").is_none(), "{again}");
+    // Left as it is: without the setting, a command that works, a wait inside the cache's
+    // life, one in the background, a conversation on the one-hour cache, and a small one.
+    let quiet = |what: &str, session: &str, command: &str, timeout: Option<u64>, envs: &[(&str, &str)]| hook(&home, &repo.dir, "pre-tool-use", call(session, command, timeout).as_bytes(), envs).assert_quiet(what);
+    quiet("not asked for", "w2", wait, Some(600_000), &[("CLAUDECODE", "1")]);
+    quiet("a command that works", "w3", "cargo test --release", Some(600_000), &on);
+    quiet("work after a wait", "w4", "sleep 400 && make check", Some(600_000), &on);
+    // Run again these would start over, or do something twice.
+    quiet("a sleep of a set length", "w4a", "sleep 540; tail -3 build.log", Some(600_000), &on);
+    quiet("a loop that only counts", "w4b", "for i in 1 2 3 4 5 6 7 8 9; do sleep 60; done", Some(600_000), &on);
+    quiet("a wait that starts something", "w4c", "curl -s -X POST localhost:3000/build; until curl -sf localhost:3000/done; do sleep 5; done", Some(600_000), &on);
+    quiet("a wait that starts with a sleep, which the harness ends", "w4d", "sleep 60; until [ -f out/done.txt ]; do sleep 5; done", Some(600_000), &on);
+    quiet("four minutes asked for", "w5", wait, Some(240_000), &on);
+    quiet("no time asked for", "w6", wait, None, &on);
+    for (what, value) in [("in the background", serde_json::json!(true)), ("in the background, as a word", serde_json::json!("true"))] {
+        let mut background: serde_json::Value = serde_json::from_str(&call("w7", wait, Some(600_000))).unwrap();
+        background["tool_input"]["run_in_background"] = value;
+        hook(&home, &repo.dir, "pre-tool-use", background.to_string().as_bytes(), &on).assert_quiet(what);
+    }
+    let mut other: serde_json::Value = serde_json::from_str(&call("w7a", wait, Some(600_000))).unwrap();
+    other["tool_name"] = "Shell".into();
+    hook(&home, &repo.dir, "pre-tool-use", other.to_string().as_bytes(), &on).assert_quiet("a tool that is not the harness's Bash");
+
+    // Anything over four minutes can outlive a cache that is counted from when the request
+    // was sent, and the time asked for is said as it was asked.
+    let v: serde_json::Value = serde_json::from_str(&hook(&home, &repo.dir, "pre-tool-use", call("w5a", wait, Some(270_000)).as_bytes(), &on).stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["updatedInput"]["timeout"], 240_000, "{v}");
+    assert!(v["hookSpecificOutput"]["additionalContext"].as_str().unwrap().starts_with("codefast: this wait was given 4 minutes, not the 4.5 minutes it asked for."), "{v}");
+    // The setting is read as the others are, and the switch for the notes to the person does
+    // not silence the reason for a changed call.
+    let loose = [("CLAUDECODE", "1"), ("CODEFAST_WAITS", " Cap "), ("CODEFAST_COST_NOTES", "off")];
+    let v: serde_json::Value = serde_json::from_str(&hook(&home, &repo.dir, "pre-tool-use", call("w5b", wait, Some(3_600_000)).as_bytes(), &loose).stdout).unwrap();
+    assert!(v["hookSpecificOutput"]["additionalContext"].as_str().unwrap().starts_with("codefast: this wait was given 4 minutes, not the 1 hour it asked for."), "{v}");
+    // What else there is to say about the call goes out with the changed input.
+    let reading = "until [ -f out/done.txt ]; do sleep 5; done; cat src/big.c";
+    let v: serde_json::Value = serde_json::from_str(&hook(&home, &repo.dir, "pre-tool-use", call("w5c", reading, Some(600_000)).as_bytes(), &on).stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["updatedInput"]["command"], reading);
+    let said = v["hookSpecificOutput"]["additionalContext"].as_str().unwrap();
+    let (why, hint) = said.split_once("\n\n").unwrap_or_else(|| panic!("two notes: {said}"));
+    assert!(why.starts_with("codefast: this wait was given 4 minutes") && hint.starts_with("src/big.c has 2,250 lines"), "{said}");
+    // Where nothing can be remembered, in a directory without an index, the reason is given
+    // each time: a call that was changed is never left unexplained.
+    let bare = scratch("wait-cap-bare");
+    let mut plain: serde_json::Value = serde_json::from_str(&call("w5d", wait, Some(600_000))).unwrap();
+    plain["cwd"] = bare.display().to_string().into();
+    for _ in 0..2 {
+        let v: serde_json::Value = serde_json::from_str(&hook(&home, &bare, "pre-tool-use", plain.to_string().as_bytes(), &on).stdout).unwrap();
+        assert!(v["hookSpecificOutput"]["updatedInput"]["timeout"] == 240_000 && v["hookSpecificOutput"]["additionalContext"].is_string(), "{v}");
+    }
+    transcript(&home, 150_000, 0, true);
+    quiet("the one-hour cache", "w8", wait, Some(600_000), &on);
+    transcript(&home, 20_000, 0, false);
+    quiet("a small conversation", "w9", wait, Some(600_000), &on);
+
+    // A sub-agent's conversation is its own: on the five-minute cache whatever the main thread
+    // writes to, and the figures are those of its model.
+    transcript(&home, 150_000, 0, true);
+    let mut agent: serde_json::Value = serde_json::from_str(&call("w10", "while pgrep -q cargo; do sleep 10; done; tail -3 build.log", Some(1_800_000))).unwrap();
+    agent["agent_id"] = serde_json::json!("a1b2c3");
+    hook(&home, &repo.dir, "pre-tool-use", agent.to_string().as_bytes(), &on).assert_quiet("an agent whose transcript is not there");
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let asked = serde_json::json!({"type": "user", "isSidechain": true, "timestamp": rfc3339(now - 30), "message": {"role": "user", "content": "Build it."}});
+    let line = serde_json::json!({"type": "assistant", "isSidechain": true, "timestamp": rfc3339(now - 20), "message": {"id": "msg_a", "model": "claude-opus-5-5", "usage": {
+        "input_tokens": 2, "cache_read_input_tokens": 79_000, "cache_creation_input_tokens": 998, "output_tokens": 0,
+        "cache_creation": {"ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 998}}}});
+    let session = home.join(".claude/projects/-work-project/0a9f3c1e-6f0b-4c0e-9d61-5a1f7c2e8b11");
+    write(&session.join("subagents/agent-a1b2c3.jsonl"), &format!("{asked}\n{line}\n"));
+    let v: serde_json::Value = serde_json::from_str(&hook(&home, &repo.dir, "pre-tool-use", agent.to_string().as_bytes(), &on).stdout).unwrap();
+    assert_eq!(v["hookSpecificOutput"]["updatedInput"]["timeout"], 240_000, "{v}");
+    let said = v["hookSpecificOutput"]["additionalContext"].as_str().unwrap();
+    assert!(said.starts_with("codefast: this wait was given 4 minutes, not the 30 minutes it asked for.") && said.contains("send its 80k tokens again as new input, about 25 times"), "{said}");
+    settle(&repo);
+}
+
 /// zsh refuses a command line with a pattern that matches nothing, where bash passes the word
 /// on, and the models write for bash: `grep -rn x --include=*.go .` then fails before grep
 /// runs. The harness hands the hook at the start of a session a file whose lines its shell

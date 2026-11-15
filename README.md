@@ -42,7 +42,7 @@ all of that reading again. codefast answers from an index instead.
   tests that reach it. Checked against compilers: precision 0.982 to 1.000.
 - **Before the agent asks.** Hooks hand over the facts with the prompt, after a search, after an
   edit and after a compaction, when a session also gets its requests back word for word. A
-  sub-agent gets them too, for its brief. They state facts and never block or rewrite a tool call.
+  sub-agent gets them too, for its brief. They state facts and never block a tool call.
 - **Any size.** The Linux kernel, 44 million lines, indexes in 8 seconds, and the index follows
   your edits.
 - **Measured, with what it does not do.** A session that looks things up costs 0.15 to 0.71 of the

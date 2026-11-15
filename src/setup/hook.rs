@@ -39,8 +39,9 @@
 //!
 //! The payload is the harness's hook input (Claude Code and Codex share the shape; Cursor and
 //! Gemini CLI are recognised by their own field names). The reply is the harness's hook output
-//! carrying `additionalContext`, or nothing. A hook never blocks or rewrites a tool call, prints
-//! nothing on any error, and always leaves the process with status 0.
+//! carrying `additionalContext`, or nothing, and with `CODEFAST_WAITS=cap`, which is off unless
+//! asked for, an `updatedInput` for a wait (see `capped_wait`). A hook never blocks a tool
+//! call, prints nothing on any error, and always leaves the process with status 0.
 //!
 //! # Wiring (what a hooks file should register)
 //!
@@ -53,7 +54,10 @@
 //!
 //! # Environment
 //!
-//! `CODEFAST_HOOKS=off` (or `0`, `false`, `no`) turns all three events off.
+//! `CODEFAST_HOOKS=off` (or `0`, `false`, `no`) turns every event off.
+//! `CODEFAST_SHELL_SETUP=off` leaves the session's shell as it is (see `shell_setup`), and
+//! `CODEFAST_WAITS=cap` (Claude Code only) gives a wait that would outlive the five-minute
+//! prompt cache four minutes (see `capped_wait`).
 //! `CODEFAST_COST_NOTES=off` keeps the hooks and drops the notes to the person, and
 //! `CODEFAST_CARRY` is the size in tokens from which a long conversation is spoken of (default:
 //! where a compaction would pay for itself within twelve requests at the prices of the model).
@@ -789,6 +793,11 @@ impl Session {
         line.split_once('\t').map_or(line, |(key, _)| key)
     }
 
+    /// Whether a line for `key` stands in the state file, whatever the size of the file.
+    fn recorded(&self, key: &str) -> bool {
+        std::fs::read_to_string(&self.file).is_ok_and(|text| text.lines().any(|l| Self::key_of(l) == key))
+    }
+
     fn seen(&self, key: &str) -> bool {
         match std::fs::metadata(&self.file) {
             // A session that has been told this much has been told enough.
@@ -1080,6 +1089,98 @@ fn request_refresh(place: &Place) {
     if std::fs::write(&stamp, b"").is_ok() {
         spawn_refresh(place);
     }
+}
+
+/// What a wait may take in a conversation on the five-minute cache: four minutes, which leaves
+/// the request after it a minute of the cache. The cache is counted from when a request is
+/// sent, and the call starts only once the reply to it has been written.
+const WAIT_CAP_MS: u64 = 240_000;
+
+/// A wait whose time limit this hook changed: the input to hand back, and the explanation
+/// where the conversation has not had it.
+struct Capped {
+    input: Value,
+    note: Option<String>,
+}
+
+impl Capped {
+    /// The hook's reply: the input with the new limit, the explanation, and whatever else
+    /// there is to say about the call.
+    fn reply(self, also: Option<&str>) -> String {
+        let said: Vec<&str> = self.note.as_deref().into_iter().chain(also.filter(|text| !text.is_empty())).collect();
+        let mut out = json!({"hookEventName": "PreToolUse", "updatedInput": self.input});
+        if !said.is_empty() {
+            out["additionalContext"] = json!(said.join("\n\n"));
+        }
+        format!("{}\n", json!({"hookSpecificOutput": out}))
+    }
+}
+
+/// A time limit as a model would say it: `10 minutes`, `4.5 minutes`, `1 hour`, `1.5 hours`.
+fn limit_text(ms: u64) -> String {
+    let (n, unit) = if ms < 3_600_000 { (ms as f64 / 60_000.0, "minute") } else { (ms as f64 / 3_600_000.0, "hour") };
+    let n = (n * 10.0).round() / 10.0;
+    let plural = if n == 1.0 { "" } else { "s" };
+    if n.fract() == 0.0 { format!("{n:.0} {unit}{plural}") } else { format!("{n:.1} {unit}{plural}") }
+}
+
+/// A wait that would outlive the prompt cache is given less time (`CODEFAST_WAITS=cap`, off
+/// unless asked for: it is the one thing here that changes a tool call).
+///
+/// A sub-agent's prompt cache lives five minutes from each request. When a call takes longer,
+/// the request after it sends the whole conversation again as new input. In thirty days of
+/// sessions on one machine 1,204 shell calls of sub-agents took more than five minutes, the
+/// request after 96% of them was such a resend, and 518 of those calls did nothing but wait
+/// for something: a loop that looks at a file, a process or a port and sleeps until it is as
+/// wanted. Every one of the 518 had asked for a time limit of more than four minutes, which is
+/// how this hook knows one before it runs (`docs/INSTALL.md` has the counts).
+///
+/// So: a call of the harness's shell tool that only waits on a condition
+/// ([`shell::Wait::Loop`]), with a time limit of more than four minutes asked for, in a
+/// conversation the transcript shows on the five-minute cache and long enough to matter, gets
+/// four minutes. Nothing is lost: when the time is up the harness moves the wait to the
+/// background, where it goes on, and a loop that looks and sleeps has done nothing that has to
+/// be done again. A command that works is never touched, nor a sleep of a set length, nor a
+/// wait that starts with a sleep, which the harness ends instead of moving.
+///
+/// The model is told why, once for a conversation, and that waiting on in calls of four
+/// minutes costs a cache read each. Where that cannot be remembered it is said again, and
+/// `CODEFAST_COST_NOTES=off` does not silence it: a call that was changed is never left
+/// unexplained.
+fn capped_wait(passed: &Path, payload: &Payload, command: &str) -> Option<Capped> {
+    let asked_for = std::env::var("CODEFAST_WAITS").is_ok_and(|v| v.trim().eq_ignore_ascii_case("cap"));
+    // The harness's own shell tool, and nothing that only looks like it.
+    if !asked_for || std::env::var_os("CLAUDECODE").is_none() || payload.tool.as_deref() != Some("Bash") {
+        return None;
+    }
+    let input = payload.input.as_ref()?;
+    let asked = input.get("timeout").and_then(Value::as_u64).filter(|t| *t > WAIT_CAP_MS)?;
+    let foreground = matches!(input.get("run_in_background"), None | Some(Value::Null | Value::Bool(false)));
+    if !foreground || shell::wait_of(command) != Some(shell::Wait::Loop) {
+        return None;
+    }
+    let main = Path::new(payload.transcript.as_deref()?);
+    let last = match payload.agent.as_deref() {
+        None => super::sessions::last_request(main)?,
+        Some(agent) => super::sessions::last_agent_request(&agent_transcript(main, agent)?)?,
+    };
+    if last.one_hour? || last.context < OUTLIVED_FROM {
+        return None;
+    }
+    let mut updated = input.clone();
+    updated["timeout"] = json!(WAIT_CAP_MS);
+    let session = Place::find(passed, payload.cwd.as_deref()).and_then(|place| Session::open(&place, payload.audience().as_deref()));
+    let first = session.is_none_or(|s| s.claim("waitcap") || !s.recorded("waitcap"));
+    let note = first.then(|| {
+        let w = super::sessions::weights(&last.model);
+        format!(
+            "codefast: this wait was given 4 minutes, not the {} it asked for. The prompt cache of this conversation lives 5 minutes from each request, and a call that takes longer makes the next request send its {} tokens again as new input, about {:.0} times what a request that reads them from the cache costs. When what it waits for has not happened after 4 minutes, wait on in calls of at most 4 minutes each: every one is a request that reads the cache.",
+            limit_text(asked),
+            super::sessions::short(last.context as f64),
+            w.write_5m / w.cache_read
+        )
+    });
+    Some(Capped { input: updated, note })
 }
 
 /// The line that marks what [`shell_setup`] wrote, so that it is written once.
@@ -2832,6 +2933,8 @@ fn pre_tool_use(passed: &Path, payload: &Payload, started: Instant) -> String {
         return payload.reply(Event::PreToolUse, &cards);
     }
     let cwd = payload.cwd.as_deref().map(PathBuf::from).filter(|d| d.is_absolute());
+    // A wait whose time limit is changed: it goes out with whatever else is said of the call.
+    let mut capped: Option<Capped> = None;
     let path: PathBuf = match payload.call() {
         Some(Call::Read { path, whole: true }) => {
             let p = PathBuf::from(path);
@@ -2848,28 +2951,34 @@ fn pre_tool_use(passed: &Path, payload: &Payload, started: Instant) -> String {
             return String::new();
         }
         Some(Call::Shell { command, dir }) => {
+            capped = capped_wait(passed, payload, &command);
             let reads = shell::analyse(&command).reads;
-            let [read] = &reads[..] else { return String::new() };
-            let Some(base) = dir.map(PathBuf::from).filter(|d| d.is_absolute()).or(cwd) else { return String::new() };
-            match locate(&base, &read.dir, &read.path) {
+            let file = match &reads[..] {
+                [read] => dir.map(PathBuf::from).filter(|d| d.is_absolute()).or(cwd).and_then(|base| locate(&base, &read.dir, &read.path)),
+                _ => None,
+            };
+            match file {
                 Some(p) => p,
-                None => return String::new(),
+                None => return capped.map_or_else(String::new, |c| c.reply(None)),
             }
         }
         _ => return String::new(),
     };
-    let Some(place) = Place::find(passed, payload.cwd.as_deref()) else { return String::new() };
-    let session_id = payload.audience();
-    let (tx, rx) = mpsc::channel();
-    let worker = std::thread::Builder::new().spawn(move || {
-        let _ = tx.send(read_hint(&place, &path, session_id.as_deref()));
-    });
-    if worker.is_err() {
-        return String::new();
-    }
-    match rx.recv_timeout(HARD_DEADLINE.saturating_sub(started.elapsed())) {
-        Ok(Some(hint)) => payload.reply(Event::PreToolUse, &hint),
-        _ => String::new(),
+    let hint = || -> Option<String> {
+        let place = Place::find(passed, payload.cwd.as_deref())?;
+        let session_id = payload.audience();
+        let (tx, rx) = mpsc::channel();
+        std::thread::Builder::new()
+            .spawn(move || {
+                let _ = tx.send(read_hint(&place, &path, session_id.as_deref()));
+            })
+            .ok()?;
+        rx.recv_timeout(HARD_DEADLINE.saturating_sub(started.elapsed())).ok().flatten()
+    }();
+    match (capped, hint) {
+        (Some(capped), hint) => capped.reply(hint.as_deref()),
+        (None, Some(hint)) => payload.reply(Event::PreToolUse, &hint),
+        (None, None) => String::new(),
     }
 }
 

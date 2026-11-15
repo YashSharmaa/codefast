@@ -41,7 +41,8 @@ Rules that hold everywhere:
 - Values stored on disk (`DefKind`, `RefKind`, flags) are append only.
 - Every byte of output is paid for in tokens by the reader. Print the answer and nothing else.
 - Say nothing rather than guess. An answer is exact, or it is labelled as a match by name.
-- Hooks only add context. They never block, never print an error and always exit 0.
+- Hooks add context. They never block, never print an error and always exit 0. What changes a
+  tool call is off unless the person turns it on (`CODEFAST_WAITS=cap`).
 - A new behaviour comes with a test in the same change.
 - Markdown here uses no em dashes and no semicolons.
 - A commit message describes the change. No co-author or generated-by lines.

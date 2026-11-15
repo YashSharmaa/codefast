@@ -1175,6 +1175,342 @@ pub fn only_looks(command: &str) -> bool {
         })
 }
 
+/// What a command line that only waits waits in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wait {
+    /// A loop that looks at something and sleeps until it holds (`until [ -f out ]; do sleep 5;
+    /// done`). Stopped and run again, it goes on waiting for the same thing.
+    Loop,
+    /// Sleeps of a set length (`sleep 600; tail log`, a loop that only counts), or a loop whose
+    /// sleeps are too long or not written out. Stopped and run again, it starts over.
+    Fixed,
+}
+
+/// The longest sleep, and the most sleeping outside a loop, with which a wait that is stopped
+/// after four minutes and run again still gets somewhere.
+const AGAIN_S: f64 = 120.0;
+
+/// What [`wait_of`] has seen of a command line.
+#[derive(Default)]
+struct Waiting {
+    sleeps: bool,
+    /// An `until` or a `while`.
+    conditional: bool,
+    fors: bool,
+    /// A `break`, `exit` or `return`: the way out of a `for`.
+    breaks: bool,
+    /// How many loops the command being read stands in.
+    depth: usize,
+    /// Something outside the shell is looked at inside a loop: a file, a process, a port.
+    looks_in_loop: bool,
+    /// A sleep whose length is not written out.
+    unknown: bool,
+    longest: f64,
+    outside: f64,
+    /// A command has been read (a `cd` and an assignment are none).
+    started: bool,
+    /// The first command is a sleep outside every loop: the harness ends such a line at its
+    /// time limit, or refuses it, where it moves any other to the background.
+    leads_with_sleep: bool,
+}
+
+/// What stands inside each command substitution of a word (`$(...)` and backticks). Of the
+/// arithmetic of `$((...))` only the substitutions it holds itself, as in
+/// `$(( $(date +%s) + 600 ))`. Nothing when one does not close.
+fn substitutions(text: &str) -> Option<Vec<String>> {
+    let cs: Vec<char> = text.chars().collect();
+    let (mut i, mut out) = (0usize, Vec::new());
+    while i < cs.len() {
+        match cs[i] {
+            '\\' => i += 2,
+            '$' if cs.get(i + 1) == Some(&'(') => {
+                let (end, _) = expansion(&cs, i)?;
+                let inner: String = cs[i + 2..end - 1].iter().collect();
+                if cs.get(i + 2) != Some(&'(') {
+                    out.push(inner);
+                } else {
+                    out.extend(substitutions(&inner)?);
+                }
+                i = end;
+            }
+            '`' => {
+                let end = backtick(&cs, i)?;
+                out.push(cs[i + 1..end - 1].iter().collect());
+                i = end;
+            }
+            _ => i += 1,
+        }
+    }
+    Some(out)
+}
+
+/// The seconds of one `sleep`, when every length is written out (`5`, `0.5`, `30s`, `2m`).
+fn sleep_seconds<'a>(args: impl Iterator<Item = &'a Word>) -> Option<f64> {
+    let mut total = 0.0;
+    let mut any = false;
+    for w in args {
+        if w.dynamic {
+            return None;
+        }
+        let (digits, unit) = match w.text.as_bytes().last()? {
+            b's' => (&w.text[..w.text.len() - 1], 1.0),
+            b'm' => (&w.text[..w.text.len() - 1], 60.0),
+            b'h' => (&w.text[..w.text.len() - 1], 3600.0),
+            b'd' => (&w.text[..w.text.len() - 1], 86400.0),
+            _ => (w.text.as_str(), 1.0),
+        };
+        total += digits.parse::<f64>().ok().filter(|n| n.is_finite() && *n >= 0.0)? * unit;
+        any = true;
+    }
+    any.then_some(total)
+}
+
+/// The name of a program written as a bare name or with the path of a system directory:
+/// `grep`, `/usr/bin/grep`. Not `./grep` or `tools/cat`, which is somebody's script.
+fn system_program(word: &str) -> Option<&str> {
+    match word.rsplit_once('/') {
+        None => Some(word),
+        Some((dir, name)) => ["/bin", "/usr/bin", "/sbin", "/usr/sbin", "/usr/local/bin", "/opt/homebrew/bin"].contains(&dir).then_some(name),
+    }
+}
+
+/// Whether everything a line runs inside command substitutions only sleeps or looks, read from
+/// the text of the line itself: the target of a redirection and a here string are not among
+/// the words of a command, and what they run counts as much (`grep -q ok <<< "$(make)"`).
+fn substitutions_only_look(text: &str, level: usize) -> bool {
+    let Some(inner) = substitutions(text) else { return false };
+    inner.iter().all(|line| sleeps_and_looks(line, level, &mut Waiting { depth: 1, ..Waiting::default() }) && substitutions_only_look(line, level + 1))
+}
+
+/// Whether a sed script only prints lines by their numbers: `10,40p`, `$p`, `5p`.
+fn prints_lines(script: &str) -> bool {
+    script.strip_suffix('p').is_some_and(|range| !range.is_empty() && range.bytes().all(|b| b.is_ascii_digit() || matches!(b, b'$' | b',')))
+}
+
+/// Whether a command line sends any stream into a file: `> log`, `2> err.log`, `&>> all.log`.
+/// `/dev/null` and the terminal's own streams are no files, and `2>&1` joins two streams. Any
+/// other device counts (`/dev/tcp/HOST/PORT` is a connection that bash opens), and so does a
+/// `>` inside a quoted word, which errs towards yes.
+fn redirects_into_a_file(command: &str) -> bool {
+    const NOWHERE: [&str; 5] = ["/dev/null", "/dev/stderr", "/dev/stdout", "/dev/tty", "/dev/fd/"];
+    let b = command.as_bytes();
+    (0..b.len()).any(|i| {
+        b[i] == b'>' && b.get(i + 1) != Some(&b'&') && (i == 0 || !matches!(b[i - 1], b'-' | b'=')) && {
+            let target = command[i..].trim_start_matches(['>', '|']).trim_start();
+            !target.is_empty() && !NOWHERE.iter().any(|device| target.starts_with(device))
+        }
+    })
+}
+
+/// Whether a `curl` only asks: no method, nothing sent, and no file written but `/dev/null`.
+fn curl_only_asks(args: &[&Word]) -> bool {
+    const LONG: &[&str] = &[
+        "--request",
+        "--data",
+        "--data-raw",
+        "--data-binary",
+        "--data-urlencode",
+        "--data-ascii",
+        "--form",
+        "--form-string",
+        "--upload-file",
+        "--json",
+        "--remote-name",
+        "--remote-name-all",
+        "--output-dir",
+        "--config",
+        "--cookie-jar",
+        "--dump-header",
+        "--trace",
+        "--trace-ascii",
+        "--stderr",
+        "--libcurl",
+        "--hsts",
+        "--alt-svc",
+        "--etag-save",
+    ];
+    let mut i = 0;
+    while i < args.len() {
+        let w = args[i];
+        i += 1;
+        if w.dynamic || !w.text.starts_with('-') {
+            continue;
+        }
+        if let Some(long) = w.text.strip_prefix("--") {
+            let (name, value) = long.split_once('=').map_or((long, None), |(n, v)| (n, Some(v)));
+            if name == "output" {
+                let to = value.or_else(|| args.get(i).filter(|n| !n.dynamic).map(|n| n.text.as_str()));
+                if to != Some("/dev/null") {
+                    return false;
+                }
+                i += usize::from(value.is_none());
+            } else if LONG.contains(&&w.text[..2 + name.len()]) {
+                return false;
+            }
+            continue;
+        }
+        let cluster = &w.text[1..];
+        if cluster.contains(['X', 'd', 'F', 'T', 'O', 'K', 'c', 'D', 'J', 'Q', 'a']) {
+            return false;
+        }
+        if let Some(at) = cluster.find('o') {
+            let attached = &cluster[at + 1..];
+            let to = if attached.is_empty() { args.get(i).filter(|n| !n.dynamic).map(|n| n.text.as_str()) } else { Some(attached) };
+            if to != Some("/dev/null") {
+                return false;
+            }
+            i += usize::from(attached.is_empty());
+        }
+    }
+    true
+}
+
+/// Whether every command of a line sleeps or looks at something, with what was seen on the
+/// way. `level` is how deep in command substitutions the line stands.
+fn sleeps_and_looks(command: &str, level: usize, seen: &mut Waiting) -> bool {
+    const WORDS: &[&str] = &["until", "while", "do", "done", "if", "then", "else", "elif", "fi", "!", "{", "}"];
+    // What reads something outside the shell.
+    const LOOKS: &[&str] = &["ls", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "pgrep", "ps", "lsof", "stat", "jq", "cut", "tr", "uptime", "df"];
+    // What neither reads nor changes anything.
+    const QUIET: &[&str] = &["wait", "cd", "echo", "printf", "true", "false", ":", "continue", "seq"];
+    const FILE_TESTS: &[&str] = &["-e", "-f", "-s", "-d", "-r", "-w", "-x", "-L", "-h", "-p", "-S", "-N", "-nt", "-ot"];
+    const FIND_ACTS: &[&str] = &["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"];
+    if level > 3 {
+        return false;
+    }
+    let Some(toks) = lex(command) else { return false };
+    for s in simple_commands(toks) {
+        // What a substitution runs has to sleep or look as well, and what it looks at counts
+        // where the word stands.
+        let mut looked = false;
+        for w in s.words.iter().filter(|w| w.dynamic) {
+            let Some(inner) = substitutions(&w.text) else { return false };
+            for line in inner {
+                let mut within = Waiting { depth: 1, ..Waiting::default() };
+                if !sleeps_and_looks(&line, level + 1, &mut within) {
+                    return false;
+                }
+                looked |= within.looks_in_loop;
+            }
+        }
+        let mut rest = s.words.iter().peekable();
+        while let Some(w) = rest.peek() {
+            let lead = if w.dynamic { is_assignment(&w.text) } else { is_assignment(&w.text) || WORDS.contains(&w.text.as_str()) };
+            if !lead {
+                break;
+            }
+            // With another search path a name is another program.
+            if w.text.starts_with("PATH=") {
+                return false;
+            }
+            match w.text.as_str() {
+                "until" | "while" if !w.dynamic => {
+                    seen.conditional = true;
+                    seen.depth += 1;
+                }
+                "done" if !w.dynamic => seen.depth = seen.depth.saturating_sub(1),
+                _ => {}
+            }
+            rest.next();
+        }
+        if let Some(first) = rest.next() {
+            if first.dynamic {
+                return false;
+            }
+            let args: Vec<&Word> = rest.collect();
+            let Some(name) = system_program(&first.text) else { return false };
+            if !seen.started && name != "cd" {
+                seen.started = true;
+                seen.leads_with_sleep = name == "sleep" && seen.depth == 0;
+            }
+            match name {
+                "sleep" => {
+                    seen.sleeps = true;
+                    match sleep_seconds(args.iter().copied()) {
+                        Some(t) => {
+                            seen.longest = seen.longest.max(t);
+                            if seen.depth == 0 {
+                                seen.outside += t;
+                            }
+                        }
+                        None => seen.unknown = true,
+                    }
+                }
+                // `for x in a b c` runs nothing itself.
+                "for" => {
+                    seen.fors = true;
+                    seen.depth += 1;
+                }
+                "break" | "exit" | "return" => seen.breaks = true,
+                // Only asking whether a process is there.
+                "kill" if args.first().is_some_and(|w| !w.dynamic && w.text == "-0") => looked = true,
+                "curl" if curl_only_asks(&args) => looked = true,
+                "find" if !args.iter().any(|w| !w.dynamic && FIND_ACTS.contains(&w.text.as_str())) => looked = true,
+                // An awk program can run a command: `system("make")`, `"make" | getline`.
+                "awk" | "gawk" | "mawk"
+                    if !args.iter().any(|w| w.text == "-f" || ["system(", "getline", "| \"", "|\""].iter().any(|run| w.text.contains(run))) =>
+                {
+                    looked = true
+                }
+                // What can be told to run a program: `nc -e`, `rg --pre`.
+                "nc" if !args.iter().any(|w| w.text == "-e" || w.text == "-c") => looked = true,
+                "rg" if !args.iter().any(|w| w.text.starts_with("--pre")) => looked = true,
+                "sysctl" if !args.iter().any(|w| w.text == "-w" || w.text.contains('=')) => looked = true,
+                // `sed -n 10,40p FILE` and nothing else of sed: a script can write a file
+                // (`w`), run a command (`e`), and `-i` is spelled in several ways.
+                "sed" if matches!(&args[..], [n, script, files @ ..] if n.text == "-n" && !script.dynamic && prints_lines(&script.text) && files.iter().all(|w| !w.text.starts_with('-'))) => {
+                    looked = true
+                }
+                // Not into a file of its own: `sort -o FILE`, `uniq IN OUT`.
+                "sort"
+                    if !args
+                        .iter()
+                        .any(|w| w.text.starts_with("--output") || (w.text.starts_with('-') && !w.text.starts_with("--") && w.text.contains('o'))) =>
+                {
+                    looked = true
+                }
+                "uniq" if args.iter().filter(|w| !w.text.starts_with('-')).count() <= 1 => looked = true,
+                // Reading the clock, not setting it.
+                "date" if !args.iter().any(|w| w.text == "-s" || w.text.starts_with("--set")) => {}
+                "[" | "[[" | "test" => looked |= args.iter().any(|w| !w.dynamic && FILE_TESTS.contains(&w.text.as_str())),
+                name if LOOKS.contains(&name) => looked = true,
+                name if QUIET.contains(&name) => {}
+                _ => return false,
+            }
+        }
+        seen.looks_in_loop |= looked && seen.depth > 0;
+    }
+    true
+}
+
+/// Whether a command line only waits, and in what: it sleeps, and whatever else it does is
+/// looking at something between two sleeps (`until [ -f out ]; do sleep 5; done`, `sleep 600`,
+/// `while pgrep -q make; do sleep 10; done; tail -3 log`). Nothing such a command did is lost
+/// when it is stopped.
+///
+/// It is a [`Wait::Loop`] when running it again goes on waiting for the same thing: a loop on a
+/// condition (`until`, `while`, or a `for` with a way out) that looks at something outside the
+/// shell, with every sleep written out and short enough that a run of four minutes gets round
+/// the loop, and that does not start with a sleep. Anything that may change something makes it no wait at all: a `curl` with a
+/// method or data, a `find` that acts, a `kill` that is not `-0`, a redirect into a file, and
+/// the same inside a command substitution.
+pub fn wait_of(command: &str) -> Option<Wait> {
+    if may_write(command) || redirects_into_a_file(command) {
+        return None;
+    }
+    let mut seen = Waiting::default();
+    if !sleeps_and_looks(command, 0, &mut seen) || !seen.sleeps || !substitutions_only_look(command, 1) {
+        return None;
+    }
+    let again = (seen.conditional || (seen.fors && seen.breaks))
+        && seen.looks_in_loop
+        && !seen.unknown
+        && !seen.leads_with_sleep
+        && seen.longest <= AGAIN_S
+        && seen.outside <= AGAIN_S;
+    Some(if again { Wait::Loop } else { Wait::Fixed })
+}
+
 /// A symbol name a search pattern asks for, with the kind word written in front of it, if any
 /// (`struct file_operations`, `def handle`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1560,6 +1896,111 @@ mod tests {
             ("grep -c x <<< \"$text\"", vec![]),
         ] {
             assert_eq!(heredoc_files(command), want, "{command}");
+        }
+    }
+
+    #[test]
+    fn a_command_that_only_waits_is_told_from_one_that_works() {
+        // Run again, these go on waiting for the same thing.
+        for command in [
+            "until [ -f out/done.txt ]; do sleep 5; done",
+            "while pgrep -q make; do sleep 10; done; tail -3 build.log",
+            "until curl -sf localhost:3000/health >/dev/null; do sleep 2; done",
+            "until [ \"$(curl -s -o /dev/null -w '%{http_code}' localhost:3000)\" = 200 ]; do sleep 2; done",
+            "while kill -0 4242 2>/dev/null; do sleep 15; done; echo finished",
+            "cd /w && until grep -q 'done' run.log; do sleep 30; done",
+            "for i in $(seq 1 60); do [ -f out ] && break; sleep 10; done",
+            "i=0; until [ -f out ] || [ $i -ge 60 ]; do sleep 5; i=$((i+1)); done",
+            "while true; do sleep 30; pgrep -q make || break; done",
+            "until [ -n \"`ls out/*.json 2>/dev/null`\" ]; do sleep 1m; done",
+            "end=$(( $(date +%s) + 600 )); until grep -q done run.log || [ $(date +%s) -gt $end ]; do sleep 5; done; tail -3 run.log",
+            "for i in $(seq 1 120); do pgrep -f worker >/dev/null || { echo idle; exit 0; }; /bin/sleep 5; done; echo busy",
+            "until [ \"$(sysctl -n vm.loadavg | awk '{print int($2)}')\" -lt 4 ]; do sleep 20; done; uptime",
+            "while sleep 5; do [ -f out ] && break; done",
+            "until grep -q done run.log 2>/dev/null; do sleep 5; done; sed -n '1,40p' run.log | sort | uniq -c; date +%T",
+            "until pgrep -q worker &>/dev/null; do sleep 2; done 2>&1",
+            "until /usr/bin/grep -q ok run.log; do /bin/sleep 5; done",
+            "until [ -f out ]\ndo\n  sleep 5\ndone\ntail -3 out  # the result",
+            "until grep -q ok <<< \"$(cat run.log)\"; do sleep 5; done",
+            "until nc -z localhost 5432; do sleep 1; done; rg -c ERROR server.log",
+            "until [ -f out ]; do sleep 5; done; sleep 2; cat out",
+        ] {
+            assert_eq!(wait_of(command), Some(Wait::Loop), "{command}");
+        }
+        // Run again, these start over: a set length, a loop that only counts, a sleep too
+        // long to get round the loop in four minutes, a length that is not written out.
+        for command in [
+            "sleep 600",
+            "sleep 540; tail -20 build.log",
+            "for i in 1 2 3 4 5 6; do sleep 60; done",
+            "i=0; while [ $i -lt 10 ]; do sleep 60; i=$((i+1)); done",
+            "sleep 300; until [ -f out ]; do sleep 5; done",
+            "until [ -f out ]; do sleep 300; done",
+            "until [ -f out ]; do sleep $EVERY; done",
+            "until [ -f out ]; do sleep 5; done; sleep 200; cat out",
+            // A line that starts with a sleep is ended at its limit, not moved to the background.
+            "sleep 60; until [ -f out ]; do sleep 5; done",
+            "cd /w && sleep 2; until [ -f out ]; do sleep 5; done",
+            "n=0; sleep 1; until [ -f out ]; do sleep 5; done",
+            // Only the clock is looked at.
+            "T=$(date +%s); until [ $(( $(date +%s) - T )) -ge 600 ]; do sleep 10; done; echo waited",
+        ] {
+            assert_eq!(wait_of(command), Some(Wait::Fixed), "{command}");
+        }
+        for command in [
+            "cargo test",
+            "sleep 300 && cargo test",
+            "./slowcheck.sh",
+            "until make check; do sleep 5; done",
+            "while true; do sleep 5; kill 4242; done",
+            "sleep 60; echo done > marker",
+            "until [ -f out ]; do $POLL; sleep 5; done",
+            "grep -c x file",
+            "",
+            "curl -s -X POST localhost:3000/start; until curl -sf localhost:3000/done; do sleep 5; done",
+            "until curl -sf --data-raw '{}' localhost:3000/done; do sleep 5; done",
+            "until curl -sfo report.json localhost:3000/report; do sleep 5; done",
+            "until [ \"$(make -q all; echo $?)\" = 0 ]; do sleep 5; done",
+            "x=$(./start.sh); until [ -f out ]; do sleep 5; done",
+            "until find out -name '*.tmp' -delete; do sleep 5; done",
+            "until [ $((`./poll.sh` + 1)) -gt 3 ]; do sleep 5; done",
+            "until [ $(( $(./poll.sh) + 1 )) -gt 3 ]; do sleep 5; done",
+            // Something is started, or run where it is hard to see.
+            "(make &); until [ -f out ]; do sleep 5; done",
+            "make & until [ -f out ]; do sleep 5; done",
+            "f() { make; }; until f; do sleep 5; done",
+            "until [ -f out ]; do sleep 5; done; eval \"$AFTER\"",
+            "until [ -f out ]; do sleep 5; done; touch seen",
+            "until bash -c 'make check'; do sleep 5; done",
+            "until grep -q ok <(make check 2>&1); do sleep 5; done",
+            "until awk 'BEGIN { exit system(\"make check\") }'; do sleep 5; done",
+            "until [ -f out ]; do sleep 5; done | tee wait.log",
+            "until sysctl -w kern.maxfiles=1; do sleep 5; done",
+            // What a substitution runs counts wherever it stands, and a name with a path of
+            // its own is somebody's script.
+            "until grep -q ok <<< \"$(make check 2>&1)\"; do sleep 5; done",
+            "until grep -q ok < \"$(./prepare.sh)\"; do sleep 5; done",
+            "until ./grep -q ok run.log; do sleep 5; done",
+            "until tools/cat status; do sleep 5; done",
+            "PATH=./bin:$PATH; until grep -q ok run.log; do sleep 5; done",
+            "until rg --pre ./unpack ok logs; do sleep 5; done",
+            "until awk -f check.awk run.log; do sleep 5; done",
+            "until nc -e ./serve localhost 9000; do sleep 5; done",
+            // A file is written through an option, a script or a stream of its own.
+            "until [ -f out ]; do sleep 5; done; sed --in-place s/a/b/ out",
+            "until sed -n 'w copy' log; do sleep 5; done",
+            "until sed '1e make' log; do sleep 5; done",
+            "until sort -o sorted log; do sleep 5; done",
+            "until sort --output=sorted log; do sleep 5; done",
+            "until uniq log deduped; do sleep 5; done",
+            "until [ -f out ]; do sleep 5; done; echo late 2> err.log >&2",
+            "until curl -s localhost:3000/status > /dev/tcp/collector/80; do sleep 5; done",
+            // More stands on the lines after the loop.
+            "until [ -f out ]; do sleep 5; done # then\nmake install",
+            "until [ -f out ]\ndo\n  sleep 5\ndone\n./deploy.sh",
+            "until [ -f out ]; do sleep 5; done; date -s '2020-01-01'",
+        ] {
+            assert_eq!(wait_of(command), None, "{command}");
         }
     }
 
