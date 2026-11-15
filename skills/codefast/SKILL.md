@@ -25,6 +25,7 @@ Reach for it before `grep` + reading files whenever the question is about a symb
 | What it calls, and where each callee lives | `codefast callees vfs_read` |
 | Before changing a function: its body, its types, the signatures of what it calls, its call sites and its tests, in one answer | `codefast context vfs_read` |
 | How execution gets from A to B | `codefast path sys_read ext4_file_read_iter` |
+| How a part of the code works: the functions of one flow, each in short, the call chains between them and the functions on the way | `codefast search QuerySet.filter Query.build_filter SQLCompiler.execute_sql` |
 | Which function prints a message | `codefast grep -F "Busy inodes after unmount"` |
 | Where to look for a bug report or stack trace: the files, with the source of the functions that point to them | `codefast locate "<paste the report>"` (or `codefast locate - < report.txt`, `--ranking` for the list alone) |
 | The API of an installed dependency | `codefast dep` lists them, `codefast dep requests Session` looks inside one |

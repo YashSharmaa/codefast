@@ -3,8 +3,8 @@
 //! it, where it is bound, what else mentions it) so that a follow-up call is rarely needed.
 
 use super::locate::{LocateOpts, locate};
-use super::refs::{Via, callee_edges, caller_edges, encl_name, proximity_key, sites_summary};
-use super::show::{ShowOpts, outline, show, show_def};
+use super::refs::{Hop, Via, callee_edges, caller_edges, calls_of, chains, encl_name, proximity_key, sites_summary};
+use super::show::{ShowOpts, outline, show, show_def, show_excerpt};
 use super::{Common, PathFilter, Spec, def_line, defs_for, parse_spec, targets_for};
 use crate::facts::DefKind;
 use crate::output::{Out, count};
@@ -160,7 +160,7 @@ pub fn text_only_mentions(ix: &Index, rs: &Resolver, t: &Target) -> Vec<FileId> 
 fn card(ix: &Index, rs: &Resolver, t: &Target, others: &[Target], opts: &SearchOpts, out: &mut Out) {
     let p = t.primary(ix);
     let nlines = (p.rec.end_line - p.rec.line + 1) as usize;
-    let show_opts = ShowOpts { max_lines: opts.body_lines, full: false, outline: nlines > opts.body_lines && p.kind().is_container(), doc: true };
+    let show_opts = ShowOpts { max_lines: opts.body_lines, full: false, outline: nlines > opts.body_lines && p.kind().is_container(), doc: true, lean: false };
     show_def(ix, &p, &show_opts, out);
     // Every place that uses it, one line per file: what a change to it has to reach. This is
     // the part that makes the answer final for a rename or a changed signature, so it gets up
@@ -465,6 +465,274 @@ fn code_fragment(ix: &Index, q: &str) -> Option<(String, Vec<String>)> {
     Some((pattern, paths))
 }
 
+/// The lines of source the cards of one answer about several symbols share. The short
+/// functions are printed whole and the long ones split what that leaves evenly, so that a
+/// flow of four short functions and one long one is printed whole, and a survey of seven
+/// long ones is not seven times sixty lines. The session that reads such code by itself
+/// reads about 170 lines for a question.
+const WALK_LINES: u32 = 200;
+/// What a long function gets at the least, and a function on the way between two of them.
+const WALK_WHOLE: u32 = 30;
+/// What a long function gets that is only called by the others and calls none of them: it is
+/// where the flow ends, and what it does inside is the next question, not this one.
+const WALK_END: u32 = 15;
+/// Of a function that is not printed whole: two thirds of its share from its start, and this
+/// many lines on each side of a call that leads on to another of the symbols.
+const WALK_AROUND: u32 = 3;
+/// How many calls a chain between two of them may have, and how many functions are looked
+/// into from each to find the chains.
+const WALK_DEPTH: u32 = 4;
+const WALK_NODES: usize = 300;
+/// How many of the functions they call besides are named, and from how many lines a function
+/// is worth naming there.
+const WALK_ALSO: usize = 8;
+const WALK_ALSO_MIN: u32 = 5;
+/// From how many symbols named in one call the call is a survey, whether or not they call
+/// one another.
+const SURVEY_FROM: usize = 3;
+
+/// A query written as the line that defines a function or a type (`func (c *Context) Next()`,
+/// `def filter(self, *args, **kwargs):`, `pub async fn run(&self) -> Result<()>`): the name it
+/// defines, with the type of a Go receiver in front of it. Models that have just read such a
+/// line ask for the function by it. Nothing for a kind word and a bare name (`struct file`),
+/// which is a name with its kind and is read as that.
+fn definition_line(q: &str) -> Option<String> {
+    const MODIFIERS: &[&str] = &[
+        "pub",
+        "pub(crate)",
+        "pub(super)",
+        "async",
+        "export",
+        "default",
+        "static",
+        "public",
+        "private",
+        "protected",
+        "internal",
+        "open",
+        "override",
+        "final",
+        "abstract",
+        "suspend",
+        "unsafe",
+        "const",
+        "extern",
+        "inline",
+    ];
+    const KEYWORDS: &[&str] = &["func", "def", "fn", "function", "fun", "class", "struct", "interface", "trait", "enum"];
+    let mut rest = q.trim();
+    loop {
+        let (word, after) = rest.split_once(char::is_whitespace)?;
+        if MODIFIERS.contains(&word) {
+            rest = after.trim_start();
+        } else if KEYWORDS.contains(&word) {
+            rest = after.trim_start();
+            break;
+        } else {
+            return None;
+        }
+    }
+    // A Go receiver: `(c *Context)`, `(g Group[T])`.
+    let mut owner = None;
+    if let Some(inner) = rest.strip_prefix('(') {
+        let (receiver, after) = inner.split_once(')')?;
+        let ty = receiver.split_whitespace().last()?.trim_start_matches(['*', '&']);
+        let ty: String = ty.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        if ty.is_empty() {
+            return None;
+        }
+        owner = Some(ty);
+        rest = after.trim_start();
+    }
+    let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    let signed = rest[name.len()..].trim_start().starts_with(['(', '<', '[', ':', '{']);
+    if name.is_empty() || !(signed || owner.is_some()) {
+        return None;
+    }
+    Some(match owner {
+        Some(owner) => format!("{owner}.{name}"),
+        None => name,
+    })
+}
+
+/// The one thing a query names, where it names one, with the others of that name: what
+/// [`search`] prints a card for. Nothing for free text, a path, a place, or a name that many
+/// things share.
+fn named_target(ix: &Index, rs: &Resolver, q: &str, common: &Common) -> Option<(Target, Vec<Target>)> {
+    let defined = definition_line(q);
+    let q = defined.as_deref().unwrap_or(q).trim();
+    if q.is_empty() || called_form(q).is_some() || (q.split_whitespace().count() > 1 && super::split_kind_prefix(q).0.is_none()) {
+        return None;
+    }
+    let spec = parse_spec(ix, q);
+    if !matches!(spec, Spec::Sym { .. }) {
+        return None;
+    }
+    let ents = targets_for(ix, rs, &spec, common, &PathFilter::new(&common.paths));
+    let strong: Vec<&Target> = ents.iter().filter(|t| matches!(t.class, Class::Callable | Class::Type | Class::Value)).collect();
+    if ents.is_empty() || !(ents.len() <= 3 || strong.len() == 1) {
+        return None;
+    }
+    let main = if strong.len() == 1 { strong[0] } else { &ents[0] };
+    let others = ents.iter().filter(|t| !std::ptr::eq(*t, main)).cloned().collect();
+    Some((main.clone(), others))
+}
+
+/// How the functions a call names lead to one another: the call chains between them, as the
+/// places of the two among the queries and the hops. Empty when fewer than two of the queries
+/// name one thing each, or when none of them calls its way to another.
+fn chains_among(ix: &Index, rs: &Resolver, named: &[Option<(Target, Vec<Target>)>]) -> Vec<(usize, usize, Vec<Hop>)> {
+    let at: Vec<usize> = (0..named.len()).filter(|&i| named[i].is_some()).collect();
+    if at.len() < 2 {
+        return Vec::new();
+    }
+    let targets: Vec<Target> = at.iter().map(|&i| named[i].as_ref().unwrap().0.clone()).collect();
+    let mut out = Vec::new();
+    for (a, t) in targets.iter().enumerate() {
+        if t.class == Class::Callable {
+            for (b, hops) in chains(ix, rs, t, &targets, WALK_DEPTH, WALK_NODES) {
+                out.push((at[a], at[b], hops));
+            }
+        }
+    }
+    out
+}
+
+/// The card of one symbol among several that are read together: its definition by what
+/// matters of it there, and who calls it in one line. The places that use it are what a change
+/// to it has to reach, which is not what is asked when several things are named at once: that
+/// is how they work together. `marks` are the lines of the calls that lead on to the others.
+fn walk_card(ix: &Index, rs: &Resolver, t: &Target, others: &[Target], share: u32, marks: &[u32], linked: bool, out: &mut Out) {
+    let p = t.primary(ix);
+    let nlines = p.rec.end_line - p.rec.line + 1;
+    if p.kind().is_container() && p.kind() != DefKind::TypeAlias {
+        show_def(ix, &p, &ShowOpts { max_lines: WALK_WHOLE as usize, full: false, outline: nlines > WALK_WHOLE, doc: true, lean: true }, out);
+    } else {
+        show_excerpt(ix, &p, share, share / 3 * 2, marks, WALK_AROUND, out);
+    }
+    if let Some(l) = usage_line(ix, rs, t, 4).first() {
+        out.line(l);
+    }
+    // Where nothing after the cards says what it calls, the card does, by name.
+    if !linked && p.kind().is_callable() && p.kind() != DefKind::Macro && nlines > share {
+        let names: Vec<String> = callee_edges(rs, &p)
+            .iter()
+            .filter(|c| !c.member && c.targets.first().is_some_and(|&d| ix.def(d).kind() != DefKind::Macro))
+            .map(|c| String::from_utf8_lossy(c.name).into_owned())
+            .collect();
+        if !names.is_empty() {
+            let more = if names.len() > 10 { format!(" (+{})", names.len() - 10) } else { String::new() };
+            out.line(&format!("calls: {}{}", names.iter().take(10).map(|n| n.as_str()).collect::<Vec<_>>().join(", "), more));
+        }
+    }
+    if !others.is_empty() {
+        let also: Vec<String> = others.iter().take(3).map(|e| e.primary(ix)).map(|v| format!("{}:{} ({})", v.path(), v.rec.line, v.kind().tag())).collect();
+        out.line(&format!("also: {}{}", also.join(", "), if others.len() > 3 { format!(" +{} more", others.len() - 3) } else { String::new() }));
+    }
+}
+
+/// What stands after the cards of several functions of one flow: the call chains between them
+/// with the place of every call, the functions on the way, and what they call besides, the
+/// short ones whole and the others by signature. It is what the next call would have asked.
+fn walk_links(ix: &Index, rs: &Resolver, named: &[Option<(Target, Vec<Target>)>], links: &[(usize, usize, Vec<Hop>)], out: &mut Out) {
+    let key = |t: &Target| t.defs.iter().copied().min();
+    let mut shown: FxHashSet<DefId> = named.iter().flatten().filter_map(|(t, _)| key(t)).collect();
+    out.push("how they lead to one another:");
+    let mut said: FxHashSet<(String, u32, String)> = FxHashSet::default();
+    // The functions on the way, each with the lines of the calls that lead on from it.
+    let mut between: Vec<(Target, Vec<u32>)> = Vec::new();
+    for (a, _, hops) in links {
+        let from = named[*a].as_ref().map(|(t, _)| String::from_utf8_lossy(&t.name).into_owned()).unwrap_or_default();
+        let names: Vec<&str> = std::iter::once(from.as_str()).chain(hops.iter().map(|h| h.to.as_str())).collect();
+        if !out.line(&names.join(" → ")) {
+            break;
+        }
+        for h in hops {
+            if said.insert((h.path.clone(), h.line, h.to.clone())) {
+                out.line(&format!("  {}:{} {} calls {}{}", h.path, h.line, h.from, h.to, h.note));
+            }
+        }
+        for pair in hops.windows(2) {
+            let Some(k) = key(&pair[0].callee) else { continue };
+            if shown.insert(k) {
+                between.push((pair[0].callee.clone(), vec![pair[1].line]));
+            } else if let Some((_, marks)) = between.iter_mut().find(|(t, _)| key(t) == Some(k)) {
+                marks.push(pair[1].line);
+            }
+        }
+    }
+    if !between.is_empty() {
+        out.push("");
+        out.push("on the way:");
+        for (t, marks) in &between {
+            show_excerpt(ix, &t.primary(ix), WALK_WHOLE, WALK_WHOLE / 3 * 2, marks, WALK_AROUND, out);
+        }
+    }
+    // What they call besides, by signature, the longest first: where the work is done that
+    // the flow hands over to, so that the one that matters can be asked for by name. Helpers
+    // of a few lines are counted and not named. A call that is matched by its name alone to
+    // several methods counts for the one of them that stands near what was asked about, or
+    // for none.
+    let asked: Vec<crate::store::DefV> = named.iter().flatten().map(|(t, _)| t.primary(ix)).collect();
+    let dir = |path: &str| path.rsplit_once('/').map_or(String::new(), |(d, _)| d.to_string());
+    let near = |v: &crate::store::DefV| {
+        asked.iter().any(|a| a.file() == v.file() || dir(a.path()) == dir(v.path()) || (v.parent_name().is_some() && v.parent_name() == a.parent_name()))
+    };
+    let mut also: Vec<(u32, String)> = Vec::new();
+    let mut uncounted = 0usize;
+    let callers: Vec<Target> =
+        named.iter().flatten().map(|(t, _)| t.clone()).chain(between.iter().map(|(t, _)| t.clone())).filter(|t| t.class == Class::Callable).collect();
+    for t in &callers {
+        let calls = calls_of(ix, rs, t);
+        for h in &calls {
+            let v = h.callee.primary(ix);
+            if h.note.starts_with(" (by name") {
+                let same: Vec<&Hop> = calls.iter().filter(|o| o.line == h.line && o.to == h.to).collect();
+                if same.len() > 1 && !(near(&v) && same.iter().filter(|o| near(&o.callee.primary(ix))).count() == 1) {
+                    continue;
+                }
+            }
+            if v.kind() == DefKind::Macro || !key(&h.callee).is_some_and(|k| shown.insert(k)) {
+                continue;
+            }
+            let n = v.rec.end_line - v.rec.line + 1;
+            if n >= WALK_ALSO_MIN && near(&v) {
+                also.push((n, format!("  {} ({} lines)", one_line(&v), n)));
+            } else {
+                uncounted += 1;
+            }
+        }
+    }
+    if !also.is_empty() {
+        also.sort_by(|a, b| b.0.cmp(&a.0));
+        out.push("");
+        out.push("they also call:");
+        let total = also.len() + uncounted;
+        let mut told = 0usize;
+        for (_, l) in also.iter().take(WALK_ALSO) {
+            if !out.line(l) {
+                break;
+            }
+            told += 1;
+        }
+        if total > told {
+            out.line(&format!("  … and {} more", total - told));
+        }
+    }
+}
+
+/// A definition in one line of at most a hundred characters or so: its place, its owner and
+/// its signature.
+fn one_line(d: &crate::store::DefV) -> String {
+    let owner = d
+        .parent_name()
+        .filter(|_| matches!(d.kind(), DefKind::Method | DefKind::Field | DefKind::Property))
+        .map(|p| format!(" (in {})", String::from_utf8_lossy(p)))
+        .unwrap_or_default();
+    let sig = d.signature().split_whitespace().collect::<Vec<_>>().join(" ");
+    format!("{}:{} {}{}", d.path(), d.rec.line, crate::output::clip(&sig, 110), owner)
+}
+
 /// What each of several answers may take of a room that all of them share: the short ones
 /// take what they need, and the long ones split what that leaves evenly.
 fn fair_cap(sizes: &[usize], pool: usize) -> usize {
@@ -532,9 +800,47 @@ pub fn search_all(
     // session that has the tools and nothing else, which is where it was measured to help.
     let pushed = crate::recent::was_hooked(&crate::build::index_dir(&ix.root), HOOKS_AT_WORK);
     let opts = &SearchOpts { source: opts.source && (budget == 0 || (!named && !pushed)), ..*opts };
+    // Several functions named in one call that call their way to one another are one flow:
+    // each gets a shorter card, and what connects them is printed after the cards.
+    let things: Vec<Option<(Target, Vec<Target>)>> = parts.iter().map(|part| part.and_then(|q| named_target(ix, rs, q, common))).collect();
+    let links = chains_among(ix, rs, &things);
+    // And from three symbols named at once the call is a survey whether or not they do: the
+    // cards are the short ones, without what connects them.
+    let survey = !links.is_empty() || things.iter().flatten().count() >= SURVEY_FROM;
+    let walked = |part: &Option<&str>| -> Option<(usize, &(Target, Vec<Target>))> {
+        if !survey {
+            return None;
+        }
+        parts.iter().position(|p| p == part).and_then(|i| things[i].as_ref().map(|t| (i, t)))
+    };
+    // What each function may take of the lines the cards share. Together inside them: each
+    // whole. Else the functions that lead on to another of them come first, since they are
+    // what holds the flow together, and a long one that is only called gets its first lines.
+    let length = |i: usize| things[i].as_ref().map(|(t, _)| t.primary(ix)).filter(|p| !p.kind().is_container()).map_or(0, |p| p.rec.end_line - p.rec.line + 1);
+    let leads_on = |i: usize| links.iter().any(|(a, _, _)| *a == i);
+    let is_led_to = |i: usize| links.iter().any(|(_, b, _)| *b == i);
+    let total: u32 = (0..things.len()).map(length).sum();
+    let end_share = |i: usize| if is_led_to(i) { WALK_END } else { WALK_WHOLE };
+    let others_take: u32 = (0..things.len()).filter(|&i| !leads_on(i)).map(|i| length(i).min(end_share(i))).sum();
+    let leading: Vec<usize> = (0..things.len()).filter(|&i| leads_on(i)).map(|i| length(i) as usize).collect();
+    let lead_share = fair_cap(&leading, WALK_LINES.saturating_sub(others_take) as usize).min(u32::MAX as usize).max(WALK_WHOLE as usize) as u32;
+    let share_of = |i: usize| -> u32 {
+        if total <= WALK_LINES {
+            u32::MAX
+        } else if leads_on(i) {
+            lead_share
+        } else {
+            end_share(i)
+        }
+    };
     let render = |part: &Option<&str>, room: usize| -> String {
         let mut one = Out::new(room);
         match (part, &open[..]) {
+            (Some(_), _) if walked(part).is_some() => {
+                let (i, (t, others)) = walked(part).unwrap();
+                let marks: Vec<u32> = links.iter().filter(|(a, _, _)| *a == i).filter_map(|(_, _, hops)| hops.first().map(|h| h.line)).collect();
+                walk_card(ix, rs, t, others, share_of(i), &marks, !links.is_empty(), &mut one);
+            }
             (Some(q), _) => search(ix, rs, q, common, opts, &mut one),
             (None, [q]) => search(ix, rs, q, common, opts, &mut one),
             (None, _) => {
@@ -565,6 +871,8 @@ pub fn search_all(
         // the caller named.
         let pool = if named { budget } else { budget * shared.len().min(3) };
         bound += pool;
+        // What connects the symbols of a flow has three tenths of the room.
+        let pool = if links.is_empty() { pool } else { pool * 7 / 10 };
         let sizes: Vec<usize> = shared.iter().map(|&i| crate::output::est_tokens(&texts[i])).collect();
         let cap = fair_cap(&sizes, pool);
         for (&i, &size) in shared.iter().zip(&sizes) {
@@ -572,6 +880,12 @@ pub fn search_all(
                 texts[i] = render(&parts[i], cap.max(150));
             }
         }
+    }
+    if !links.is_empty() {
+        let room = if unlimited { 0 } else { bound.saturating_sub(texts.iter().map(|t| crate::output::est_tokens(t)).sum()).max(250) };
+        let mut after = Out::new(room);
+        walk_links(ix, rs, &things, &links, &mut after);
+        texts.push(after.finish());
     }
     // Two wordings of one question get one answer: the second is not printed again.
     let mut said: Vec<&str> = Vec::new();
@@ -589,6 +903,13 @@ pub fn search(ix: &Index, rs: &Resolver, query: &str, common: &Common, opts: &Se
     if q.is_empty() {
         out.push("empty query");
         return;
+    }
+    // The line that defines something is a question about what it defines.
+    if let Some(name) = definition_line(q) {
+        if !targets_for(ix, rs, &parse_spec(ix, &name), common, &PathFilter::new(&common.paths)).is_empty() {
+            search(ix, rs, &name, common, opts, out);
+            return;
+        }
     }
     // Free text: more than one word (unless it is just a kind word and a name: `struct file`),
     // and unless the words together name one symbol.

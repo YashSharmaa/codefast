@@ -62,7 +62,7 @@ const TOOL_NAMES: &[&str] = &["search", "show", "refs", "path", "grep"];
 
 /// Sent with every request of a session, so every word is paid for on every request: what the
 /// server is, where to start, and the two things about its answers that are not obvious.
-const INSTRUCTIONS: &str = "codefast answers questions about this repository from a structural index. `search` is the entry point: give it a symbol name, a path or free text (a bug report, a stack trace) and it returns the definition with its body and every place that uses it, or the files the text points to. Use it before grep and file reads for anything about a symbol. Answers give `path:line` locations and say when they are incomplete. `refs` and `grep` leave out test code unless `tests` is true.";
+const INSTRUCTIONS: &str = "codefast answers questions about this repository from a structural index. `search` is the entry point. Use it before grep and file reads for anything about a symbol. Answers give `path:line` locations and say when they are incomplete. `refs` and `grep` leave out test code unless `tests` is true.";
 
 /// Appended to the instructions when the process was started outside a repository.
 const INSTRUCTIONS_NEED_ROOT: &str = " This server was started outside a repository: pass `root` (the absolute path of the repository) with every call.";
@@ -73,16 +73,19 @@ const HOW_TO_NAME_A_ROOT: &str = "Pass `root` (the absolute path of the reposito
 fn tools() -> Value {
     let root = json!({"type": "string", "description": "Repository path, only when the server asks for it."});
     let budget = json!({"type": "integer", "description": "Answer size in tokens (default 1500, max 8000)."});
-    let path = json!({"type": "string", "description": "Only paths containing this text, or a glob such as drivers/net/**."});
+    // The one tool that is loaded with every request says when to name a size: a caller that
+    // always names a large one gets answers that large, and reads them again with every request.
+    let search_budget = json!({"type": "integer", "description": "Answer size in tokens (max 8000). Leave it out unless an answer was cut short."});
+    let path = json!({"type": "string", "description": "Only paths containing this text, or a glob (drivers/net/**)."});
     let tests = json!({"type": "boolean", "description": "Include test code (skipped by default)."});
     let hints = |title: &str| json!({"title": title, "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false});
     json!([
         {
             "name": "search",
-            "description": "Entry point for code questions. Give a symbol name (`vfs_read`, `Owner.method`), a file path or `path:line`, or free text (a bug report, an error message, a stack trace). Returns the definition with its body and every place that calls or uses it, or for free text the files it most likely means with the source of the functions that make them candidates, in one answer.",
+            "description": "Start here. A query is a symbol name (`vfs_read`, `Owner.method`), a file path, `path:line`, or free text (a bug report, a stack trace). One name: its definition, its body and every place that uses it. Several names in one call, for how a part of the code works: each in short, the call chains between them and what stands on the way. Free text: the files it most likely means.",
             "inputSchema": {"type": "object", "properties": {
-                "queries": {"type": "array", "items": {"type": "string"}, "description": "One or more queries. Each is answered, and free-text ones together as one question."},
-                "path": path, "budget": budget, "root": root
+                "queries": {"type": "array", "items": {"type": "string"}, "description": "One or more. Free-text ones are answered together, as one question."},
+                "path": path, "budget": search_budget, "root": root
             }, "required": ["queries"]},
             "annotations": hints("Search code"),
             "_meta": {"anthropic/alwaysLoad": true}

@@ -88,7 +88,7 @@ fn one(ix: &Index, rs: &Resolver, t: &Target, common: &Common, out: &mut Out) {
     let mut lines = Lines::new(ix);
 
     // 1. The definition itself.
-    show_def(ix, &p, &ShowOpts { max_lines: 140, full: false, outline: false, doc: true }, out);
+    show_def(ix, &p, &ShowOpts { max_lines: 140, full: false, outline: false, doc: true, lean: false }, out);
 
     // 2. The type it belongs to: fields in full, the other methods by signature.
     if let Some(owner) = p.parent().filter(|o| o.kind().is_type() || o.kind() == DefKind::Impl) {
@@ -119,7 +119,7 @@ fn one(ix: &Index, rs: &Resolver, t: &Target, common: &Common, out: &mut Out) {
                 let tv = ix.def(td);
                 if out.fits(((tv.rec.end_line - tv.rec.line + 2) as usize).min(32) * 12) {
                     out.push("method of:");
-                    show_def(ix, &tv, &ShowOpts { max_lines: 30, full: false, outline: false, doc: false }, out);
+                    show_def(ix, &tv, &ShowOpts { max_lines: 30, full: false, outline: false, doc: false, lean: false }, out);
                     owner_shown = Some(td);
                 }
             }
@@ -333,7 +333,7 @@ fn print_tests(ix: &Index, _t: &Target, tests: &[TestHit], max: usize, example: 
         let need = (h.test.rec.end_line - h.test.rec.line + 3) as usize * 14;
         if out.fits(need) {
             out.push("example test:");
-            show_def(ix, &h.test, &ShowOpts { max_lines: 30, full: false, outline: false, doc: false }, out);
+            show_def(ix, &h.test, &ShowOpts { max_lines: 30, full: false, outline: false, doc: false, lean: false }, out);
         }
     }
 }
@@ -389,7 +389,7 @@ fn print_signature_types<'a>(ix: &'a Index, rs: &Resolver<'a>, p: &DefV<'a>, sho
             out.push("its signature names:");
             printed = true;
         }
-        show_def(ix, v, &ShowOpts { max_lines, full: false, outline: false, doc: false }, out);
+        show_def(ix, v, &ShowOpts { max_lines, full: false, outline: false, doc: false, lean: false }, out);
     }
 }
 

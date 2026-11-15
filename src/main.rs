@@ -522,7 +522,7 @@ fn run(cli: Cli) -> Result<()> {
             query::find::find(&ix, &rs, &a.queries, &common, &opts, &mut out);
         }
         Cmd::Show(a) => {
-            let opts = query::show::ShowOpts { max_lines: a.max_lines, full: a.full, outline: a.outline, doc: !a.no_doc };
+            let opts = query::show::ShowOpts { max_lines: a.max_lines, full: a.full, outline: a.outline, doc: !a.no_doc, lean: false };
             query::show::show(&ix, &rs, &a.targets, &common, &opts, &mut out);
         }
         Cmd::Refs(a) => {

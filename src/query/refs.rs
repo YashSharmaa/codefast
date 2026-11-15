@@ -1525,6 +1525,90 @@ impl<'r, 'a> PathSearch<'r, 'a> {
     }
 }
 
+/// One call on the way from one function to another.
+pub struct Hop {
+    /// Where the call is written.
+    pub path: String,
+    pub line: u32,
+    pub from: String,
+    pub to: String,
+    /// How the hop is made where it is not a plain call (` (by name, receiver type not written)`).
+    pub note: String,
+    /// The function that is called.
+    pub callee: Target,
+}
+
+impl Hop {
+    fn of(step: Step, callee: Target) -> Hop {
+        Hop { path: step.path, line: step.line, from: step.from, to: step.to, note: step.note, callee }
+    }
+}
+
+/// What `from` calls itself, in the order it is written. A call through a table of callbacks
+/// is left out: it leads to everything that was ever bound there.
+pub fn calls_of(ix: &Index, rs: &Resolver, from: &Target) -> Vec<Hop> {
+    let mut ps = PathSearch { ix, rs, ents: FxHashMap::default() };
+    ps.forward(from).into_iter().filter(|(_, _, step)| !step.note.starts_with(" via ")).map(|(_, callee, step)| Hop::of(step, callee)).collect()
+}
+
+/// The shortest call chains from `from` to each of `to` that it reaches within `max_depth`
+/// calls, as the place of that one in `to` and the hops. A chain ends at the first of `to` it
+/// meets, since the way on from there is that one's own chain. At most `max_nodes` functions
+/// are looked into.
+pub fn chains(ix: &Index, rs: &Resolver, from: &Target, to: &[Target], max_depth: u32, max_nodes: usize) -> Vec<(usize, Vec<Hop>)> {
+    let mut ps = PathSearch { ix, rs, ents: FxHashMap::default() };
+    let start = key_of(from);
+    let wanted: FxHashMap<Key, usize> = to.iter().enumerate().map(|(i, t)| (key_of(t), i)).filter(|(k, _)| *k != start).collect();
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    // How each function was reached: from which one, by what call.
+    let mut reached: FxHashMap<Key, (Key, Step, Target)> = FxHashMap::default();
+    let mut seen: FxHashSet<Key> = FxHashSet::default();
+    seen.insert(start);
+    let mut frontier = vec![from.clone()];
+    let mut found: Vec<Key> = Vec::new();
+    let mut looked = 0usize;
+    for _ in 0..max_depth {
+        let mut next: Vec<Target> = Vec::new();
+        for t in std::mem::take(&mut frontier) {
+            if looked >= max_nodes {
+                break;
+            }
+            looked += 1;
+            let kt = key_of(&t);
+            for (k, e, step) in ps.forward(&t) {
+                if step.note.starts_with(" via ") || !seen.insert(k) {
+                    continue;
+                }
+                reached.insert(k, (kt, step, e.clone()));
+                if wanted.contains_key(&k) {
+                    found.push(k);
+                } else {
+                    next.push(e);
+                }
+            }
+        }
+        frontier = next;
+        if frontier.is_empty() || found.len() == wanted.len() {
+            break;
+        }
+    }
+    found
+        .into_iter()
+        .map(|end| {
+            let mut hops: Vec<Hop> = Vec::new();
+            let mut k = end;
+            while let Some((before, step, callee)) = reached.get(&k) {
+                hops.push(Hop::of(step.clone(), callee.clone()));
+                k = *before;
+            }
+            hops.reverse();
+            (wanted[&end], hops)
+        })
+        .collect()
+}
+
 /// Seconds of processor time this process has used so far, where the system tells.
 fn cpu_seconds() -> Option<f64> {
     #[cfg(all(target_pointer_width = "64", any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "ios")))]

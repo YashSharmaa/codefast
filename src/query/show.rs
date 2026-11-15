@@ -16,11 +16,14 @@ pub struct ShowOpts {
     pub outline: bool,
     /// Include the leading doc comment.
     pub doc: bool,
+    /// In the outline of a container, the fields are counted and not listed: what a type
+    /// does is in its methods.
+    pub lean: bool,
 }
 
 impl Default for ShowOpts {
     fn default() -> Self {
-        ShowOpts { max_lines: 160, full: false, outline: false, doc: true }
+        ShowOpts { max_lines: 160, full: false, outline: false, doc: true, lean: false }
     }
 }
 
@@ -125,10 +128,16 @@ pub fn show_def(ix: &Index, d: &DefV, opts: &ShowOpts, out: &mut Out) {
         out.push(&format!("{}\t{}", from, sig_of(d)));
         let ms = members(ix, d);
         let mut dropped = 0;
+        let mut fields = 0;
         for m in &ms {
-            if !out.line(&format!("{}\t  {}", m.rec.line, sig_of(m))) {
+            if opts.lean && matches!(m.kind(), DefKind::Field | DefKind::Property) {
+                fields += 1;
+            } else if !out.line(&format!("{}\t  {}", m.rec.line, sig_of(m))) {
                 dropped += 1;
             }
+        }
+        if fields > 0 {
+            out.line(&format!("\t  … and {} field{}", fields, if fields == 1 { "" } else { "s" }));
         }
         if dropped > 0 {
             out.push(&format!("… {} more members (codefast show {}:{}-{})", dropped, d.path(), from, to));
@@ -153,6 +162,114 @@ pub fn show_def(ix: &Index, d: &DefV, opts: &ShowOpts, out: &mut Out) {
     let rest_from = end + 1 - unfit;
     if rest_from <= to {
         out.push(&format!("… {} more lines (codefast show {}:{}-{})", to - rest_from + 1, d.path(), rest_from, to));
+    }
+}
+
+/// Where the docstring of a Python body starts and ends, when it has one of more than a
+/// line: the first statement after the signature, in triple quotes.
+fn docstring(lang: Lang, src: &[u8], starts: &[usize], from: u32, to: u32) -> Option<(u32, u32)> {
+    if lang != Lang::Python {
+        return None;
+    }
+    const QUOTES: [&[u8]; 2] = [b"\"\"\"", b"'''"];
+    let opens = |t: &[u8]| -> Option<(&'static [u8], usize)> {
+        let lead = t.len() - t.trim_ascii_start().len();
+        let body = &t[lead..];
+        let prefix = body.iter().take_while(|b| matches!(b, b'r' | b'b' | b'f' | b'u' | b'R' | b'B' | b'F' | b'U')).count().min(2);
+        QUOTES.iter().find(|q| body[prefix..].starts_with(q)).map(|q| (*q, lead + prefix + 3))
+    };
+    // The signature may take several lines. The docstring is the first line after it, and
+    // only a blank line may stand between.
+    let mut signature_done = false;
+    for l in from..=to.min(from + 30) {
+        let t = line_text(src, starts, l);
+        if signature_done {
+            if t.trim_ascii().is_empty() {
+                continue;
+            }
+            let (q, after) = opens(t)?;
+            if memchr::memmem::find(&t[after..], q).is_some() {
+                return None;
+            }
+            let end = (l + 1..=to).find(|&e| memchr::memmem::find(line_text(src, starts, e), q).is_some())?;
+            return Some((l, end));
+        }
+        signature_done = t.trim_ascii_end().ends_with(b":");
+    }
+    None
+}
+
+/// A long definition by what matters of it where several are read together: its first lines,
+/// and the lines around each of `marks` (the calls that lead on to the others), with what
+/// stands between counted. A long comment above it and a long docstring keep their opening
+/// lines. A definition of up to `whole` lines is printed whole.
+pub fn show_excerpt(ix: &Index, d: &DefV, whole: u32, head: u32, marks: &[u32], around: u32, out: &mut Out) {
+    let file = d.file();
+    let Some(src) = ix.source(file) else {
+        out.push(&format!("{} (file not readable)", def_line(d)));
+        return;
+    };
+    let starts = line_starts(&src);
+    let (from, to) = (d.rec.line, d.rec.end_line);
+    let lang = ix.lang(file);
+    out.push(&format!("{}:{}-{} {}", d.path(), from, to, d.qualified()));
+    // The comment above: its first lines.
+    let ds = doc_start(lang, &src, &starts, from);
+    if from - ds > 5 {
+        print_lines(out, &src, &starts, ds, ds + 2);
+        out.push(&format!("…\t({} more comment lines)", from - ds - 3));
+    } else if ds < from {
+        print_lines(out, &src, &starts, ds, from - 1);
+    }
+    // A docstring of five lines or more keeps its first two.
+    let doc = docstring(lang, &src, &starts, from, to).filter(|(s, e)| e - s >= 4);
+    let fold = |out: &mut Out, s: u32, e: u32| out.push(&format!("…\t({} more lines of the docstring)", e - s - 1));
+    let folded = doc.map_or(0, |(s, e)| e - s - 1);
+    if to - from + 1 - folded <= whole {
+        match doc {
+            Some((s, e)) => {
+                print_lines(out, &src, &starts, from, s + 1);
+                fold(out, s, e);
+                print_lines(out, &src, &starts, e + 1, to);
+            }
+            None => {
+                print_lines(out, &src, &starts, from, to);
+            }
+        }
+        return;
+    }
+    // What is printed of the code: the head, counted after a docstring, and a window around
+    // every mark. Windows a few lines apart are printed as one: a count of the lines between
+    // would be as long as the lines.
+    let code_from = doc.map_or(from, |(_, e)| e + 1);
+    let mut ranges: Vec<(u32, u32)> = vec![(code_from, (code_from + head - 1).min(to))];
+    for &m in marks.iter().filter(|&&m| m >= code_from && m <= to) {
+        ranges.push((m.saturating_sub(around).max(code_from), (m + around).min(to)));
+    }
+    ranges.sort_unstable();
+    let mut merged: Vec<(u32, u32)> = Vec::new();
+    for (a, b) in ranges {
+        match merged.last_mut() {
+            Some(last) if a <= last.1 + 3 => last.1 = last.1.max(b),
+            _ => merged.push((a, b)),
+        }
+    }
+    if let Some((s, e)) = doc {
+        print_lines(out, &src, &starts, from, s + 1);
+        fold(out, s, e);
+    }
+    let mut at = code_from;
+    for &(a, b) in &merged {
+        if a > at {
+            out.push(&format!("…\t({} lines)", a - at));
+        }
+        if print_lines(out, &src, &starts, a, b) > 0 {
+            return;
+        }
+        at = b + 1;
+    }
+    if at <= to {
+        out.push(&format!("… {} more lines (codefast show {}:{}-{})", to - at + 1, d.path(), at, to));
     }
 }
 

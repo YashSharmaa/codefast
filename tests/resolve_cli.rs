@@ -543,3 +543,156 @@ fn a_place_names_the_definition_at_that_place() {
     has(&at_arc, "clear_regs");
     lacks(&at_arc, "save_fsgs");
 }
+
+const ORM_QUERY: &str = r#"class QuerySet:
+    def filter(self, *args, **kwargs):
+        """
+        Return a new QuerySet with the args ANDed to the existing set.
+        """
+        self._not_combined("filter")
+        return self._filter_or_exclude(False, args, kwargs)
+
+    def _filter_or_exclude(self, negate, args, kwargs):
+        clone = self._chain()
+        clone._filter_inplace(negate, args, kwargs)
+        return clone
+
+    def _filter_inplace(self, negate, args, kwargs):
+        self._query.add_q(args, kwargs)
+
+    def _chain(self):
+        obj = QuerySet()
+        obj._query = self._query
+        obj._sticky = False
+        obj._hints = {}
+        return obj
+
+    def _not_combined(self, name):
+        if self._query.combinator:
+            raise TypeError(name)
+
+    def count(self):
+        return len(self._result_cache)
+"#;
+
+const ORM_WORDS: &str = r#"def tokenize(text):
+    return text.split()
+
+
+def parse(text):
+    return [t.upper() for t in tokenize(text)]
+
+
+def render(tokens):
+    return " ".join(tokens)
+
+
+def measure(tokens):
+    return len(tokens)
+
+
+def use_parse():
+    return parse("a b")
+
+
+def use_render():
+    return render(["a"])
+
+
+def use_measure():
+    return measure(["a"])
+"#;
+
+/// Several functions named in one call that call their way to one another are one flow, and
+/// the question is how they work together. Each gets a short card (a long body by its first
+/// lines, who calls it in one line), and after the cards stands what connects them: the call
+/// chain with the place of every call, and the functions on the way printed, which is what
+/// the next call would have asked for. Names that have nothing to do with one another are
+/// separate questions: two of them get their full answers, with every place that uses them,
+/// and from three on the call is a survey and the cards are the short ones.
+#[test]
+fn several_functions_of_one_flow_are_answered_with_what_connects_them() {
+    let steps: String = (1..=35).map(|i| format!("        step_{i} = self.resolve(expr, {i})\n")).collect();
+    let sql = format!(
+        "class Query:\n    def add_q(self, args, kwargs):\n        \"\"\"\n        A preprocessor for build_filter(). It is responsible for the final\n        promotion of the joins.\n\n        The joins that are promoted are those of the clause that was added.\n        Nothing else of the query is touched by it.\n        \"\"\"\n        clause = self.build_filter(args)\n        self.where.add(clause)\n        return clause\n\n    def build_filter(self, expr):\n        \"\"\"Build one clause of the where part.\"\"\"\n        if expr is None:\n            raise ValueError(\"no expression\")\n{steps}        return self.lookup(step_35)\n\n    def resolve(self, expr, n):\n        return (expr, n)\n\n    def lookup(self, value):\n        found = self.table.get(value)\n        if found is None:\n            found = self.table.setdefault(value, [])\n        found.append(value)\n        return found\n"
+    );
+    let p = Project::new("py-flow", &[("orm/query.py", ORM_QUERY), ("orm/sql.py", &sql), ("text/words.py", ORM_WORDS)]);
+    let flow = p.ask(&["search", "QuerySet.filter", "Query.build_filter"]);
+    // Both whole, since together they are well inside the lines the cards of one answer
+    // share, and who calls each in a line.
+    has(&flow, "orm/query.py:2-7 QuerySet.filter\n2\t    def filter(self, *args, **kwargs):");
+    has(&flow, "\t        return self._filter_or_exclude(False, args, kwargs)\ncalled by: no callers found in indexed code\n");
+    has(&flow, "orm/sql.py:14-53 Query.build_filter\n14\t    def build_filter(self, expr):");
+    has(&flow, "\t        return self.lookup(step_35)\ncalled by: add_q\n");
+    lacks(&flow, "more lines (codefast show");
+    lacks(&flow, "called from");
+    // What connects them: the chain, the place of every call, and the functions on the way.
+    has(
+        &flow,
+        "how they lead to one another:\nfilter → _filter_or_exclude → _filter_inplace → add_q → build_filter\n  orm/query.py:7 filter calls _filter_or_exclude\n  orm/query.py:11 _filter_or_exclude calls _filter_inplace (by name, receiver type not written)\n  orm/query.py:15 _filter_inplace calls add_q (by name, receiver type not written)\n  orm/sql.py:10 add_q calls build_filter\n",
+    );
+    has(&flow, "on the way:\norm/query.py:9-12 QuerySet._filter_or_exclude\n9\t    def _filter_or_exclude(self, negate, args, kwargs):\n10\t        clone = self._chain()\n");
+    has(&flow, "orm/query.py:14-15 QuerySet._filter_inplace\n");
+    // A long docstring keeps its first lines.
+    has(
+        &flow,
+        "orm/sql.py:2-12 Query.add_q\n2\t    def add_q(self, args, kwargs):\n\t        \"\"\"\n\t        A preprocessor for build_filter(). It is responsible for the final\n…\t(5 more lines of the docstring)\n10\t        clause = self.build_filter(args)\n",
+    );
+    // What they call besides is named, the longest first, and the helpers are counted.
+    has(&flow, "they also call:\n  orm/sql.py:58 def lookup(self, value) (in Query) (6 lines)\n  orm/query.py:17 def _chain(self) (in QuerySet) (6 lines)\n  … and 2 more\n");
+
+    // Two names that have nothing to do with one another: two full answers.
+    let two = p.ask(&["search", "parse", "render"]);
+    has(&two, "text/words.py:5-6 parse\n");
+    has(&two, "called from 1 sites in 1 files:\ntext/words.py: use_parse:18\n");
+    has(&two, "called from 1 sites in 1 files:\ntext/words.py: use_render:22\n");
+    lacks(&two, "how they lead to one another");
+    // Three: a survey, in short cards, with nothing after them.
+    let three = p.ask(&["search", "parse", "render", "measure"]);
+    has(&three, "text/words.py:5-6 parse\n5\tdef parse(text):\n\t    return [t.upper() for t in tokenize(text)]\ncalled by: use_parse\n");
+    has(&three, "called by: use_render\n");
+    has(&three, "called by: use_measure\n");
+    lacks(&three, "called from");
+    lacks(&three, "how they lead to one another");
+    // One name is answered as ever.
+    let one = p.ask(&["search", "Query.build_filter"]);
+    has(&one, "called from 1 sites in 1 files:\norm/sql.py: add_q:10\n");
+    // The line that defines a function is a question about that function, also among others.
+    let by_line = p.ask(&["search", "def build_filter(self, expr):"]);
+    has(&by_line, "orm/sql.py:14-53 Query.build_filter\n");
+    has(&by_line, "called from 1 sites in 1 files:\norm/sql.py: add_q:10\n");
+    let lines = p.ask(&["search", "def filter(self, *args, **kwargs):", "def build_filter(self, expr):"]);
+    has(&lines, "filter → _filter_or_exclude → _filter_inplace → add_q → build_filter\n");
+}
+
+/// The cards of one answer share their lines. Functions that fit inside them together are
+/// printed whole. Beyond that, the ones that lead on to another of them split the lines, each
+/// by its first lines and the lines around the call that leads on, and a long one that is
+/// only called gets its first lines. Seven long functions are not seven times their length.
+#[test]
+fn the_cards_of_a_survey_share_their_lines() {
+    let stage = |i: usize| -> String {
+        let body: String = (1..=58).map(|n| format!("\tv{n} := in + {n}\n\t_ = v{n}\n")).take(29).collect();
+        let next = if i < 7 { format!("\treturn Stage{}(in)\n", i + 1) } else { "\treturn in\n".to_string() };
+        format!("func Stage{i}(in int) int {{\n{body}{next}}}\n\n")
+    };
+    let text: String = std::iter::once("package pipe\n\n".to_string()).chain((1..=7).map(stage)).collect();
+    let p = Project::new("go-survey", &[("pipe/pipe.go", &text)]);
+    let all = p.ask(&["search", "Stage1", "Stage2", "Stage3", "Stage4", "Stage5", "Stage6", "Stage7"]);
+    // Sixty-one lines each, 427 in all, where the cards share 200. The six that lead on to
+    // the next get thirty lines each: twenty from the start, and the call that leads on with
+    // the lines around it.
+    has(&all, "pipe/pipe.go:3-63 Stage1\n3\tfunc Stage1(in int) int {\n");
+    has(
+        &all,
+        "\t\tv10 := in + 10\n…\t(36 lines)\n59\t\t_ = v28\n60\t\tv29 := in + 29\n\t\t_ = v29\n\t\treturn Stage2(in)\n\t}\ncalled by: no callers found in indexed code\n",
+    );
+    has(&all, "how they lead to one another:\nStage1 → Stage2\n  pipe/pipe.go:62 Stage1 calls Stage2\n");
+    // The one the flow ends in is only called: its first lines, and where the rest is.
+    has(&all, "380\t\tv3 := in + 3\n\t\t_ = v3\n\t\tv4 := in + 4\n\t\t_ = v4\n\t\tv5 := in + 5\n… 51 more lines (codefast show pipe/pipe.go:385-435)\ncalled by: Stage6\n");
+    // Two of them alone are inside what the cards share, and are printed whole.
+    let two = p.ask(&["search", "Stage6", "Stage7"]);
+    has(&two, "pipe/pipe.go:313-373 Stage6\n");
+    lacks(&two, "…\t(");
+    lacks(&two, "more lines (codefast show");
+}
