@@ -182,7 +182,13 @@ much a token. `--effort low` runs a batch at that effort of the harness.
 In `bench/results/live-new-project.jsonl` and `live-conversation.jsonl` an arm that ran a later
 build or another setting has a name of its own: `plugin-b` and `control-b` for the build of 15
 November 2026 and the control that ran with it, `control-low` and `control-ac125-low` for the
-runs at low effort. The `tag` of a row is the batch it came from.
+runs at low effort, and `plugin-handover` for a prototype that was not kept (see "Handing a
+job to a sub-agent" in `tier2/LIVE.md`). The `tag` of a row is the batch it came from.
+
+A hook can be tried in sessions before it is built into the binary: `BENCH_EXTRA_HOOKS=FILE`
+adds the hook entries of a JSON file (event names with their entries, as in
+`hooks/claude-code.json`) to the plugin of one batch, and the arm `plugin-keep` runs the plugin
+in sessions that keep their transcript, which some hooks read.
 
 A change to the hooks can be tried on a whole recorded conversation before any session is paid
 for. `replay_conversation.py` rebuilds the files of a recorded run in a scratch directory from

@@ -109,6 +109,8 @@ own, so that its runs are never averaged with the runs they are compared to:
   `s2ac` (the window of 125,000, arms `control-ac125` and `plugin-ac125-keep`) and `s2n` (the
   build after the hooks stopped commenting on code that is being written, arms `control-b`
   and `plugin-b`, run in pairs).
+* A prototype that was not kept: `sdel` (conversations to develop on, a hook that hands a job
+  to a sub-agent near the price step, arm `plugin-handover`, three runs).
 
 The sections "Building a project from nothing" and "A development conversation" below read
 them. Three hidden tests asked for more than their specification says (a nil slice against an
@@ -1508,6 +1510,44 @@ one with the request given back. It is the measurement of the whole setting that
 `codefast doctor sessions` and the note at the price step lead to, a window of 125,000 with
 the plugin's hook after each compaction: 0.36 of the dollars of one conversation without any
 of it (0.204 against 0.566 a conversation), with 375.5 of 376 hidden tests passed in both.
+
+### Handing a job to a sub-agent at the price step, tried and not kept
+
+The saving of the smaller window needs a setting, typed once by the person. A plugin cannot
+make it for them: no output of a hook starts a compaction or changes the window, and a plugin
+cannot carry that setting (hooks and plugin references of the harness, read on 15 November
+2026). What a hook can do is tell the model something. So one thing was tried that a plugin
+could do by itself. At a prompt where the conversation, with the largest job it has had so
+far, would pass nine tenths of 100,000 tokens, a hook told the session to hand the request to
+a sub-agent with a fresh context, and a second hook gave that sub-agent the request word for
+word when it started (`SubagentStart`). It was a script added to the plugin for one batch
+(`BENCH_EXTRA_HOOKS` of `live.py`) and is not in the binary.
+
+| Project | Requests with the hand-over, of them in sub-agents | Dollars with the hand-over | Dollars of the conversation left alone | Dollars compacted at 125,000 | Hidden tests passed with the hand-over |
+|---|---|---|---|---|---|
+| S-go-1 | 85 (62) and 117 (81) | 0.172 and 0.226 | 0.180 and 0.230 | 0.102 and 0.137 | 96 of 96 and 96 of 96 |
+| S-py-1 | 127 (98) | 0.238 | 0.305 and 0.362 | 0.131 and 0.120 | 97 of 97 |
+
+The session did as it was told: all 13 messages that got the note were handed over with one
+call each, the request reached the sub-agent every time, the main conversation then grew by
+2,000 to 3,000 tokens a message, and every hidden test passed. (Three conversations: the
+batch stopped at the usage limit of the account.) It did not pay. Over the two projects the
+hand-over cost 0.81 of the dollars of the conversation left alone, and on one of the two
+almost nothing less, where the smaller window costs 0.46.
+
+There are two reasons, and neither is an accident of the prototype. A sub-agent reads the
+project again and takes 18 to 39 tool calls a job where the main conversation takes 5 to 10
+requests: the sub-agents were two fifths to a half of the cost. And the harness runs a
+sub-agent in the background. The reply to the person ends when the job is handed over, the
+result arrives later as a notification that the main conversation answers in a turn of its
+own, and by the last message the main conversation had passed the step after all and paid
+five times for those requests, a third to two fifths of the cost. (The benchmark also sent the next message
+as soon as a reply had ended, so jobs overlapped, which a person would not do.) With those
+last requests taken out, the hand-over would still cost about 0.55 to 0.6 of the conversation
+left alone.
+
+So the note at the price step stays what it was: one line to the person with the command
+that sets the window, which the harness remembers for the model.
 <!-- end of the new-code sections -->
 
 ## The same questions in Codex

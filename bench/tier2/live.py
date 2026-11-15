@@ -55,6 +55,8 @@ DENY = "WebSearch,WebFetch,CronCreate,CronDelete,CronList,RemoteTrigger,PushNoti
 ARMS = {
     "control": dict(plugin=False),
     "plugin": dict(plugin=True),
+    # The plugin in a session that keeps its transcript, which some hooks read.
+    "plugin-keep": dict(plugin=True, transcript=True),
     # The plugin without its MCP server: hooks, the skill and the command on PATH.
     "lean": dict(plugin=True, lean=True),
     "nohooks": dict(plugin=True, env={"CODEFAST_HOOKS": "off"}),
@@ -362,6 +364,14 @@ def plugin_dir(tag, lean=False):
         m = json.load(open(manifest))
         m.pop("mcpServers", None)
         json.dump(m, open(manifest, "w"), indent=2)
+    # Hooks to try out before they are built into the binary: a JSON file of events and entries,
+    # added to the plugin's own for this batch.
+    extra = os.environ.get("BENCH_EXTRA_HOOKS")
+    if extra:
+        hooks = json.load(open(dst / "hooks/claude-code.json"))
+        for event, entries in json.load(open(extra)).items():
+            hooks["hooks"].setdefault(event, []).extend(entries)
+        json.dump(hooks, open(dst / "hooks/claude-code.json", "w"), indent=2)
     return dst
 
 
