@@ -197,6 +197,13 @@ and R) with Opus 5.5, as `live-heldout-sonnet.jsonl` does for Sonnet 5.5.
 saving on, with the codefast plugin as the arm: `clone` fetches the repositories at depth 1,
 `run --tag T --model opus --reps 4` runs both arms, and `score --tag T` prints the median of
 each repository next to the published figures. Rows in `bench/results/public-seven-repos.jsonl`.
+A batch stops by itself when the account's usage window is in warning or passes `--limit-stop`.
+With `--openrouter` the same sessions run through OpenRouter and are paid by the token (the key
+is read from `OPENROUTER_API_KEY` and kept out of every record, `--config-dir` is then a
+directory with no login in it, and `--max-spend DOLLARS` stops the batch). The prompt cache
+there lives five minutes, so a cache write costs 1.25 of input where a subscription's main
+thread pays 2: the two routes give different dollar figures, and each batch is compared within
+itself.
 
 A hook can be tried in sessions before it is built into the binary: `BENCH_EXTRA_HOOKS=FILE`
 adds the hook entries of a JSON file (event names with their entries, as in

@@ -16,7 +16,7 @@ theirs did not have: which of the files an answer names exist in the repository.
 usage:
   seven_repos.py clone                      fetch the repositories that are missing (depth 1)
   seven_repos.py run --tag T --model opus [--reps 4] [--jobs 2] [--repos a,b] [--arms control,plugin]
-                     [--limit-stop 0.8] [--resume]
+                     [--limit-stop 0.8] [--resume] [--openrouter --max-spend 15]
   seven_repos.py score --tag T [--out FILE.jsonl]
 """
 import argparse
@@ -81,6 +81,13 @@ def one(row, a, binary, plug):
     run = Path(row["run"])
     env = {k: v for k, v in os.environ.items() if k not in live.SCRUB}
     env.update(CLAUDE_CONFIG_DIR=a.config_dir, CODEFAST_BIN=str(binary), PYTHONDONTWRITEBYTECODE="1", ENABLE_CLAUDEAI_MCP_SERVERS="false")
+    key = os.environ.get("OPENROUTER_API_KEY", "") if a.openrouter else ""
+    if a.openrouter:
+        # The same harness and the same models, paid by the token through OpenRouter. Its
+        # prompt cache lives five minutes, so a cache write costs 1.25 of input there, where a
+        # subscription's main thread writes to the one-hour cache at 2.
+        env.update(ANTHROPIC_BASE_URL="https://openrouter.ai/api", ANTHROPIC_AUTH_TOKEN=key, ANTHROPIC_API_KEY="", DISABLE_AUTOUPDATER="1")
+        env.update({f"ANTHROPIC_DEFAULT_{m.upper()}_MODEL": f"anthropic/claude-{m}-5.5" for m in ("opus", "sonnet", "haiku")})
     for k in ("CODEFAST_HOOKS", "CODEFAST_INDEX_DIR", "CODEFAST_ROOT"):
         env.pop(k, None)
     cmd = [
@@ -102,13 +109,21 @@ def one(row, a, binary, plug):
             rc = subprocess.run(cmd, cwd=row["repo"], env=env, stdin=open(run / "prompt.txt"), stdout=out, stderr=err, timeout=a.timeout).returncode
         except subprocess.TimeoutExpired:
             rc = 124
-    res = dict(row, exit=rc, seconds=round(time.time() - t0, 1))
+    seconds = round(time.time() - t0, 1)
+    if key:
+        # The key is in no record of a run.
+        for name in ("run.jsonl", "err.txt"):
+            text = (run / name).read_text(errors="replace")
+            if key in text:
+                (run / name).write_text(text.replace(key, "<key>"))
+    res = dict(row, exit=rc, seconds=seconds)
     json.dump(res, open(run / "outcome.json", "w"), indent=1)
     return res
 
 
 def run(a):
     assert a.config_dir, "set CLAUDE_CONFIG_DIR: which login the sessions use is never left to chance"
+    assert not a.openrouter or os.environ.get("OPENROUTER_API_KEY"), "--openrouter needs OPENROUTER_API_KEY in the environment"
     base = live.LIVE / a.tag
     base.mkdir(parents=True, exist_ok=True)
     binary = base / "codefast"
@@ -144,6 +159,7 @@ def run(a):
                 todo.append(dict(id=name, origin=origin, arm=arm, rep=rep, repo=str(REPOS / name), run=str(d), model=a.model, index=str(INDEX / f"public-{name}"), question=question))
     print(f"{len(tasks)} repositories x {len(arms)} arms x {a.reps} repetitions, {len(todo)} runs to do, model {a.model}, {a.jobs} at a time", flush=True)
     stop = False
+    spent = 0.0
 
     def go(row):
         return None if stop else one(row, a, binary, plug)
@@ -158,6 +174,10 @@ def run(a):
             print(f"  {res['id']:11} {res['arm']:8} exit={res['exit']} req={r['requests']:3d} tools={sum(r['tools'].values()):3d} ${r['cost']:.3f} {res['seconds']:.0f}s limits={lim}", flush=True)
             if lim.get("status") not in (None, "allowed") or worst >= a.limit_stop:
                 print(f"  STOPPING: account usage window at {worst:.2f} (status {lim.get('status')})", flush=True)
+                stop = True
+            spent += r["cost"] or 0
+            if a.max_spend and spent >= a.max_spend and not stop:
+                print(f"  STOPPING: the sessions of this batch have cost ${spent:.2f}, and --max-spend is ${a.max_spend:.2f}", flush=True)
                 stop = True
 
 
@@ -263,6 +283,8 @@ def main():
     r.add_argument("--timeout", type=int, default=1800)
     r.add_argument("--resume", action="store_true")
     r.add_argument("--limit-stop", type=float, default=0.8, help="stop the batch when an account usage window is this full")
+    r.add_argument("--openrouter", action="store_true", help="run the sessions through OpenRouter with OPENROUTER_API_KEY, and --config-dir a directory with no login in it")
+    r.add_argument("--max-spend", type=float, default=0.0, help="stop the batch when its sessions have cost this many dollars (0: no bound)")
     r.add_argument("--claude", default=os.environ.get("CLAUDE_BIN", str(Path.home() / ".local/bin/claude")))
     r.add_argument("--config-dir", default=os.environ.get("CLAUDE_CONFIG_DIR", ""))
     r.add_argument("--codefast", default=os.environ.get("CODEFAST_BIN", str(ROOT / "target/release/codefast")))
