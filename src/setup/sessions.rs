@@ -2725,6 +2725,12 @@ fn weights_said(s: &Stats) -> String {
 
 /// The report of one project or one session.
 fn text(s: &Stats, ctx: &Ctx, dir: &Path, days: u64, session: Option<&str>) -> String {
+    text_of(s, ctx, dir, days, session, None)
+}
+
+/// The report of one project, of one session of it, or (`projects`) of every project together:
+/// what a setting of the harness would change is the same for all of them.
+fn text_of(s: &Stats, ctx: &Ctx, dir: &Path, days: u64, session: Option<&str>, projects: Option<usize>) -> String {
     let mut out = String::new();
     let harness = s.kind.name();
     let total = s.total();
@@ -2740,7 +2746,11 @@ fn text(s: &Stats, ctx: &Ctx, dir: &Path, days: u64, session: Option<&str>) -> S
             ));
         }
         None => out.push_str(&format!(
-            "{harness} sessions of this project in the last {days} days: {} session{}, {} main-thread requests, {} weighted tokens.\n",
+            "{harness} sessions of {} in the last {days} days: {} session{}, {} main-thread requests, {} weighted tokens.\n",
+            match projects {
+                Some(n) => format!("all {n} projects"),
+                None => "this project".to_string(),
+            },
             count(s.sessions),
             if s.sessions == 1 { "" } else { "s" },
             count(s.requests),
@@ -2831,7 +2841,7 @@ fn text(s: &Stats, ctx: &Ctx, dir: &Path, days: u64, session: Option<&str>) -> S
     if !unrecorded.is_empty() {
         out.push_str(&format!("Not recorded in these transcripts: {}.\n", unrecorded.join(", and ")));
     }
-    if session.is_none() && s.sessions > 1 {
+    if session.is_none() && projects.is_none() && s.sessions > 1 {
         let mut by: Vec<&Session> = s.per_session.iter().collect();
         by.sort_by(|a, b| b.weighted.total_cmp(&a.weighted));
         let top: Vec<String> = by.iter().take(3).map(|x| format!("{} {}", x.id.get(..8).unwrap_or(&x.id), short(x.weighted))).collect();
@@ -3185,7 +3195,7 @@ fn findings_json(s: &Stats) -> Vec<Value> {
 fn all_projects(ctx: &Ctx, o: &Options) -> Result<String> {
     let from = since(o.days);
     let mut rows: Vec<(String, Stats)> = Vec::new();
-    let mut sums: Vec<(usize, Stats)> = Vec::new();
+    let mut sums: Vec<(usize, Stats, PathBuf)> = Vec::new();
     for source in sources(ctx) {
         let mut sum = Stats::new(source.kind(), o.carry);
         let mut projects = 0;
@@ -3205,7 +3215,8 @@ fn all_projects(ctx: &Ctx, o: &Options) -> Result<String> {
             rows.push((name, s));
         }
         if projects > 0 {
-            sums.push((projects, sum));
+            let dir = source.location(Path::new("/")).parent().map(Path::to_path_buf).unwrap_or_default();
+            sums.push((projects, sum, dir));
         }
     }
     rows.sort_by(|a, b| b.1.total().total_cmp(&a.1.total()));
@@ -3217,9 +3228,9 @@ fn all_projects(ctx: &Ctx, o: &Options) -> Result<String> {
             .collect();
         let totals: Vec<Value> = sums
             .iter()
-            .map(|(n, s)| {
+            .map(|(n, s, _)| {
                 let pace = pace_json(s);
-                json!({"harness": s.kind.name(), "projects": n, "sessions": s.sessions, "requests": s.requests, "subagent_requests": s.sub_requests, "weighted": round(s.total()), "findings": findings_json(s), "requests_with_calls": pace.0, "looks_in_a_row": pace.1, "time": pace.2})
+                json!({"harness": s.kind.name(), "projects": n, "sessions": s.sessions, "requests": s.requests, "subagent_requests": s.sub_requests, "weighted": round(s.total()), "findings": findings_json(s), "requests_with_calls": pace.0, "looks_in_a_row": pace.1, "time": pace.2, "report": to_json(s, ctx, false)})
             })
             .collect();
         return Ok(format!("{}\n", serde_json::to_string_pretty(&json!({"days": o.days, "projects": projects, "totals": totals}))?));
@@ -3244,7 +3255,7 @@ fn all_projects(ctx: &Ctx, o: &Options) -> Result<String> {
     if rows.len() > 20 {
         out.push_str(&format!("  … {} more projects\n", rows.len() - 20));
     }
-    for (n, sum) in &sums {
+    for (n, sum, _) in &sums {
         out.push_str(&format!(
             "  {:>7}  {:<width$}  all {n} projects: {} sessions, {} main-thread requests{}\n",
             short(sum.total()),
@@ -3254,12 +3265,15 @@ fn all_projects(ctx: &Ctx, o: &Options) -> Result<String> {
             largest(sum)
         ));
     }
-    for (_, sum) in &sums {
-        let pace = pace(sum);
-        if !pace.is_empty() {
-            out.push_str(&format!("\n{} sessions of all projects together:{}", sum.kind.name(), pace.replace("\nHow the requests went:\n", "\n")));
+    // What a setting of the harness would change is the same for every project, so the findings
+    // are given for all of them together as well.
+    for (n, sum, dir) in &sums {
+        if *n > 1 {
+            out.push('\n');
+            out.push_str(&text_of(sum, ctx, dir, o.days, None, Some(*n)));
         }
     }
+    out.push('\n');
     out.push_str("`codefast doctor sessions` in a project shows its findings.\n");
     Ok(out)
 }

@@ -378,8 +378,12 @@ fn days_and_other_projects() {
     assert!(text.contains("  Claude Code  ~/code/demo: 2 sessions, 9 main-thread requests. Largest: "), "{text}");
     assert!(text.contains("  Claude Code  ~/code/other: 1 sessions, 2 main-thread requests"), "{text}");
     assert!(text.contains("  Claude Code  all 2 projects: 3 sessions, 11 main-thread requests"), "{text}");
+    // And the whole report for all of them together: a setting of the harness is for all.
+    assert!(text.contains("\nClaude Code sessions of all 2 projects in the last 40 days: 3 sessions, 11 main-thread requests, "), "{text}");
+    assert!(text.contains("\nWhere it went, largest first, as a share of the ") && !text.contains("Largest sessions: ."), "{text}");
     let r = report(&sb, &root, &["--all", "--days", "40"]);
     assert_eq!((r["projects"].as_array().map(Vec::len), r["totals"][0]["sessions"].as_u64()), (Some(2), Some(3)), "{r:#}");
+    assert_eq!(r["totals"][0]["report"]["sessions"], 3, "{r:#}");
     // Another configuration directory is followed.
     let elsewhere = sb.home("elsewhere");
     let out = sb.run_in(&root, &["doctor", "sessions"], &[("CLAUDE_CONFIG_DIR", elsewhere.to_str().unwrap())]);

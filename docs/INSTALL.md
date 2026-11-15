@@ -950,8 +950,9 @@ For Claude Code two more things follow, main thread and sub-agents together:
 
 `--days N` sets the window (default 14 days,
 by when a transcript last changed), `--session ID` breaks one session down request by request,
-`--all` gives one line per project and harness and a total per harness (with how the requests
-went and where the time went for all projects together), and `--json` prints the
+`--all` gives one line per project and harness, a total per harness, and then the whole report
+for all projects together (what a setting of the harness would change is the same for every
+project), and `--json` prints the
 same numbers as JSON, one object per harness. Counts that an older harness version did not
 write, such as thinking tokens, are reported as not recorded rather than as zero.
 
