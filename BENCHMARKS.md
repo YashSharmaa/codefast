@@ -118,8 +118,8 @@ cost with 0.3.0, the kernel questions 0.94 and the caller questions 0.99, and th
 | **Fix a bug, failing tests given**<br>Issues of Django and sqlglot. Checked by running the tests of the real fix | 15 | 15 of 15 in each arm | 6.3 and 5.8 | 12.7k and 10.5k | **0.93** | 9 of 15 | 13 and 14 Nov 2026 |
 | **Fix a bug from the issue text alone**<br>The same issues without their tests. Checked afterwards against the tests of the real fix | 15 | 7.5 and 7.2 of 15 solved | 7.1 and 6.5 | 9.9k and 9.1k | **0.92** | 6 of 15 | 13 and 14 Nov 2026 |
 
-What this says. Where the work is finding things, a session costs a third to two thirds of what it
-did, and the longer the session runs the more it saves, because what an agent reads early is sent
+What this says. Where the work is finding things, a session costs 0.15 to 0.71 of what it did on
+the held-out tasks, and the longer the session runs the more it saves, because what an agent reads early is sent
 again with every later request. The gain is largest where a text search gives the wrong answer: a
 method whose name several types share, a message that could be written anywhere in the tree, a
 rename that has to find every call. What the card for the prompt says decides the short sessions.

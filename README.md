@@ -42,11 +42,16 @@ all of that reading again. codefast answers from an index instead.
   tests that reach it. Checked against compilers: precision 0.982 to 1.000.
 - **Before the agent asks.** Hooks hand over the facts with the prompt, after a search, after an
   edit and after a compaction, when a session also gets its requests back word for word. A
-  sub-agent gets them too, for its brief. They state facts and never block a tool call.
+  sub-agent gets them too, for its brief. They state facts and never block a tool call. In Claude
+  Code one line is also added to what the harness runs before each shell command, so that in zsh
+  a pattern that matches nothing is passed on as typed, as in bash (`CODEFAST_SHELL_SETUP=off`
+  leaves the shell as it is).
 - **Any size.** The Linux kernel, 44 million lines, indexes in 8 seconds, and the index follows
   your edits.
-- **Measured, with what it does not do.** A session that looks things up costs 0.15 to 0.71 of the
-  same session without it. A session that writes or fixes code costs the same as before.
+- **Measured, with what it does not do.** On held-out lookup tasks a Claude Code session with
+  Haiku 5.5 costs 0.15 to 0.71 of the same session without it, and about half with Sonnet 5.5 and
+  Opus 5.5. A session that writes or fixes code costs the same as before, and on architecture
+  questions about code the models already know, Opus 5.5 is as quick and as cheap without it.
   [Results](#results) has every figure with its day and its caveat.
 
 ## Quick start
@@ -65,9 +70,14 @@ That is all. The index builds itself on first use, and the agent reaches codefas
 shell, through the MCP server (`codefast mcp`) or through the hooks.
 
 `codefast setup --list` names the 32 harnesses it can set up (Cursor, Gemini CLI, OpenCode,
-Copilot CLI, Goose and more). `codefast setup NAME` prints the plan and changes nothing, and
+Copilot CLI, Goose and more). `codefast setup` without a name prints the plan for the harnesses
+it finds and changes nothing, `codefast setup NAME --print` does that for one of them, and
 `codefast doctor` shows what is in place. [`docs/INSTALL.md`](docs/INSTALL.md) covers every
 harness and says for each what was tested.
+
+The installer fetches release 0.4.0. Four things on this page are on `main` and come with the
+next release: the zsh line, what a sub-agent is told at its start, the requests given back word
+for word after a compaction, and the looks in a row and the hours in `doctor sessions`.
 
 ## What it answers
 
@@ -136,9 +146,10 @@ request, and a few habits nobody shows you: coming back after the prompt cache h
 switching models in the middle of a job, carrying a conversation of half a million tokens, a
 sub-agent that waits ten minutes on a build, thinking that is billed as output. `codefast doctor
 sessions` reads the transcripts your harness keeps on your machine and puts numbers on each, with
-the one thing to do about it. It prices every request as its own model does, tries an earlier
-compaction at several lengths on your own sessions, reads every sub-agent as the conversation it
-is, and says how many requests were one look after another and where the hours went. Nothing is
+the one thing to do about it. It tries an earlier compaction at several lengths on your own
+sessions, and for Claude Code it prices every request as its own model does, reads every sub-agent
+as the conversation it is, and says how many requests were one look after another and where the
+hours went. Nothing is
 run, nothing leaves the machine, and no model is called.
 
 <details>
@@ -181,10 +192,13 @@ charges five times as much. Once a week you are told in one line what the sessio
 seven days mostly cost. The figures are those of the model the conversation runs on. One of these
 facts goes to the model too, because only the model can act on it: that a command, or its own
 reply, took longer than the prompt cache lives, which for a sub-agent is five minutes, and that
-the next long one costs less in parts.
+the next long one costs less in parts. And a sub-agent is told at its start how to wait inside
+those five minutes, unless your settings give sub-agents the one-hour cache.
 
-`codefast doctor context` is the other half: what your plugins, skills, MCP servers and
-instruction files add to every request, and the setting that switches each off for this project.
+`codefast doctor context` is the other half: what your plugins, skills, sub-agents,
+instruction files and memory index add to every request, and the setting that switches each off
+for this project, where the harness has one. MCP servers are counted and not costed, since their
+tools load only when they are used.
 
 ## Results
 
@@ -209,7 +223,7 @@ the protocols, the full tables and what was tried and not kept. The raw rows are
 | **A development conversation**<br>a project and five changes to it in six messages, 4 held-out projects, Haiku 5.5 | **1.00** of the control with the plugin (0.92 to 1.08, 8 runs against 16), every hidden test passed (376 of 376). Sonnet 5.5: 0.94 in dollars (0.90 to 1.01), 0.92 of the time | No saving: the session wrote the code it is asked about. The same control run twice differs by 8%, so read this as no difference. The build before 15 Nov measured 1.08: its hooks commented on code that was still being written (3,516 bytes a conversation, now 63) | 15 Nov 2026 |
 | **The shape of that conversation**<br>what `doctor sessions` and the notes point at, 4 held-out projects | Compacted under the model's price step (`/autocompact 125k`): **0.39** of the dollars. With the plugin, whose hook gives the request back after each compaction: **0.36**, and the hidden tests of the one conversation (375.5 of 376, against 373.5 without the hook) | Claude Haiku 5.5 only, which charges five times as much for a request over 100,000 tokens. In tokens the shape costs more (1.19 of the one conversation), so without that step it does not pay at this size. 8 conversations a shape | 15 Nov 2026 |
 | **The same four kinds of task with every model**<br>37 held-out tasks: a caller question, four in one session, an error traced, a rename | Time and cost of a session with the plugin against the same session without it. Haiku 5.5: **0.36** and **0.31**. Sonnet 5.5: **0.52** and **0.42**. Opus 5.5: **0.56** and **0.50**. Answers as right with each | One run per task and arm for Sonnet and Opus. Opus was measured before four changes that reading its sessions led to. Fable 5.2 was not run | 13 to 15 Nov 2026 |
-| **The seven-repository protocol another tool publishes**<br>one question about the architecture of VS Code, Excalidraw, Django, Tokio, OkHttp, Gin and Alamofire each, four runs an arm | The session without any tool now takes 45 s, 3.2 tool calls and 0.14 dollars with Opus 5.5, where the published session with the tool takes 28 to 63 s and 31 to 66 cents. Against it codefast takes **0.79** of the time with Haiku 5.5, **0.84** with Sonnet 5.5 and **0.97** with Opus 5.5 | The published saving (0.47 of the time, 0.57 of the cost, Opus 4.8) is against a session of 6 to 43 tool calls. Seven questions about code the models know. With Opus 5.5 codefast is level with the control, not under it: 1.03 of its cost and 1.12 of its tokens (1.16 and 1.14 before the answers to several symbols at once were changed that day). Sonnet and Haiku were measured before that change | 15 Nov 2026 |
+| **The seven-repository protocol another tool publishes**<br>one question about the architecture of VS Code, Excalidraw, Django, Tokio, OkHttp, Gin and Alamofire each, four runs an arm | The session without any tool now takes 45 s, 3.2 tool calls and 0.14 dollars with Opus 5.5, where the published session with the tool takes 28 to 63 s and 31 to 66 cents. Against it codefast takes **0.79** of the time with Haiku 5.5, **0.84** with Sonnet 5.5 and **0.97** with Opus 5.5 | The published saving (0.47 of the time, 0.57 of the cost, Opus 4.8) is against a session of 6 to 43 tool calls. Seven questions about code the models know. With Opus 5.5 codefast is level with the control, not under it: 1.03 of its cost and 1.12 of its tokens (1.16 and 1.14 that morning, before the answers to several symbols at once were changed: the evening's rows took the place of that run's). Sonnet and Haiku were measured before that change | 15 Nov 2026 |
 | **Codex sessions**<br>54 held-out question tasks, gpt-6.1-sol | **0.81** of the control (0.76 to 0.85 at 95%), every answer right in both arms | Question tasks only. Codex never called the MCP server: the saving came from the prompt card and the command line | 14 Nov 2026 |
 | **agent-context-bench**, published<br>26 graded questions on apache/superset | Lookups **1.00** and hard tasks **0.98**, where the best published arm has 1.00 and 0.94, at the lowest cost of a task | One repository. The other arms are their published figures | 14 Nov 2026 |
 | **LinuxFLBench with an agent**, published<br>its own protocol, 104 kernel bug reports nothing was developed on | The file of the fix is among the ten candidates for **0.82** of the reports. With no map: 0.58. With the paper's best map, built from its code and run here: 0.74. Tokens: 14% fewer than no map, 17% fewer than that map | Version 0.3.1 was changed for this task. Over the paper's map the lead in finding the file is at the edge of what 104 reports show (+0.08, between 0.00 and 0.15). Dollars are level with no map | 14 Nov 2026 |
@@ -218,9 +232,9 @@ the protocols, the full tables and what was tried and not kept. The raw rows are
 | **Call graph against compilers**<br>redis, gitleaks, syft, go-git, zod | Precision **0.982 to 1.000**, recall 0.969 to 1.000 on direct calls | Calls through interfaces are a separate list of candidates: with them, recall on syft is 0.885 at a precision of 0.883 | 13 Nov 2026 |
 | **Files for a bug report, no model** | LinuxFLBench: right file first for **0.344** (best published 0.228). Loc-Bench, 243 held-out tasks: 0.733 (0.609). ContextBench: 0.898 (0.876) | The other figures are the published ones, not run again here | 13 Nov 2026 |
 
-**What this says.** Where the work is finding things, a session costs a third to two thirds of
-what it did, and the longer it runs the more it saves, because what an agent reads early is sent
-again with every later request. Where the work is the model's own, writing a function, fixing a
+**What this says.** Where the work is finding things, a session costs 0.15 to 0.71 of what it did on
+the held-out tasks, and the longer it runs the more it saves, because what an agent reads early is
+sent again with every later request. Where the work is the model's own, writing a function, fixing a
 bug or building a project, the plugin costs nothing and saves nothing: there is nothing to look up
 in code that is being written. What moves the bill of such a session is its shape, how long the
 conversation gets and where it is cut, and that is what `codefast doctor sessions` measures on
